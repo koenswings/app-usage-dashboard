@@ -16,7 +16,28 @@ from src.api import serve
 from src.pull import store_export
 
 
-WEEK = "2026-11-09"  # Monday
+WEEK = "2026-11-09"  # Monday (original fixture week)
+FOUR_STATE_WEEK = "2026-11-02"  # Monday — on, off, collectorGap, gapUnknown
+COLLECTOR_GAP = {
+    "start": "2026-11-05T10:00:00+02:00",
+    "end": "2026-11-05T16:00:00+02:00",
+    "reason": "sidecar-offline",
+}
+
+
+def presence_payload(engine, ts, boot, uptime, synced=True):
+    return {
+        "schema": "idea-usage-presence/1",
+        "engine": engine,
+        "ts": ts,
+        "bootId": boot,
+        "uptimeS": uptime,
+        "ntpSynced": synced,
+        "engineUp": True,
+        "instancesUp": ["kolibri-a"],
+        "tempC": 50.0,
+        "throttled": "0x0",
+    }
 
 
 def export_for(engine="happy-zebra"):
@@ -100,34 +121,59 @@ def export_for(engine="happy-zebra"):
         "collectedAt": "2026-11-10T02:14:00+02:00",
         "hookStatus": "unlisted-no-hook",
     }
-    presence = {
-        "schema": "idea-usage-presence/1",
-        "engine": engine,
-        "ts": "2026-11-09T08:00:00+02:00",
-        "bootId": "boot-1",
-        "uptimeS": 3600,
-        "ntpSynced": True,
-        "engineUp": True,
-        "instancesUp": ["kolibri-a"],
-        "tempC": 50.0,
-        "throttled": "0x0",
-    }
-    presence2 = dict(presence)
-    presence2["ts"] = "2026-11-09T12:00:00+02:00"
-    presence2["uptimeS"] = 3600 + 4 * 3600
+    presence = presence_payload(engine, "2026-11-09T08:00:00+02:00", "boot-1", 3600)
+    presence2 = presence_payload(engine, "2026-11-09T12:00:00+02:00", "boot-1", 3600 + 4 * 3600)
+    # Four-state week (2026-11-02): same-boot on, synced reboot off, then an
+    # unsynced sample so the gap before 2026-11-09 stays gapUnknown (not off).
+    four_on_a = presence_payload(engine, "2026-11-03T08:00:00+02:00", "boot-week2-a", 3600)
+    four_on_b = presence_payload(engine, "2026-11-03T14:00:00+02:00", "boot-week2-a", 3600 + 6 * 3600)
+    four_reboot = presence_payload(engine, "2026-11-04T07:00:00+02:00", "boot-week2-b", 600, synced=True)
+    four_isolate = presence_payload(engine, "2026-11-04T07:10:00+02:00", "boot-week2-gap", 60, synced=False)
+    day_four = dict(day_ok)
+    day_four["day"] = FOUR_STATE_WEEK
+    day_four["collectedAt"] = "2026-11-03T02:12:00+02:00"
     return {
         "presence": [
+            {"type": "presence", "day": "2026-11-03", "payload": four_on_a},
+            {"type": "presence", "day": "2026-11-03", "payload": four_on_b},
+            {"type": "presence", "day": "2026-11-04", "payload": four_reboot},
+            {"type": "presence", "day": "2026-11-04", "payload": four_isolate},
             {"type": "presence", "day": "2026-11-09", "payload": presence},
             {"type": "presence", "day": "2026-11-09", "payload": presence2},
         ],
         "days": [
+            {"type": "day", "day": FOUR_STATE_WEEK, "instance": "kolibri-a", "payload": day_four},
             {"type": "day", "day": "2026-11-09", "instance": "kolibri-a", "payload": day_ok},
             {"type": "day", "day": "2026-11-09", "instance": "nextcloud-a", "payload": nc},
             {"type": "day", "day": "2026-11-09", "instance": "unlisted-old", "payload": stub},
         ],
         "samples": [],
-        "end": {"type": "end", "counts": {"day": 3, "sample": 0, "presence": 2}, "errors": 0},
+        "end": {"type": "end", "counts": {"day": 4, "sample": 0, "presence": 6}, "errors": 0},
     }
+
+
+def write_registry(path):
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump({"kits": [{
+            "engine": "happy-zebra",
+            "tailscaleName": "happy-zebra",
+            "school": "Nharira",
+            "deploymentId": "dep-nharira",
+            "timezone": "Africa/Harare",
+            "note": "own apps + Demo",
+        }]}, fh)
+
+
+def install_fixture(conn, registry_path):
+    """Load the shared API fixture, including the four-state presence week."""
+    write_registry(registry_path)
+    db.load_registry(conn, registry_path)
+    store_export(conn, "happy-zebra", export_for(), "2026-11-10T13:40:00+01:00", "dep-nharira")
+    conn.execute(
+        "INSERT INTO collector_gaps(start, end, reason) VALUES (?, ?, ?)",
+        (COLLECTOR_GAP["start"], COLLECTOR_GAP["end"], COLLECTOR_GAP["reason"]),
+    )
+    conn.commit()
 
 
 class ApiTests(unittest.TestCase):
@@ -136,24 +182,14 @@ class ApiTests(unittest.TestCase):
         self.db_path = os.path.join(self.tmp, "usage.sqlite")
         self.conn = db.connect(self.db_path)
         registry = os.path.join(self.tmp, "registry.json")
-        with open(registry, "w", encoding="utf-8") as fh:
-            json.dump({"kits": [{
-                "engine": "happy-zebra",
-                "tailscaleName": "happy-zebra",
-                "school": "Nharira",
-                "deploymentId": "dep-nharira",
-                "timezone": "Africa/Harare",
-                "note": "own apps + Demo",
-            }]}, fh)
-        db.load_registry(self.conn, registry)
-        store_export(self.conn, "happy-zebra", export_for(), "2026-11-10T13:40:00+01:00", "dep-nharira")
-        self.conn.commit()
+        install_fixture(self.conn, registry)
         os.environ["IDEA_USAGE_ADMIN_PASSWORD"] = "admin911!"
         os.environ["IDEA_USAGE_SESSION_SECRET"] = "test-secret"
-        self.server = serve(self.conn, "127.0.0.1:18080")
+        self.server = serve(self.conn, "127.0.0.1:0")
+        host, port = self.server.server_address
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
-        self.base = "http://127.0.0.1:18080"
+        self.base = "http://%s:%s" % (host, port)
         self.opener = build_opener(HTTPCookieProcessor(CookieJar()))
 
     def tearDown(self):
@@ -335,6 +371,33 @@ class ApiTests(unittest.TestCase):
         status, meta = self.call("GET", "/api/v1/meta")
         self.assertEqual(meta["todayWeekStart"], "2026-11-09")
         self.assertTrue(meta["currentWeekHasData"])
+
+    def test_four_state_presence_week(self):
+        self.login()
+        status, school = self.call("GET", "/api/v1/weeks/%s/schools/dep-nharira" % FOUR_STATE_WEEK)
+        self.assertEqual(status, 200, school)
+        segs = school["presence"]["segments"]
+        states = {item["state"] for item in segs}
+        self.assertEqual(states, {"on", "off", "collectorGap", "gapUnknown"})
+        from src.presence import parse_ts, week_bounds
+        start, end = week_bounds(FOUR_STATE_WEEK, school["presence"]["timezone"]["utcOffset"])
+        self.assertEqual(parse_ts(segs[0]["start"]), start)
+        self.assertEqual(parse_ts(segs[-1]["end"]), end)
+        total = sum((parse_ts(item["end"]) - parse_ts(item["start"])).total_seconds() for item in segs)
+        self.assertEqual(total, 5 * 86400)
+        for prev, nxt in zip(segs, segs[1:]):
+            self.assertEqual(parse_ts(prev["end"]), parse_ts(nxt["start"]))
+        off = [item for item in segs if item["state"] == "off"]
+        self.assertTrue(off)
+        self.assertTrue(all(item["lengthKnown"] for item in off))
+        gap = [item for item in segs if item["state"] == "collectorGap"]
+        self.assertEqual(len(gap), 1)
+        self.assertEqual(gap[0]["start"], COLLECTOR_GAP["start"])
+        self.assertEqual(gap[0]["end"], COLLECTOR_GAP["end"])
+        status, pres = self.call("GET", "/api/v1/weeks/%s/schools/dep-nharira/presence" % FOUR_STATE_WEEK)
+        self.assertEqual(status, 200, pres)
+        self.assertEqual({item["state"] for item in pres["segments"]}, states)
+        self.assertEqual(sum((parse_ts(item["end"]) - parse_ts(item["start"])).total_seconds() for item in pres["segments"]), 5 * 86400)
 
     def test_help_event(self):
         self.login()
