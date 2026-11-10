@@ -44,7 +44,9 @@ export type PresenceState = 'on' | 'off' | 'gapUnknown' | 'collectorGap';
  *   synced sample arrives (Axle, no RTC). Never drawn as the kit going dark.
  * `collectorGap`: the idea-side collector / sidecar was down (Atlas watchdog).
  *   Never drawn as the kit going dark.
- * `lengthKnown` is false for those two when the duration cannot be trusted.
+ * `lengthKnown` is true for measured `on` / `off` and for a collector gap
+ *   that has both a start and an end. It is false for `gapUnknown` and for
+ *   an open-ended collector outage.
  */
 export interface PresenceSegment {
   state: PresenceState;
@@ -135,6 +137,10 @@ export interface MetaResponse {
   headerTimeZone: string;
   /** True when the server (or the UI mock) is serving labelled sample data. */
   sampleData: boolean;
+  /** Monday of today (header calendar), even if that week has no stored data. */
+  todayWeekStart: WeekStart;
+  /** True when at least one stored week exists. */
+  currentWeekHasData: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -161,7 +167,12 @@ export interface WeeksResponse {
   schema: ApiSchema;
   /** Mondays that the picker can offer, newest first. */
   weeks: WeekStart[];
+  /** Latest Monday with stored data (daily summaries or presence days). Falls back to todayWeekStart when the store is empty. */
   currentWeekStart: WeekStart;
+  /** Monday of today. */
+  todayWeekStart: WeekStart;
+  /** True when at least one stored week exists. */
+  currentWeekHasData: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -224,6 +235,11 @@ export interface ScorecardNextcloudInputs {
   fileDropUploads: number | null;
   schoolFilesShares: number | null;
   officeOpens: number | null;
+  /**
+   * Sum of each own Nextcloud instance's last-ok-day `office.distinctDocuments`.
+   * Document ids are salted per instance, so two own Nextclouds hold different
+   * documents and the sum is correct.
+   */
   officeDistinctDocuments: number | null;
   officeRead: number | null;
   officeEdit: number | null;
@@ -315,8 +331,12 @@ export interface Census {
 export interface PresenceBlock {
   timezone: KitTimezone;
   segments: PresenceSegment[];
-  /** Optional operator-facing summary; not a grade. */
-  summary: string;
+  /**
+   * Short plain sentence built from presence_days school-hour totals,
+   * e.g. "On 4 of 5 school days, 31 h in school hours". Null when those
+   * roll-ups are missing. Never an empty string.
+   */
+  summary: string | null;
 }
 
 export interface SchoolWeekResponse {

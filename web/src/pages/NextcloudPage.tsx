@@ -42,7 +42,7 @@ function InstancePanel(props: { instance: NextcloudInstanceWeek }) {
     if (officeRow) {
       list.push(
         { id: 'office-opens', label: 'Office opens', value: formatCount(officeRow.opens) },
-        { id: 'office-docs', label: 'Distinct documents', value: formatCount(officeRow.distinctDocuments) },
+        { id: 'office-docs', label: 'Distinct documents (last ok day)', value: formatCount(officeRow.distinctDocuments) },
         { id: 'office-read', label: 'Office reads', value: formatCount(officeRow.read) },
         { id: 'office-edit', label: 'Office edits', value: formatCount(officeRow.edit) },
         {

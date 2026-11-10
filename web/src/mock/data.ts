@@ -39,6 +39,8 @@ export const meta: MetaResponse = {
   hourlyChartMinWeeklyViews: 20,
   headerTimeZone: 'Europe/Brussels',
   sampleData: true,
+  todayWeekStart: SAMPLE_WEEK,
+  currentWeekHasData: true,
 };
 
 export const kits: KitListItem[] = [
@@ -436,14 +438,15 @@ export function segmentsFor(deploymentId: string, weekStart: string): PresenceSe
   return [];
 }
 
-export function presenceSummary(deploymentId: string): string {
+export function presenceSummary(deploymentId: string, weekStart?: string): string | null {
+  if (weekStart && weekStart !== SAMPLE_WEEK) return null;
   if (deploymentId === DEP_NHARIRA) {
-    return 'Mon, Thu: on during school hours, off overnight. Tue includes a gap of unknown length after a clock-unsynced boot. Wed includes a collector gap (idea-side, not the kit going offline). Friday: stopped at midday. One boot per school day.';
+    return 'On 4 of 5 school days, 31 h in school hours';
   }
   if (deploymentId === DEP_CHIGONDA) {
-    return 'Intermittent on-windows on Monday and Tuesday, including seven boots on Tuesday, then a gap of unknown length. No sampler rows later in the week.';
+    return 'On 2 of 5 school days, 6.5 h in school hours';
   }
-  return 'No presence samples have been pulled for this kit.';
+  return null;
 }
 
 export const nhariraKolibri: KolibriInstanceWeek[] = [

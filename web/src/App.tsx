@@ -6,7 +6,7 @@ import { Footer, Header, SampleNote } from './components/Header';
 import { WeekPicker } from './components/WeekPicker';
 import { resolveHourlyChartMinWeeklyViews } from './config/display';
 import { parseHash, toHash, type Route } from './lib/route';
-import { formatWeekLabel, fridayOf } from './lib/week';
+import { formatWeekLabel, fridayOf, noDataThisWeekNote } from './lib/week';
 import { FleetOverview } from './pages/FleetOverview';
 import { HelpTimeline } from './pages/HelpTimeline';
 import { InstanceBreakdown } from './pages/InstanceBreakdown';
@@ -28,6 +28,13 @@ export default function App() {
   const week = () => route().week || weeks()?.currentWeekStart || '';
   const schoolName = (deploymentId: string) =>
     kits().find((item) => item.deploymentId === deploymentId)?.school ?? deploymentId;
+
+  const weekFallbackNote = () => {
+    const listed = weeks();
+    if (!listed) return null;
+    if (week() && week() !== listed.currentWeekStart) return null;
+    return noDataThisWeekNote(listed.currentWeekHasData, listed.currentWeekStart, listed.todayWeekStart);
+  };
 
   const loadShell = async () => {
     const [nextMeta, nextWeeks, nextKits] = await Promise.all([
@@ -190,6 +197,11 @@ export default function App() {
             />
             <Show when={meta()?.sampleData}>
               <SampleNote />
+            </Show>
+            <Show when={weekFallbackNote()}>
+              {(text) => (
+                <p class="status-banner" data-testid="week-fallback-note" role="status">{text()}</p>
+              )}
             </Show>
             <Show when={pageLoading()}>
               <p class="wrap status-banner" role="status">Loading…</p>

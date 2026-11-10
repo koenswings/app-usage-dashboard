@@ -35,9 +35,9 @@ export function lineDetail(id: ScorecardLineId, inputs: ScorecardInputs): string
       return `${formatPercent(inputs.learnersOperate.learnerShareOfMinutes)} learner minutes`;
     }
     case 'nextcloud': {
-      const { worksheetShares, fileDropUploads, officeOpens } = inputs.nextcloud;
+      const { worksheetShares, fileDropUploads, officeOpens, officeDistinctDocuments } = inputs.nextcloud;
       if (worksheetShares === null && fileDropUploads === null && officeOpens === null) return '—';
-      return `${formatUnit(worksheetShares, 'worksheet share', 'worksheet shares')} · ${formatUnit(fileDropUploads, 'file-drop upload', 'file-drop uploads')}`;
+      return `${formatUnit(worksheetShares, 'worksheet share', 'worksheet shares')} · ${formatUnit(fileDropUploads, 'file-drop upload', 'file-drop uploads')} · ${formatUnit(officeDistinctDocuments, 'distinct document across own Nextclouds', 'distinct documents across own Nextclouds')}`;
     }
     case 'wikipedia': {
       if (inputs.wikipedia.pageViewsOwn === null) return '—';

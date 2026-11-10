@@ -273,10 +273,9 @@ td { padding: 7px 8px; border-bottom: 1px solid #f1f5f9; }
 .presence-strip__tz,
 .muted { color: var(--muted); font-size: 12px; margin: 4px 0 8px; }
 .presence-strip__track {
-  display: flex; gap: 2px; height: 56px; align-items: stretch; margin-top: 8px;
+  position: relative; height: 56px; margin-top: 8px;
 }
 .presence-seg { min-width: 4px; border-radius: 3px; }
-.presence-seg--pad { min-width: 0; background: transparent; border-radius: 0; }
 .presence-seg--on { background: var(--on); }
 .presence-seg--off { background: var(--off); }
 .presence-seg--gapUnknown {
@@ -286,6 +285,7 @@ td { padding: 7px 8px; border-bottom: 1px solid #f1f5f9; }
   background: repeating-linear-gradient(45deg, #64748b 0 4px, #cbd5e1 4px 8px);
 }
 .presence-strip__track .presence-seg {
+  position: absolute; top: 0; bottom: 0;
   display: flex; align-items: center; justify-content: center;
   overflow: hidden;
 }

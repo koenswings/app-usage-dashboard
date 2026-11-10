@@ -54,3 +54,18 @@ export function weekdayShort(iso: IsoDate): string {
   const day = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
   return WEEKDAYS[(day + 6) % 7];
 }
+
+/**
+ * Calm banner when the picker lands on the latest week that has data
+ * because today's Monday has none yet, or when the store is empty.
+ * Never an error.
+ */
+export function noDataThisWeekNote(
+  currentWeekHasData: boolean,
+  currentWeekStart: WeekStart,
+  todayWeekStart?: WeekStart,
+): string | null {
+  const showingOlderWeek = Boolean(todayWeekStart) && todayWeekStart !== currentWeekStart;
+  if (currentWeekHasData && !showingOlderWeek) return null;
+  return `No data for this week yet, showing the week of ${formatDayLabel(currentWeekStart)}`;
+}

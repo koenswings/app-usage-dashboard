@@ -164,6 +164,8 @@ export function mockFetch(input: string, init?: RequestInit): Promise<Response> 
       schema: API_SCHEMA,
       weeks: [SAMPLE_WEEK, PREV_WEEK],
       currentWeekStart: SAMPLE_WEEK,
+      todayWeekStart: SAMPLE_WEEK,
+      currentWeekHasData: true,
     }));
   }
 
@@ -206,7 +208,7 @@ export function mockFetch(input: string, init?: RequestInit): Promise<Response> 
       presence: {
         timezone: HARARE,
         segments: segmentsFor(deploymentId, weekStart),
-        summary: presenceSummary(deploymentId),
+        summary: presenceSummary(deploymentId, weekStart),
       },
     }));
   }

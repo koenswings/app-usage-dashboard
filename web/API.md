@@ -67,9 +67,9 @@ Week paths use `weekStart`: the Monday of the school week as `YYYY-MM-DD`. A non
 | Method | Path | Query | Response |
 |---|---|---|---|
 | `GET` | `/api/v1/health` | — | `HealthResponse` — public `{ ok, schema }` |
-| `GET` | `/api/v1/meta` | — | `MetaResponse` |
+| `GET` | `/api/v1/meta` | — | `MetaResponse` — includes `todayWeekStart` (Monday of today) and `currentWeekHasData` |
 | `GET` | `/api/v1/kits` | — | `KitsResponse` — registry of engines / deployments, each with `lastPulled` |
-| `GET` | `/api/v1/weeks` | — | `WeeksResponse` — Mondays the picker can offer, plus `currentWeekStart` |
+| `GET` | `/api/v1/weeks` | — | `WeeksResponse` — Mondays the picker can offer; `currentWeekStart` is the latest Monday with stored data; also `todayWeekStart` and `currentWeekHasData`. If the store is empty, `currentWeekStart` falls back to `todayWeekStart` and `currentWeekHasData` is false. |
 
 `MetaResponse` fields:
 
@@ -79,6 +79,8 @@ Week paths use `weekStart`: the Monday of the school week as `YYYY-MM-DD`. A non
 - `headerTimeZone` — typically `Europe/Brussels`
 - `sampleData` — `true` when serving labelled sample / mock data
 - `daySchema` — `idea-usage-day/1`
+- `todayWeekStart` — Monday of today
+- `currentWeekHasData` — `true` when at least one stored week exists
 
 `KitListItem` fields (from the §7.5 `kits` table, plus `lastPulled` from `pull_log`):
 
@@ -112,6 +114,10 @@ Presence segments (also the standalone presence endpoint):
 ```
 
 The presence block also carries `timezone: { timeZone, utcOffset, label }` so ticks render in **kit local time**, labelled as such (the page header uses Brussels time). `timeZone` is the optional IANA name from idea's `registry.json` for that kit — not a value the kit itself reports. `utcOffset` comes from the latest presence sample's RFC 3339 offset. When the registry has no IANA name, `timeZone` is `""` and `label` is `kit local time (UTC±n)`.
+
+School-week presence segments cover Monday 00:00 through Saturday 00:00 (the end of `weekEnd`, Friday) in the kit's offset. They are contiguous, non-overlapping, and sum to that 5-day length. Unmeasured stretches arrive as `off`, `collectorGap`, or `gapUnknown` — the UI does not invent those pieces. `lengthKnown` is true for measured `on`/`off` and for a collector gap that has both ends; it is false for `gapUnknown` and for an open-ended collector outage.
+
+`presence.summary` is a short plain sentence such as `On 4 of 5 school days, 31 h in school hours`, built from `presence_days` school-hour totals. It is `null` when those roll-ups are missing, never an empty string. The UI shows it under the strip when it is non-null.
 
 `PresenceResponse.days` is the §7.5 `presence_days` roll-up: `onMinutes`, `schoolHoursOnMinutes`, `boots`, `longestGapMinutes`, `lengthKnown`.
 
@@ -150,7 +156,7 @@ Each app-week response also has `clockTrusted`. It is `false` when any day-file 
 
 - `setup`: `{ admin, teacher, learner, otherGroups? }` where each of `admin` / `teacher` / `learner` is `{ total, beyondSeed }` emitted by the hook. Do not derive beyond-seed on idea. `otherGroups` is kept (a map of extra group name → count) unless the Engine later drops it.
 - `logins`: `{ admin, teacher, learner }`, each `{ total, beyondSeed }`
-- `office`: `{ opens, distinctDocuments, read, edit, estimatedMinutes, byGroup: { admin, teacher, learner }, mime: { text, sheet, slides } }`. Single `estimatedMinutes` (no per-role split). No created/edited fields. Do not re-reduce this object. `distinctDocuments` is already the Engine’s union across that day’s samples. A week response must not sum daily `distinctDocuments` (that would over-count); it may pass through the last ok day’s value. If office is missing, it is `null`.
+- `office`: `{ opens, distinctDocuments, read, edit, estimatedMinutes, byGroup: { admin, teacher, learner }, mime: { text, sheet, slides } }`. Single `estimatedMinutes` (no per-role split). No created/edited fields. Do not re-reduce this object. On a Nextcloud *instance*, weekly `distinctDocuments` is the last ok day’s Engine-union value (not a sum or max of days). If office is missing, it is `null`.
 - `appsOpened`: a map of App id → open count. May be missing or empty. No role unless a later counter exists.
 - `workflows`: `{ worksheetShares, editShares, fileDropLinks, fileDropUploads, schoolFilesShares }` (`fileDropLinks` and `fileDropUploads` are separate)
 
@@ -183,7 +189,7 @@ The six lines from §4. The API returns the measurements, not a colour or a pass
 2. **Set up** — own-Kolibri `classes`, `learnersRegistered`, `learnersEnrolled`, `teachers`, `admins`; own-Nextcloud `nextcloudTeacherBeyondSeed`, `nextcloudLearnerBeyondSeed` (read from hook `setup.teacher.beyondSeed` / `setup.learner.beyondSeed` on the last ok day)
 3. **Teaching cycle** — `lessonsCreated`, `lessonsVisible`, `quizzesCreated`, `quizzesStarted`, `learnerSessionsOnAssigned` (assigned learner *content visits*, not sessions; the collector keeps this field name), `assignedShareOfLearnerVisits` (`learnerSessionsOnAssigned` / all learner content visits)
 4. **Learners operate** — sessions and minutes by role, plus `learnerShareOfMinutes`. Guest time stays as `seconds` on the instance payload and is converted to minutes only here
-5. **Nextcloud** — `worksheetShares`, `editShares`, `fileDropLinks`, `fileDropUploads`, `schoolFilesShares`, `officeOpens`, `officeDistinctDocuments`, `officeRead`, `officeEdit`, `officeEstimatedMinutes`
+5. **Nextcloud** — `worksheetShares`, `editShares`, `fileDropLinks`, `fileDropUploads`, `schoolFilesShares`, `officeOpens`, `officeDistinctDocuments` (sum across the school’s own Nextcloud instances; document ids are salted per instance, so the sum is correct), `officeRead`, `officeEdit`, `officeEstimatedMinutes`
 6. **Wikipedia** — `pageViewsOwn`, `sessionsOwn`, `distinctArticlesOwn` on the school's own instance (Demo excluded). `distinctArticlesOwn` is the max of daily `distinctArticles`, not a week-wide distinct total.
 
 `null` means no data for that input (kit not pulled, monitoring off, or that app produced no summary). Null is shown as **No data**, never as a failing grade.
@@ -206,6 +212,7 @@ Threshold comparison, if it is ever enabled, lives in one UI module (`src/config
 | `headlines` | Fleet-card census strip (classes / learners / teachers / Kolibri minutes) |
 | `helpSuggestions[]` | Server-owned fleet banner; UI does not invent idle/dark cut-offs |
 | `weekStart` / `weekEnd` / `weekLabel` / `GET /weeks` | Week picker (accepted UI change 5) |
+| `todayWeekStart`, `currentWeekHasData` | On `GET /meta` and `GET /weeks`. `currentWeekStart` is the latest Monday with data; `todayWeekStart` is today’s Monday. The UI shows a calm note when today’s week has no data yet. |
 | Scorecard input object grouping (`available`, `setup`, …) | §4 lines packaged so the UI does not re-derive them from day files |
 | `bootsPerSchoolDay`, `schoolDaysOn`, `schoolHoursOnMinutes` | Derived from `presence_days` for the Available line |
 | `nextcloudTeacherBeyondSeed`, `nextcloudLearnerBeyondSeed` | Scorecard copies of hook `setup.*.beyondSeed` on the last ok day; not derived on idea |
@@ -226,7 +233,7 @@ Reshaped Nextcloud fields (`setup`, `logins`, `office`, `appsOpened`, `workflows
 The HTTP week objects are aggregates of ok day-files:
 
 - Census / Nextcloud `setup` is a snapshot from the **last ok day**, never summed. Daily deltas may be summed.
-- Sign-ins, teaching, content visits/seconds/completions, and Kiwix `pageViews` / `sessions` / `byHour` are summed across ok days. Kiwix `distinctArticles` is the max of daily counts (never described as the week’s distinct total). Nextcloud `office.distinctDocuments` is the last ok day’s Engine-union value, not a sum or max of days.
+- Sign-ins, teaching, content visits/seconds/completions, and Kiwix `pageViews` / `sessions` / `byHour` are summed across ok days. Kiwix `distinctArticles` is the max of daily counts (never described as the week’s distinct total). On a Nextcloud instance, `office.distinctDocuments` is the last ok day’s Engine-union value, not a sum or max of days. Scorecard `officeDistinctDocuments` is the sum of those last-ok-day values across the school’s own Nextcloud instances (document ids are salted per instance, so two own Nextclouds hold different documents and the sum is correct).
 - Any day with `clock.synced === false` marks the whole week untrustworthy (`clockTrusted: false`). The UI shows a visible warning.
 - A presence segment with `lengthKnown: false` is never displayed as a real duration.
 - Guest time stays in `seconds` on the payload; convert to minutes only when building scorecard `guestMinutes`.
