@@ -51,7 +51,16 @@ def _summaries(conn, engine: str, week_start: str):
 
 
 def _weeks_available(conn) -> list[str]:
-    rows = conn.execute("SELECT DISTINCT day FROM daily_summaries ORDER BY day DESC").fetchall()
+    """Mondays that have stored daily summaries or presence days, newest first.
+
+    Does not invent today's Monday when the store is empty.
+    """
+    rows = conn.execute(
+        """SELECT day FROM daily_summaries
+           UNION
+           SELECT day FROM presence_days
+           ORDER BY 1 DESC"""
+    ).fetchall()
     mondays = []
     seen = set()
     for row in rows:
@@ -60,15 +69,43 @@ def _weeks_available(conn) -> list[str]:
         if monday not in seen:
             seen.add(monday)
             mondays.append(monday)
-    if not mondays:
-        today = datetime.now().date()
-        mondays = [(today - timedelta(days=today.weekday())).isoformat()]
     return mondays
 
 
 def _current_monday() -> str:
     today = datetime.now().date()
     return (today - timedelta(days=today.weekday())).isoformat()
+
+
+def _week_index(conn) -> dict[str, Any]:
+    today = _current_monday()
+    weeks = _weeks_available(conn)
+    current = weeks[0] if weeks else today
+    return {
+        "weeks": weeks or [today],
+        "currentWeekStart": current,
+        "todayWeekStart": today,
+        "currentWeekHasData": bool(weeks),
+    }
+
+
+def _collector_gaps(conn) -> list[dict[str, Any]]:
+    return [
+        {"start": row["start"], "end": row["end"]}
+        for row in conn.execute("SELECT start, end FROM collector_gaps")
+    ]
+
+
+def _rows_in_week(conn, table: str, engine: str, start, end):
+    """Fetch rows whose timestamp column falls in [start, end), offset-aware."""
+    pad_lo = (start - timedelta(days=2)).date().isoformat()
+    pad_hi = (end + timedelta(days=2)).date().isoformat()
+    rows = conn.execute(
+        "SELECT * FROM %s WHERE engine = ? AND timestamp >= ? AND timestamp < ? ORDER BY timestamp"
+        % table,
+        (engine, pad_lo, pad_hi),
+    )
+    return [row for row in rows if presence_mod.in_bounds(row["timestamp"], start, end)]
 
 
 def _week_bundle(conn, kit, week_start: str) -> dict[str, Any]:
@@ -95,7 +132,7 @@ def _week_bundle(conn, kit, week_start: str) -> dict[str, Any]:
         """SELECT day, on_minutes, school_hours_on_minutes, boots,
                   longest_gap_minutes, length_known
            FROM presence_days WHERE engine = ? AND day >= ? AND day <= ? ORDER BY day""",
-        (kit["engine"], week_start, agg.add_days(week_start, 6)),
+        (kit["engine"], week_start, agg.friday_of(week_start)),
     ).fetchall()
     presence_days = [
         {
@@ -117,13 +154,12 @@ def _week_bundle(conn, kit, week_start: str) -> dict[str, Any]:
            WHERE engine = ? ORDER BY start""",
         (kit["engine"],),
     ).fetchall()
-    start = presence_mod.parse_ts("%sT00:00:00%s" % (week_start, tz["utcOffset"] or "+00:00"))
-    end = start + timedelta(days=7)
+    start, end = presence_mod.week_bounds(week_start, tz["utcOffset"])
     raw_segments = [
         {"state": s["state"], "start": s["start"], "end": s["end"], "lengthKnown": bool(s["length_known"])}
         for s in segs
     ]
-    segments = presence_mod.clip_segments(raw_segments, start, end)
+    segments = presence_mod.cover_week(raw_segments, start, end, _collector_gaps(conn))
     return {
         "kolibri": kolibri,
         "nextcloud": nextcloud,
@@ -139,11 +175,14 @@ def _week_bundle(conn, kit, week_start: str) -> dict[str, Any]:
         "headlines": agg.headlines_from(scorecard),
         "note": agg.school_note(kit["note"] or "", instances, has_usage),
         "census": (agg.own_instances(kolibri)[0]["setup"] if agg.own_instances(kolibri) and agg.own_instances(kolibri)[0].get("setup") else agg.empty_census()),
+        "presence_summary": agg.presence_summary(presence_days, week_start),
+        "week_start_dt": start,
+        "week_end_dt": end,
     }
 
 
-def meta_payload(sample_data: bool = False) -> dict[str, Any]:
-    return {
+def meta_payload(conn=None, sample_data: bool = False) -> dict[str, Any]:
+    body = {
         "schema": agg.API_SCHEMA,
         "daySchema": agg.DAY_SCHEMA,
         "thresholdsConfigured": False,
@@ -154,6 +193,14 @@ def meta_payload(sample_data: bool = False) -> dict[str, Any]:
         "headerTimeZone": os.environ.get("HEADER_TIMEZONE") or agg.HEADER_TIMEZONE,
         "sampleData": sample_data,
     }
+    if conn is not None:
+        idx = _week_index(conn)
+        body["todayWeekStart"] = idx["todayWeekStart"]
+        body["currentWeekHasData"] = idx["currentWeekHasData"]
+    else:
+        body["todayWeekStart"] = _current_monday()
+        body["currentWeekHasData"] = False
+    return body
 
 
 def handle(conn, method: str, path: str, body: dict[str, Any] | None, user: str | None, secure: bool):
@@ -192,7 +239,7 @@ def handle(conn, method: str, path: str, body: dict[str, Any] | None, user: str 
         return 401, error_body("unauthorized", "Operator session required"), None
 
     if method == "GET" and route == "/api/v1/meta":
-        return 200, meta_payload(), None
+        return 200, meta_payload(conn), None
 
     if method == "GET" and route == "/api/v1/kits":
         kits = []
@@ -208,8 +255,14 @@ def handle(conn, method: str, path: str, body: dict[str, Any] | None, user: str 
         return 200, {"schema": agg.API_SCHEMA, "kits": kits}, None
 
     if method == "GET" and route == "/api/v1/weeks":
-        weeks = _weeks_available(conn)
-        return 200, {"schema": agg.API_SCHEMA, "weeks": weeks, "currentWeekStart": _current_monday()}, None
+        idx = _week_index(conn)
+        return 200, {
+            "schema": agg.API_SCHEMA,
+            "weeks": idx["weeks"],
+            "currentWeekStart": idx["currentWeekStart"],
+            "todayWeekStart": idx["todayWeekStart"],
+            "currentWeekHasData": idx["currentWeekHasData"],
+        }, None
 
     if method == "GET" and len(parts) == 4 and parts[:3] == ["api", "v1", "weeks"] and parts[3] and route.endswith("/overview"):
         # /api/v1/weeks/{weekStart}/overview — handled below via split
@@ -221,7 +274,7 @@ def handle(conn, method: str, path: str, body: dict[str, Any] | None, user: str 
         if not agg.is_monday(week_start):
             return 400, error_body("validation", "weekStart must be a Monday (YYYY-MM-DD)", {"weekStart": week_start}), None
         rest = parts[4:]
-        meta = meta_payload()
+        meta = meta_payload(conn)
         week_end = agg.friday_of(week_start)
         if rest == ["overview"]:
             cards = []
@@ -284,7 +337,7 @@ def handle(conn, method: str, path: str, body: dict[str, Any] | None, user: str 
                     "presence": {
                         "timezone": bundle["timezone"],
                         "segments": bundle["segments"],
-                        "summary": "",
+                        "summary": bundle["presence_summary"],
                     },
                     "clockTrusted": agg.clocks_trusted(bundle["instances"]),
                 }, None
@@ -298,6 +351,7 @@ def handle(conn, method: str, path: str, body: dict[str, Any] | None, user: str 
                     "days": bundle["presence_days"],
                 }, None
             if tail == ["uplink"]:
+                week_lo, week_hi = bundle["week_start_dt"], bundle["week_end_dt"]
                 samples = [
                     {
                         "timestamp": r["timestamp"],
@@ -307,12 +361,7 @@ def handle(conn, method: str, path: str, body: dict[str, Any] | None, user: str 
                         "via": r["via"],
                         "latencyMs": r["latency_ms"],
                     }
-                    for r in conn.execute(
-                        """SELECT * FROM uplink_samples WHERE engine = ?
-                           AND timestamp >= ? AND timestamp < ?
-                           ORDER BY timestamp""",
-                        (kit["engine"], "%sT00:00:00" % week_start, "%sT00:00:00" % agg.add_days(week_start, 7)),
-                    )
+                    for r in _rows_in_week(conn, "uplink_samples", kit["engine"], week_lo, week_hi)
                 ]
                 transitions = [
                     {
@@ -321,12 +370,7 @@ def handle(conn, method: str, path: str, body: dict[str, Any] | None, user: str 
                         "fromState": r["from_state"],
                         "toState": r["to_state"],
                     }
-                    for r in conn.execute(
-                        """SELECT * FROM uplink_transitions WHERE engine = ?
-                           AND timestamp >= ? AND timestamp < ?
-                           ORDER BY timestamp""",
-                        (kit["engine"], "%sT00:00:00" % week_start, "%sT00:00:00" % agg.add_days(week_start, 7)),
-                    )
+                    for r in _rows_in_week(conn, "uplink_transitions", kit["engine"], week_lo, week_hi)
                 ]
                 return 200, {
                     "schema": agg.API_SCHEMA,
@@ -483,5 +527,6 @@ class Handler(BaseHTTPRequestHandler):
 def serve(conn, bind: str = "0.0.0.0:8080"):
     host, port_s = bind.rsplit(":", 1)
     Handler.conn = conn
+    ThreadingHTTPServer.allow_reuse_address = True
     server = ThreadingHTTPServer((host, int(port_s)), Handler)
     return server

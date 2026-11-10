@@ -706,6 +706,8 @@ def scorecard_from_weeks(
             school_files += int(wf.get("schoolFilesShares") or 0)
             off = inst.get("office") or {}
             office_opens += int(off.get("opens") or 0)
+            # Sum across the school's own Nextcloud instances: document ids
+            # are salted per instance, so two own Nextclouds hold different documents.
             office_distinct += int(off.get("distinctDocuments") or 0)
             office_read += int(off.get("read") or 0)
             office_edit += int(off.get("edit") or 0)
@@ -735,6 +737,35 @@ def scorecard_from_weeks(
             "distinctArticlesOwn": max((int(z.get("distinctArticles") or 0) for z in own_z), default=0),
         })
     return card
+
+
+def format_school_hours(minutes: int) -> str:
+    hours = minutes / 60
+    if abs(hours - round(hours)) < 1e-9:
+        return "%d h" % int(round(hours))
+    text = ("%.1f" % hours).rstrip("0").rstrip(".")
+    return "%s h" % text
+
+
+def presence_summary(presence_days: list[dict[str, Any]], week_start: str) -> str | None:
+    """Short operator sentence, or None. Never an empty string."""
+    school = school_dates(week_start)
+    by_day = {row["day"]: row for row in presence_days}
+    if not any(day in by_day for day in school):
+        return None
+    on_days = 0
+    minutes = 0
+    for day in school:
+        row = by_day.get(day)
+        mins = int((row or {}).get("schoolHoursOnMinutes") or 0)
+        minutes += mins
+        if row and mins > 0:
+            on_days += 1
+    return "On %d of %d school days, %s in school hours" % (
+        on_days,
+        SCHOOL_DAYS_EXPECTED,
+        format_school_hours(minutes),
+    )
 
 
 def headlines_from(scorecard: dict[str, Any]) -> dict[str, Any]:

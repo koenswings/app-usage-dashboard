@@ -225,6 +225,13 @@ class ApiTests(unittest.TestCase):
         card = overview["cards"][0]
         self.assertTrue(card["hasUsageData"])
         self.assertEqual(card["headlines"]["classes"], 2)
+        status, weeks = self.call("GET", "/api/v1/weeks")
+        self.assertEqual(status, 200)
+        self.assertEqual(weeks["currentWeekStart"], WEEK)
+        self.assertEqual(weeks["todayWeekStart"], "2026-11-09")
+        self.assertTrue(weeks["currentWeekHasData"])
+        self.assertEqual(meta["todayWeekStart"], "2026-11-09")
+        self.assertTrue(meta["currentWeekHasData"])
         self.assertEqual(card["scorecard"]["setup"]["classes"], 2)
         self.assertEqual(card["scorecard"]["nextcloud"]["fileDropUploads"], 2)
         self.assertEqual(card["scorecard"]["nextcloud"]["fileDropLinks"], 0)
@@ -244,6 +251,17 @@ class ApiTests(unittest.TestCase):
         states = {s["state"] for s in school["presence"]["segments"]}
         self.assertTrue(states.issubset({"on", "off", "gapUnknown", "collectorGap"}))
         self.assertIn("on", states)
+        segs = school["presence"]["segments"]
+        self.assertTrue(segs)
+        self.assertEqual(segs[0]["start"], "2026-11-09T00:00:00+02:00")
+        self.assertEqual(segs[-1]["end"], "2026-11-14T00:00:00+02:00")
+        from src.presence import parse_ts
+        total = sum((parse_ts(s["end"]) - parse_ts(s["start"])).total_seconds() for s in segs)
+        self.assertEqual(total, 5 * 86400)
+        for prev, nxt in zip(segs, segs[1:]):
+            self.assertEqual(parse_ts(prev["end"]), parse_ts(nxt["start"]))
+        self.assertEqual(school["presence"]["summary"], "On 1 of 5 school days, 4 h in school hours")
+        self.assertIsNot(school["presence"]["summary"], "")
 
         status, kolibri = self.call("GET", "/api/v1/weeks/%s/schools/dep-nharira/kolibri" % WEEK)
         inst = kolibri["instances"][0]
@@ -270,6 +288,53 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(ids["unlisted-old"]["hookStatus"], "unlisted-no-hook")
         self.assertFalse(ids["unlisted-old"]["listed"])
         self.assertIsNone(ids["kolibri-a"]["port"])
+
+    def test_uplink_uses_offset_aware_week_bounds(self):
+        self.login()
+        rows = [
+            ("2026-11-08T21:00:00Z", False),       # Sun 23:00 +02 — before the week
+            ("2026-11-08T23:00:00Z", True),        # Mon 01:00 +02 — inside
+            ("2026-11-09T00:30:00+02:00", True),   # Mon morning kit-local — inside
+            ("2026-11-13T21:30:00+02:00", True),   # Friday evening — inside
+            ("2026-11-13T22:30:00Z", False),       # Sat 00:30 +02 — after weekEnd
+        ]
+        for ts, _keep in rows:
+            self.conn.execute(
+                "INSERT INTO uplink_samples(engine, timestamp, online, last_seen, via, latency_ms) VALUES (?, ?, 1, NULL, 'direct', NULL)",
+                ("happy-zebra", ts),
+            )
+            self.conn.execute(
+                "INSERT INTO uplink_transitions(engine, timestamp, from_state, to_state) VALUES (?, ?, 'offline', 'online')",
+                ("happy-zebra", ts),
+            )
+        self.conn.commit()
+        status, payload = self.call("GET", "/api/v1/weeks/%s/schools/dep-nharira/uplink" % WEEK)
+        self.assertEqual(status, 200, payload)
+        got = {item["timestamp"] for item in payload["samples"]}
+        want = {ts for ts, keep in rows if keep}
+        drop = {ts for ts, keep in rows if not keep}
+        self.assertEqual(got, want)
+        self.assertTrue(drop.isdisjoint(got))
+        self.assertEqual({item["timestamp"] for item in payload["transitions"]}, want)
+
+    def test_current_week_is_latest_with_stored_data(self):
+        self.login()
+        self.conn.execute("DELETE FROM daily_summaries")
+        self.conn.execute("DELETE FROM presence_days")
+        self.conn.execute(
+            """INSERT INTO daily_summaries(engine, deployment_id, day, instance, app, name, demo, listed, hook_status, skip_reason, payload, pulled_at)
+               VALUES (?, ?, ?, ?, ?, ?, 0, 1, 'ok', NULL, '{}', ?)""",
+            ("happy-zebra", "dep-nharira", "2026-11-03", "kolibri-a", "kolibri", "Kolibri", "2026-11-03T18:00:00+02:00"),
+        )
+        self.conn.commit()
+        status, weeks = self.call("GET", "/api/v1/weeks")
+        self.assertEqual(status, 200, weeks)
+        self.assertEqual(weeks["currentWeekStart"], "2026-11-02")
+        self.assertEqual(weeks["todayWeekStart"], "2026-11-09")
+        self.assertTrue(weeks["currentWeekHasData"])
+        status, meta = self.call("GET", "/api/v1/meta")
+        self.assertEqual(meta["todayWeekStart"], "2026-11-09")
+        self.assertTrue(meta["currentWeekHasData"])
 
     def test_help_event(self):
         self.login()

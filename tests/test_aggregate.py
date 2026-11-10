@@ -11,6 +11,7 @@ from src.aggregate import (
     kolibri_week,
     nextcloud_week,
     kiwix_week,
+    presence_summary,
     scorecard_from_weeks,
 )
 
@@ -258,6 +259,56 @@ class AggregateTests(unittest.TestCase):
         self.assertEqual(card["setup"]["classes"], 2)
         self.assertEqual(card["learnersOperate"]["learnerSessions"], 4)
         self.assertNotEqual(card["setup"]["classes"], 9)
+
+
+    def test_office_distinct_documents_sums_across_own_instances(self):
+        def nc(instance, distinct, demo=False):
+            return nextcloud_week([row("2026-11-09", instance, "nextcloud", {
+                "name": "Nextcloud",
+                "demo": demo,
+                "setup": {
+                    "admin": {"total": 1, "beyondSeed": 0},
+                    "teacher": {"total": 1, "beyondSeed": 0},
+                    "learner": {"total": 1, "beyondSeed": 0},
+                    "otherGroups": {},
+                },
+                "logins": {
+                    "admin": {"total": 0, "beyondSeed": 0},
+                    "teacher": {"total": 0, "beyondSeed": 0},
+                    "learner": {"total": 0, "beyondSeed": 0},
+                },
+                "office": {
+                    "opens": distinct, "distinctDocuments": distinct,
+                    "read": 0, "edit": distinct,
+                    "estimatedMinutes": 1,
+                    "byGroup": {"admin": 0, "teacher": distinct, "learner": 0},
+                    "mime": {"text": distinct, "sheet": 0, "slides": 0},
+                },
+                "workflows": {
+                    "worksheetShares": 0, "editShares": 0,
+                    "fileDropLinks": 0, "fileDropUploads": 0, "schoolFilesShares": 0,
+                },
+            })])
+
+        own_a = nc("nc-a", 2)
+        own_b = nc("nc-b", 3)
+        demo = nc("nc-demo", 99, demo=True)
+        card = scorecard_from_weeks([], [own_a, own_b, demo], [], [], "2026-11-09")
+        self.assertEqual(card["nextcloud"]["officeDistinctDocuments"], 5)
+
+    def test_presence_summary_sentence_or_none(self):
+        days = [
+            {"day": "2026-11-09", "schoolHoursOnMinutes": 540},
+            {"day": "2026-11-10", "schoolHoursOnMinutes": 480},
+            {"day": "2026-11-11", "schoolHoursOnMinutes": 420},
+            {"day": "2026-11-12", "schoolHoursOnMinutes": 420},
+            {"day": "2026-11-13", "schoolHoursOnMinutes": 0},
+        ]
+        self.assertEqual(
+            presence_summary(days, "2026-11-09"),
+            "On 4 of 5 school days, 31 h in school hours",
+        )
+        self.assertIsNone(presence_summary([], "2026-11-09"))
 
 
 if __name__ == "__main__":

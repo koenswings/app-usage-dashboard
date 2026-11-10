@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 SCHOOL_HOUR_START = 7
@@ -11,11 +11,43 @@ SCHOOL_HOUR_END = 16
 
 def parse_ts(value: str) -> datetime:
     text = value.replace("Z", "+00:00")
-    return datetime.fromisoformat(text)
+    dt = datetime.fromisoformat(text)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
 
 
-def rfc3339(dt: datetime) -> str:
+def rfc3339(dt: datetime, tz=None) -> str:
+    if tz is not None:
+        dt = dt.astimezone(tz)
     return dt.isoformat(timespec="seconds")
+
+
+def normalize_offset(offset: str | None) -> str:
+    raw = (offset or "+00:00").strip() or "+00:00"
+    if raw in ("Z", "z"):
+        return "+00:00"
+    return raw
+
+
+def week_bounds(week_start: str, utc_offset: str | None, week_end: str | None = None) -> tuple[datetime, datetime]:
+    """Monday 00:00 to Saturday 00:00 (end of Friday) in kit-local offset.
+
+    Matches Pixel's PresenceStrip: origin = weekStartT00:00:00offset,
+    end = (weekEnd+1)T00:00:00offset, where weekEnd is Friday.
+    """
+    offset = normalize_offset(utc_offset)
+    if week_end is None:
+        week_end = (date.fromisoformat(week_start) + timedelta(days=4)).isoformat()
+    start = parse_ts("%sT00:00:00%s" % (week_start, offset))
+    end_day = (date.fromisoformat(week_end) + timedelta(days=1)).isoformat()
+    end = parse_ts("%sT00:00:00%s" % (end_day, offset))
+    return start, end
+
+
+def in_bounds(ts: str | datetime, start: datetime, end: datetime) -> bool:
+    when = parse_ts(ts) if isinstance(ts, str) else ts
+    return start <= when < end
 
 
 def _payload(row: Any) -> dict[str, Any]:
@@ -172,6 +204,86 @@ def _merge_adjacent(segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
         else:
             merged.append(dict(seg))
     return merged
+
+
+def cover_week(
+    segments: list[dict[str, Any]],
+    start: datetime,
+    end: datetime,
+    collector_gaps: list[dict[str, Any]] | None = None,
+    now: datetime | None = None,
+) -> list[dict[str, Any]]:
+    """Partition [start, end) into contiguous, non-overlapping segments.
+
+    Observed `on` / `off` from the kit export win over idea-side gaps.
+    Unmeasured stretches become `collectorGap` where a watchdog /
+    collector_gaps interval (or an already-stored collectorGap) covers
+    them, and `gapUnknown` otherwise. The pieces sum to (end - start).
+    """
+    if end <= start:
+        return []
+    tz = start.tzinfo
+    now = now or datetime.now(timezone.utc)
+    observed: list[dict[str, Any]] = []
+
+    def _add(state: str, s0: datetime, s1: datetime, known: bool, priority: int) -> None:
+        a, b = max(s0, start), min(s1, end)
+        if b > a:
+            observed.append({
+                "state": state,
+                "start": a,
+                "end": b,
+                "lengthKnown": bool(known),
+                "priority": priority,
+            })
+
+    for seg in segments:
+        state = seg.get("state") or "gapUnknown"
+        if state == "on" or state == "off":
+            priority = 0
+        elif state == "collectorGap":
+            priority = 1
+        else:
+            priority = 2
+        _add(state, parse_ts(seg["start"]), parse_ts(seg["end"]), bool(seg.get("lengthKnown", True)), priority)
+
+    for gap in collector_gaps or []:
+        g0 = parse_ts(gap["start"])
+        raw_end = gap.get("end")
+        if raw_end:
+            g1, known = parse_ts(raw_end), True
+        else:
+            g1, known = now, False
+        _add("collectorGap", g0, g1, known, 1)
+
+    points = {start, end}
+    for item in observed:
+        points.add(item["start"])
+        points.add(item["end"])
+    ordered = sorted(points)
+    pieces: list[dict[str, Any]] = []
+    for i in range(len(ordered) - 1):
+        a, b = ordered[i], ordered[i + 1]
+        if b <= a:
+            continue
+        covering = [item for item in observed if item["start"] <= a and item["end"] >= b]
+        if covering:
+            covering.sort(key=lambda item: (item["priority"], 0 if item["lengthKnown"] else 1))
+            winner = covering[0]
+            pieces.append({
+                "state": winner["state"],
+                "start": rfc3339(a, tz),
+                "end": rfc3339(b, tz),
+                "lengthKnown": winner["lengthKnown"],
+            })
+        else:
+            pieces.append({
+                "state": "gapUnknown",
+                "start": rfc3339(a, tz),
+                "end": rfc3339(b, tz),
+                "lengthKnown": False,
+            })
+    return _merge_adjacent(pieces)
 
 
 def clip_segments(
