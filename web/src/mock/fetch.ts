@@ -110,6 +110,10 @@ export function mockFetch(input: string, init?: RequestInit): Promise<Response> 
   const method = (init?.method ?? 'GET').toUpperCase();
   const path = url.pathname.replace(/\/$/, '') || '/';
 
+  if (path === '/api/v1/health' && method === 'GET') {
+    return Promise.resolve(json({ ok: true, schema: API_SCHEMA }));
+  }
+
   if (path === '/api/v1/session' && method === 'GET') {
     const user = sessionUser(readCookie());
     return Promise.resolve(json({

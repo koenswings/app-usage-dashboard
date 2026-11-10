@@ -2,6 +2,7 @@ import { mockFetch } from '../mock/fetch';
 import type {
   CreateHelpEventRequest,
   ErrorBody,
+  HealthResponse,
   HelpEvent,
   HelpEventsResponse,
   InstancesResponse,
@@ -65,6 +66,10 @@ async function readJson<T>(res: Response): Promise<T> {
 
 export function createApiClient(fetcher: FetchLike = defaultFetch) {
   return {
+    async getHealth(): Promise<HealthResponse> {
+      return readJson<HealthResponse>(await fetcher('/api/v1/health', { method: 'GET' }));
+    },
+
     async getSession(): Promise<SessionResponse> {
       return readJson<SessionResponse>(await fetcher('/api/v1/session', { method: 'GET' }));
     },

@@ -49,7 +49,7 @@ export function copyKindLabel(demo: boolean, listed: boolean): string {
   return 'School’s own';
 }
 
-export function hookStatusLabel(status: HookStatus, skipReason?: SkipReason): string {
+export function hookStatusLabel(status: HookStatus, skipReason?: SkipReason | null): string {
   switch (status) {
     case 'ok':
       return 'Measured';
@@ -68,7 +68,7 @@ export function hookStatusLabel(status: HookStatus, skipReason?: SkipReason): st
   }
 }
 
-export function skipReasonLabel(reason?: SkipReason): string {
+export function skipReasonLabel(reason?: SkipReason | null): string {
   switch (reason) {
     case 'backup':
       return 'Skipped while a backup was running';
@@ -90,7 +90,7 @@ export function skipReasonLabel(reason?: SkipReason): string {
  */
 export function noDataReason(
   status: HookStatus,
-  skipReason?: SkipReason,
+  skipReason?: SkipReason | null,
   collectedAt?: string | null,
 ): string {
   if (status === 'ok') return 'No data';

@@ -3,6 +3,7 @@ import type { PresenceSegment, UplinkResponse } from '../api/types';
 import { PresenceStrip } from '../components/shared/PresenceStrip';
 import { SchoolNav } from '../components/SchoolNav';
 import { formatDateTime } from '../lib/format';
+import { fridayOf } from '../lib/week';
 
 interface UplinkHistoryProps {
   data: UplinkResponse;
@@ -35,7 +36,7 @@ export function UplinkHistory(props: UplinkHistoryProps) {
             utcOffset={props.data.timezone.utcOffset}
             timeZoneLabel={props.data.timezone.label}
             weekStart={props.data.weekStart}
-            weekEnd={props.data.weekStart}
+            weekEnd={fridayOf(props.data.weekStart)}
             summary="Power sampler (kit-local). Compare with reachability below."
           />
         </div>

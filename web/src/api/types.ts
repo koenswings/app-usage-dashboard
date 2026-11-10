@@ -55,11 +55,18 @@ export interface PresenceSegment {
 
 /** Kit-local timezone so the presence strip can label ticks independently of the Brussels header. */
 export interface KitTimezone {
-  /** IANA name, e.g. "Africa/Harare". */
+  /**
+   * Optional IANA name from idea's registry.json for that kit
+   * (not something the kit itself reports). Empty string when the
+   * registry has no name; the UI then falls back to `label` / `utcOffset`.
+   */
   timeZone: string;
-  /** Offset at weekStart, e.g. "+02:00". */
+  /** Offset from the latest presence sample's RFC 3339 timestamp, e.g. "+02:00". */
   utcOffset: string;
-  /** Operator-facing label, e.g. "kit local time (Africa/Harare, UTC+2)". */
+  /**
+   * Operator-facing label. With a registry name:
+   * "kit local time (Africa/Harare, UTC+2)". Without one: "kit local time (UTC±n)".
+   */
   label: string;
 }
 
@@ -97,6 +104,15 @@ export interface SessionResponse {
 export interface LoginRequest {
   username: string;
   password: string;
+}
+
+/**
+ * `GET /api/v1/health` — public, no cookie.
+ * Engine healthCheck probes this on `${port}`.
+ */
+export interface HealthResponse {
+  ok: true;
+  schema: ApiSchema;
 }
 
 // ---------------------------------------------------------------------------
@@ -178,8 +194,13 @@ export interface ScorecardTeachingInputs {
   lessonsVisible: number | null;
   quizzesCreated: number | null;
   quizzesStarted: number | null;
+  /**
+   * Assigned learner *content visits* this week (sum of Kolibri `content[].visits`
+   * where `role` is `learner` and `assigned` is true). Not a session count.
+   * The collector keeps this field name (kid/i414-collector @9286247).
+   */
   learnerSessionsOnAssigned: number | null;
-  /** 0–1 share of learner content visits that matched a visible lesson; null if unknown. */
+  /** `learnerSessionsOnAssigned` divided by all learner content visits; null if none. */
   assignedShareOfLearnerVisits: number | null;
 }
 
@@ -212,6 +233,10 @@ export interface ScorecardNextcloudInputs {
 export interface ScorecardWikipediaInputs {
   pageViewsOwn: number | null;
   sessionsOwn: number | null;
+  /**
+   * Max of daily `distinctArticles` on the school's own instance.
+   * Not a week-wide distinct total (the export has no article set).
+   */
   distinctArticlesOwn: number | null;
 }
 
@@ -311,6 +336,7 @@ export interface SchoolWeekResponse {
   /**
    * False when any ok day-file this week had `clock.synced === false`.
    * The whole week is then untrustworthy for time-based reading.
+   * The collector serves this name (`clockTrusted`), not `clockTrustworthy`.
    */
   clockTrusted: boolean;
   timezone: KitTimezone;
@@ -437,7 +463,7 @@ export interface InstanceEnvelope {
   instanceId?: string;
   name: string;
   hookStatus: HookStatus;
-  skipReason?: SkipReason;
+  skipReason?: SkipReason | null;
   listed: boolean;
   demo: boolean;
   clock: ClockHonesty | null;
@@ -479,10 +505,10 @@ export interface KolibriWeekResponse {
 // Nextcloud week aggregates
 // ---------------------------------------------------------------------------
 
-/** Hook-emitted role census. `beyondSeed` is not derived on idea. */
+/** Hook-emitted role census. `beyondSeed` is not derived on idea; null when the hook omitted it. */
 export interface RoleCount {
   total: number;
-  beyondSeed: number;
+  beyondSeed: number | null;
 }
 
 export type SchoolRole = 'admin' | 'teacher' | 'learner';
@@ -557,6 +583,10 @@ export interface KiwixTopArticle {
 export interface KiwixInstanceWeek extends InstanceEnvelope {
   app: 'kiwix';
   pageViews: number | null;
+  /**
+   * Maximum of the daily `distinctArticles` counts. This is not the number of
+   * different articles across the week (a union is not possible).
+   */
   distinctArticles: number | null;
   sessions: number | null;
   topArticles: KiwixTopArticle[] | null;
@@ -578,8 +608,8 @@ export interface KiwixWeekResponse {
 
 export interface DiscoveredInstance extends InstanceEnvelope {
   app: AppKind;
-  /** Optional implementation detail; the UI does not display it. */
-  port?: number | null;
+  /** Collector always sends `null` (not in the Engine export). The UI does not display it. */
+  port?: null;
   note?: string;
 }
 

@@ -1,4 +1,5 @@
 import { For, Show } from 'solid-js';
+import { addDays } from '../../lib/week';
 
 export type PresenceStripState = 'on' | 'off' | 'gapUnknown' | 'collectorGap';
 
@@ -28,6 +29,13 @@ const STATE_WORD: Record<PresenceStripState, string> = {
 
 const WEEKDAY = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
 
+interface TrackPiece {
+  id: string;
+  kind: 'pad' | 'seg';
+  weight: number;
+  segment?: PresenceStripSegment;
+}
+
 function trackWeight(segment: PresenceStripSegment): number {
   const start = Date.parse(segment.start);
   const end = Date.parse(segment.end);
@@ -46,8 +54,54 @@ function segmentId(segment: PresenceStripSegment): string {
   return `${segment.start}|${segment.state}|${segment.end}`;
 }
 
+function weekBounds(weekStart: string, weekEnd: string, utcOffset: string): { origin: number; end: number } | null {
+  const offset = utcOffset || 'Z';
+  const origin = Date.parse(`${weekStart}T00:00:00${offset}`);
+  const end = Date.parse(`${addDays(weekEnd, 1)}T00:00:00${offset}`);
+  if (Number.isNaN(origin) || Number.isNaN(end) || end <= origin) return null;
+  return { origin, end };
+}
+
+function trackPieces(
+  segments: PresenceStripSegment[],
+  weekStart: string,
+  weekEnd: string,
+  utcOffset: string,
+): TrackPiece[] {
+  const bounds = weekBounds(weekStart, weekEnd, utcOffset);
+  const sorted = [...segments].sort((a, b) => Date.parse(a.start) - Date.parse(b.start));
+  if (!bounds) {
+    return sorted.map((segment) => ({
+      id: segmentId(segment),
+      kind: 'seg' as const,
+      weight: trackWeight(segment),
+      segment,
+    }));
+  }
+  const pieces: TrackPiece[] = [];
+  let cursor = bounds.origin;
+  for (const segment of sorted) {
+    const rawStart = Date.parse(segment.start);
+    const rawEnd = Date.parse(segment.end);
+    if (Number.isNaN(rawStart) || Number.isNaN(rawEnd)) continue;
+    const start = Math.max(rawStart, bounds.origin);
+    const end = Math.min(rawEnd, bounds.end);
+    if (end <= start) continue;
+    if (start > cursor) {
+      pieces.push({ id: `pad-${cursor}`, kind: 'pad', weight: start - cursor });
+    }
+    pieces.push({ id: segmentId(segment), kind: 'seg', weight: end - start, segment });
+    cursor = end;
+  }
+  if (cursor < bounds.end) {
+    pieces.push({ id: `pad-${cursor}`, kind: 'pad', weight: bounds.end - cursor });
+  }
+  return pieces;
+}
+
 export function PresenceStrip(props: PresenceStripProps) {
-  const ids = () => props.segments.map(segmentId);
+  const pieces = () => trackPieces(props.segments, props.weekStart, props.weekEnd, props.utcOffset);
+  const ids = () => pieces().map((piece) => piece.id);
 
   return (
     <section class="presence-strip" data-testid="presence-strip">
@@ -66,16 +120,24 @@ export function PresenceStrip(props: PresenceStripProps) {
         <div class="presence-strip__track" role="img" aria-label="Presence segments for the school week">
           <For each={ids()}>
             {(id) => {
-              const segment = () => props.segments.find((item) => segmentId(item) === id);
+              const piece = () => pieces().find((item) => item.id === id);
               return (
-                <Show when={segment()}>
+                <Show when={piece()}>
                   {(item) => (
-                    <div
-                      class={`presence-seg presence-seg--${item().state}`}
-                      style={{ flex: String(trackWeight(item())) }}
-                      title={segmentTitle(item())}
-                      data-state={item().state}
-                    />
+                    item().kind === 'seg' && item().segment ? (
+                      <div
+                        class={`presence-seg presence-seg--${item().segment!.state}`}
+                        style={{ flex: String(item().weight) }}
+                        title={segmentTitle(item().segment!)}
+                        data-state={item().segment!.state}
+                      />
+                    ) : (
+                      <div
+                        class="presence-seg presence-seg--pad"
+                        style={{ flex: String(item().weight) }}
+                        aria-hidden="true"
+                      />
+                    )
                   )}
                 </Show>
               );

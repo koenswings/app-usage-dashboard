@@ -26,9 +26,9 @@ export function lineDetail(id: ScorecardLineId, inputs: ScorecardInputs): string
       return `${formatCount(classes)} classes · ${formatCount(learnersRegistered)} registered`;
     }
     case 'teachingCycle': {
-      const { lessonsCreated, lessonsVisible } = inputs.teachingCycle;
+      const { lessonsCreated, lessonsVisible, learnerSessionsOnAssigned } = inputs.teachingCycle;
       if (lessonsCreated === null) return '—';
-      return `${formatCount(lessonsCreated)} lessons · ${formatCount(lessonsVisible)} visible`;
+      return `${formatCount(lessonsCreated)} lessons · ${formatCount(lessonsVisible)} visible · ${formatUnit(learnerSessionsOnAssigned, 'assigned learner visit', 'assigned learner visits')}`;
     }
     case 'learnersOperate': {
       if (inputs.learnersOperate.learnerShareOfMinutes === null) return '—';

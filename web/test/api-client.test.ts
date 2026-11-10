@@ -26,6 +26,7 @@ describe('API client methods', () => {
     };
 
     const client = createApiClient(fetcher);
+    await client.getHealth();
     await client.getSession();
     await client.getMeta();
     await client.getKits();

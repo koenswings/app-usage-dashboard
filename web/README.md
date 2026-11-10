@@ -4,7 +4,7 @@ Dashboard UI for the idea-hosted `app-usage-dashboard` App (Solid + Vite, static
 
 The UI talks only to Kid's read-only HTTP API (`/api/v1/...`). It never opens SQLite and never writes kit data. The only write is `POST /api/v1/schools/:deploymentId/help-events`, used when an operator records that help was offered.
 
-The HTTP contract is in [API.md](./API.md) and `src/api/types.ts`.
+The HTTP contract is in [API.md](./API.md) and `src/api/types.ts`. `GET /api/v1/health` is public. `GET /api/v1/session` without a cookie returns `{authenticated:false}` (not a 401) so the login page can ask.
 
 ## Commands
 
@@ -12,10 +12,11 @@ Run these from `web/`:
 
 ```bash
 pnpm install
-VITE_MOCK=1 pnpm dev          # mock API, labelled sample data
-VITE_MOCK=1 pnpm build        # embed the mock adapter (for local preview)
+pnpm dev                      # real API via the Vite proxy (see USAGE_API_PROXY)
+pnpm dev:mock                 # labelled sample data (VITE_MOCK=1)
 pnpm build                    # production build — calls the real same-origin API
-pnpm preview                  # serve dist/ (use after a VITE_MOCK=1 build to review sample data)
+VITE_MOCK=1 pnpm build        # embed the mock adapter (opt-in, for screenshots / offline preview)
+pnpm preview                  # serve dist/
 pnpm typecheck
 pnpm test
 ```
@@ -26,8 +27,9 @@ Build output: `web/dist/`.
 
 | Variable | Meaning |
 |---|---|
-| `VITE_MOCK=1` | Use the in-app fetch adapter and labelled sample data (3 schools). Compile-time; set it for `dev` and for any `build` you want to preview offline. |
+| `VITE_MOCK=1` | Opt-in in-app fetch adapter and labelled sample data (3 schools). Compile-time. Use `pnpm dev:mock` or set it for a screenshot/offline `build`. The default build talks to the real API. |
 | `VITE_API_BASE` | Optional prefix for real API calls. Default is empty (same origin). |
+| `USAGE_API_PROXY` | Where Vite proxies `/api` during `pnpm dev` / `pnpm preview`. Default `http://127.0.0.1:18080`. |
 
 ## Mock login
 

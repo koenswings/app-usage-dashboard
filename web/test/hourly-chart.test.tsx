@@ -1,6 +1,7 @@
 import { render } from '@solidjs/testing-library';
-import { HourlyChart, shouldShowHourlyChart } from '../src/pages/WikipediaPage';
-import { chigondaKiwix, nhariraKiwix } from '../src/mock/data';
+import { API_SCHEMA } from '../src/api/types';
+import { chigondaKiwix, DEP_NHARIRA, nhariraKiwix, SAMPLE_WEEK } from '../src/mock/data';
+import { HourlyChart, shouldShowHourlyChart, WikipediaPage } from '../src/pages/WikipediaPage';
 
 describe('hourly chart hiding', () => {
   it('shows the chart at or above the weekly minimum and hides it below', () => {
@@ -17,5 +18,25 @@ describe('hourly chart hiding', () => {
     ));
     expect(hidden.getByTestId('hourly-chart-hidden')).toBeTruthy();
     expect(hidden.queryByTestId('hourly-chart')).toBeNull();
+  });
+});
+
+describe('weekly distinctArticles wording', () => {
+  it('calls the figure a daily maximum, never the week distinct total', () => {
+    const { container } = render(() => (
+      <WikipediaPage
+        data={{
+          schema: API_SCHEMA,
+          deploymentId: DEP_NHARIRA,
+          weekStart: SAMPLE_WEEK,
+          clockTrusted: true,
+          instances: nhariraKiwix,
+        }}
+        school="Nharira"
+        hourlyChartMinWeeklyViews={20}
+      />
+    ));
+    expect(container.textContent).toMatch(/most different articles in one day/);
+    expect(container.textContent).not.toMatch(/week(?:'s|’s)? distinct total/i);
   });
 });

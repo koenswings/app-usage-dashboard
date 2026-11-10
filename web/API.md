@@ -21,7 +21,7 @@ A breaking change increments the HTTP API schema. Unknown fields must be ignored
 
 - Base path: `/api/v1`
 - JSON request and response bodies, UTF-8
-- All endpoints except `POST /api/v1/session` require an operator session
+- Public (no cookie): `GET /api/v1/health`, `GET /api/v1/session`, `POST /api/v1/session`, `DELETE /api/v1/session`. Every other `/api/v1` path requires the cookie
 - Role-level counts only (§9). No usernames, no per-learner dossiers, no document contents, no network addresses
 - Content titles, channel names and Wikipedia article titles are allowed (they describe curriculum, not people)
 - The UI never talks to SQLite and never writes kit data
@@ -37,7 +37,8 @@ The Console stores operator accounts in the Engine `userDB` and keeps a client-s
 
 | Method | Path | Body | Response |
 |---|---|---|---|
-| `GET` | `/api/v1/session` | — | `SessionResponse` (`authenticated`, `user`) |
+| `GET` | `/api/v1/health` | — | `{ "ok": true, "schema": "idea-usage-api/1" }`. Public, no cookie. Used by the Engine healthCheck. |
+| `GET` | `/api/v1/session` | — | `SessionResponse`. Without a cookie this is `200` and `{ authenticated: false, user: null }` — not a 401. The UI uses that to show the login page. |
 | `POST` | `/api/v1/session` | `{ "username", "password" }` | `SessionResponse` + `Set-Cookie`. `401` with error `unauthorized` on bad credentials |
 | `DELETE` | `/api/v1/session` | — | `SessionResponse` with `authenticated: false` + cleared cookie |
 
@@ -55,7 +56,7 @@ Every non-2xx response:
 }
 ```
 
-`details` is optional. `401 unauthorized` when the cookie is missing or stale; `403 forbidden` if a non-operator somehow authenticates and hits `POST .../help-events`.
+`details` is optional. `401 unauthorized` when a protected path is called without a cookie (not on `GET /api/v1/session` or `GET /api/v1/health`). `403 forbidden` if a non-operator somehow authenticates and hits `POST .../help-events`.
 
 ## Endpoints
 
@@ -65,6 +66,7 @@ Week paths use `weekStart`: the Monday of the school week as `YYYY-MM-DD`. A non
 
 | Method | Path | Query | Response |
 |---|---|---|---|
+| `GET` | `/api/v1/health` | — | `HealthResponse` — public `{ ok, schema }` |
 | `GET` | `/api/v1/meta` | — | `MetaResponse` |
 | `GET` | `/api/v1/kits` | — | `KitsResponse` — registry of engines / deployments, each with `lastPulled` |
 | `GET` | `/api/v1/weeks` | — | `WeeksResponse` — Mondays the picker can offer, plus `currentWeekStart` |
@@ -109,7 +111,7 @@ Presence segments (also the standalone presence endpoint):
 { state: 'on' | 'off' | 'gapUnknown' | 'collectorGap', start, end, lengthKnown }
 ```
 
-The presence block also carries `timezone: { timeZone, utcOffset, label }` so ticks render in **kit local time**, labelled as such (the page header uses Brussels time).
+The presence block also carries `timezone: { timeZone, utcOffset, label }` so ticks render in **kit local time**, labelled as such (the page header uses Brussels time). `timeZone` is the optional IANA name from idea's `registry.json` for that kit — not a value the kit itself reports. `utcOffset` comes from the latest presence sample's RFC 3339 offset. When the registry has no IANA name, `timeZone` is `""` and `label` is `kit local time (UTC±n)`.
 
 `PresenceResponse.days` is the §7.5 `presence_days` roll-up: `onMinutes`, `schoolHoursOnMinutes`, `boots`, `longestGapMinutes`, `lengthKnown`.
 
@@ -152,7 +154,7 @@ Each app-week response also has `clockTrusted`. It is `false` when any day-file 
 - `appsOpened`: a map of App id → open count. May be missing or empty. No role unless a later counter exists.
 - `workflows`: `{ worksheetShares, editShares, fileDropLinks, fileDropUploads, schoolFilesShares }` (`fileDropLinks` and `fileDropUploads` are separate)
 
-**Kiwix / Wikipedia** (sibling file in §7.6): `pageViews`, `distinctArticles`, `sessions`, `topArticles[]` (`title`, `views`), `byHour` (24 kit-local hourly totals), summed across ok days. No identity. The UI hides `byHour` when `pageViews < hourlyChartMinWeeklyViews`.
+**Kiwix / Wikipedia** (sibling file in §7.6): `pageViews` and `sessions` are summed across ok days; `topArticles[]` (`title`, `views`) merge by title; `byHour` (24 kit-local hourly totals) is summed. `distinctArticles` is the **maximum of the daily counts**, not a week-wide distinct total — day files do not include the article set, so a union is not possible. The UI labels this “most different articles in one day” and never calls it the week’s distinct total. No identity. The UI hides `byHour` when `pageViews < hourlyChartMinWeeklyViews`.
 
 ### Instance breakdown (page 8)
 
@@ -160,7 +162,7 @@ Each app-week response also has `clockTrusted`. It is `false` when any day-file 
 |---|---|---|
 | `GET` | `/api/v1/weeks/{weekStart}/schools/{deploymentId}/instances` | `InstancesResponse` |
 
-Every discovered container, including extra (Engine-unlisted) copies. Fields: the instance envelope (`instance`, `name`, `app`, `demo`, `listed`, `hookStatus`, `skipReason?`, `clock`, `collectedAt`) plus an optional `note`. `port` is not part of the operator-facing table. Two Kolibris never collapse into one number.
+Every discovered container, including extra (Engine-unlisted) copies. Fields: the instance envelope (`instance`, `name`, `app`, `demo`, `listed`, `hookStatus`, `skipReason?`, `clock`, `collectedAt`) plus an optional `note`. The collector always sends `"port": null` (the field is not in the Engine export); the UI does not display it. Two Kolibris never collapse into one number.
 
 ### Help events (page 6, Q7) — only write
 
@@ -179,10 +181,10 @@ The six lines from §4. The API returns the measurements, not a colour or a pass
 
 1. **Available** — `schoolDaysOn`, `schoolDaysExpected`, `schoolHoursOnMinutes`, `bootsPerSchoolDay`, `longestGapMinutes`
 2. **Set up** — own-Kolibri `classes`, `learnersRegistered`, `learnersEnrolled`, `teachers`, `admins`; own-Nextcloud `nextcloudTeacherBeyondSeed`, `nextcloudLearnerBeyondSeed` (read from hook `setup.teacher.beyondSeed` / `setup.learner.beyondSeed` on the last ok day)
-3. **Teaching cycle** — `lessonsCreated`, `lessonsVisible`, `quizzesCreated`, `quizzesStarted`, `learnerSessionsOnAssigned`, `assignedShareOfLearnerVisits`
+3. **Teaching cycle** — `lessonsCreated`, `lessonsVisible`, `quizzesCreated`, `quizzesStarted`, `learnerSessionsOnAssigned` (assigned learner *content visits*, not sessions; the collector keeps this field name), `assignedShareOfLearnerVisits` (`learnerSessionsOnAssigned` / all learner content visits)
 4. **Learners operate** — sessions and minutes by role, plus `learnerShareOfMinutes`. Guest time stays as `seconds` on the instance payload and is converted to minutes only here
 5. **Nextcloud** — `worksheetShares`, `editShares`, `fileDropLinks`, `fileDropUploads`, `schoolFilesShares`, `officeOpens`, `officeDistinctDocuments`, `officeRead`, `officeEdit`, `officeEstimatedMinutes`
-6. **Wikipedia** — `pageViewsOwn`, `sessionsOwn`, `distinctArticlesOwn` on the school's own instance (Demo excluded)
+6. **Wikipedia** — `pageViewsOwn`, `sessionsOwn`, `distinctArticlesOwn` on the school's own instance (Demo excluded). `distinctArticlesOwn` is the max of daily `distinctArticles`, not a week-wide distinct total.
 
 `null` means no data for that input (kit not pulled, monitoring off, or that app produced no summary). Null is shown as **No data**, never as a failing grade.
 
@@ -198,7 +200,7 @@ Threshold comparison, if it is ever enabled, lives in one UI module (`src/config
 | `deploymentId` on responses | Idea's mapping of `(engine, day)` → deployment; not stored on the kit |
 | `lastPulled`, `stale`, `dataFrom`, `staleAfterHours` | Per-card freshness (accepted UI change 2) |
 | `monitoringEnabled`, `hasUsageData` | Distinguish "monitoring off" / "never pulled" from a zero week |
-| `KitTimezone` (`timeZone`, `utcOffset`, `label`) | Presence ticks in kit local time (accepted UI change 3) |
+| `KitTimezone` (`timeZone`, `utcOffset`, `label`) | `timeZone` from the idea registry (optional IANA); `utcOffset` from the latest presence sample |
 | `headerTimeZone`, `hourlyChartMinWeeklyViews`, `sampleData` | Header clock, chart-hiding threshold, mock/sample banner |
 | `note` on a school card | Subtitle ("own apps + Demo", "Not installed yet") |
 | `headlines` | Fleet-card census strip (classes / learners / teachers / Kolibri minutes) |
@@ -207,9 +209,9 @@ Threshold comparison, if it is ever enabled, lives in one UI module (`src/config
 | Scorecard input object grouping (`available`, `setup`, …) | §4 lines packaged so the UI does not re-derive them from day files |
 | `bootsPerSchoolDay`, `schoolDaysOn`, `schoolHoursOnMinutes` | Derived from `presence_days` for the Available line |
 | `nextcloudTeacherBeyondSeed`, `nextcloudLearnerBeyondSeed` | Scorecard copies of hook `setup.*.beyondSeed` on the last ok day; not derived on idea |
-| `assignedShareOfLearnerVisits`, `learnerShareOfMinutes`, `learnerSessionsOnAssigned` | Teaching-cycle and learners-operate ratios already aggregated |
+| `assignedShareOfLearnerVisits`, `learnerShareOfMinutes`, `learnerSessionsOnAssigned` | `learnerSessionsOnAssigned` is assigned learner content visits (Kid keeps this name); the share is that number over all learner visits |
 | `listed`, `hookStatus`, `skipReason`, `collectedAt` | Instance envelope from the Engine contract (agent-engine-dev#308) |
-| `clockTrusted` | Week-level roll-up: any unsynced clock makes the week untrustworthy |
+| `clockTrusted` | Week-level roll-up: any unsynced clock makes the week untrustworthy. The collector serves `clockTrusted`, not `clockTrustworthy`. |
 | `HelpEvent` (`id`, `offeredOn`, `tutorialChapters`, `note`, `createdBy`, `createdAt`) | §7.5 `help_events` column names were not specified |
 | `weeklyTrend` on help-events | Before/after comparison for page 6 |
 | `SessionResponse`, cookie `idea_usage_session` | Cookie equivalent of the Console operator session |
@@ -224,7 +226,7 @@ Reshaped Nextcloud fields (`setup`, `logins`, `office`, `appsOpened`, `workflows
 The HTTP week objects are aggregates of ok day-files:
 
 - Census / Nextcloud `setup` is a snapshot from the **last ok day**, never summed. Daily deltas may be summed.
-- Sign-ins, teaching, content visits/seconds/completions, and Kiwix counts are summed across ok days.
+- Sign-ins, teaching, content visits/seconds/completions, and Kiwix `pageViews` / `sessions` / `byHour` are summed across ok days. Kiwix `distinctArticles` is the max of daily counts (never described as the week’s distinct total). Nextcloud `office.distinctDocuments` is the last ok day’s Engine-union value, not a sum or max of days.
 - Any day with `clock.synced === false` marks the whole week untrustworthy (`clockTrusted: false`). The UI shows a visible warning.
 - A presence segment with `lengthKnown: false` is never displayed as a real duration.
 - Guest time stays in `seconds` on the payload; convert to minutes only when building scorecard `guestMinutes`.

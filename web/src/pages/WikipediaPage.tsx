@@ -66,7 +66,7 @@ function InstancePanel(props: { instance: KiwixInstanceWeek; minWeekly: number }
         <p class="muted">No accounts — page views and articles only, never a person.</p>
         <div class="scorecard-card__stats scorecard-card__stats--flush">
           <div><strong>{pageViews()}</strong>page views</div>
-          <div><strong>{props.instance.distinctArticles}</strong>articles</div>
+          <div><strong>{props.instance.distinctArticles}</strong>most different articles in one day</div>
           <div><strong>{props.instance.sessions}</strong>sessions</div>
         </div>
         <Show when={articles().length > 0}>

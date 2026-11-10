@@ -1,5 +1,6 @@
 import { Show, createEffect, createSignal, onCleanup, onMount } from 'solid-js';
 import { api } from './api/client';
+import { API_SCHEMA } from './api/types';
 import type { MetaResponse, SessionResponse, WeeksResponse } from './api/types';
 import { Footer, Header, SampleNote } from './components/Header';
 import { WeekPicker } from './components/WeekPicker';
@@ -24,7 +25,7 @@ export default function App() {
   const [weeks, setWeeks] = createSignal<WeeksResponse | null>(null);
   const [kits, setKits] = createSignal<{ deploymentId: string; school: string }[]>([]);
 
-  const week = () => route().week || weeks()?.currentWeekStart || '2026-11-02';
+  const week = () => route().week || weeks()?.currentWeekStart || '';
   const schoolName = (deploymentId: string) =>
     kits().find((item) => item.deploymentId === deploymentId)?.school ?? deploymentId;
 
@@ -50,10 +51,14 @@ export default function App() {
   onMount(() => {
     const onHash = () => setRoute(parseHash(window.location.hash));
     window.addEventListener('hashchange', onHash);
-    void api.getSession().then(async (current) => {
-      setSession(current);
-      if (current.authenticated) await loadShell();
-    });
+    void api.getSession()
+      .then(async (current) => {
+        if (current.authenticated) await loadShell();
+        setSession(current);
+      })
+      .catch(() => {
+        setSession({ schema: API_SCHEMA, authenticated: false, user: null });
+      });
   });
 
   createEffect(() => {
@@ -64,7 +69,8 @@ export default function App() {
       navigate({ name: 'login' });
     }
     if (current.authenticated && currentRoute.name === 'login') {
-      navigate({ name: 'overview', week: weeks()?.currentWeekStart || week() });
+      const start = weeks()?.currentWeekStart;
+      if (start) navigate({ name: 'overview', week: start });
     }
   });
 
@@ -84,6 +90,12 @@ export default function App() {
     if (!authed || name === 'login') {
       setPage({ kind: 'none' });
       setPageLoading(false);
+      setPageError(false);
+      return;
+    }
+    if (!weekStart) {
+      setPage({ kind: 'none' });
+      setPageLoading(true);
       setPageError(false);
       return;
     }
@@ -144,8 +156,8 @@ export default function App() {
   };
 
   const handleLogin = async (next: SessionResponse) => {
-    setSession(next);
     await loadShell();
+    setSession(next);
     navigate({ name: 'overview', week: weeks()?.currentWeekStart || week() });
   };
 
@@ -164,7 +176,7 @@ export default function App() {
         >
           <div class="app">
             <Header
-              weekLabel={formatWeekLabel(week(), fridayOf(week()))}
+              weekLabel={week() ? formatWeekLabel(week(), fridayOf(week())) : 'Week'}
               headerTimeZone={meta()?.headerTimeZone ?? 'Europe/Brussels'}
               username={current().user?.username ?? 'operator'}
               onLogout={() => void handleLogout()}

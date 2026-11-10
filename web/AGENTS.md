@@ -9,7 +9,8 @@ pnpm install
 pnpm typecheck
 pnpm test
 pnpm build
-VITE_MOCK=1 pnpm dev
+pnpm dev                 # real API, Vite proxies /api (USAGE_API_PROXY, default :18080)
+pnpm dev:mock            # VITE_MOCK=1 labelled sample data
 ```
 
 QC before a PR: `pnpm install`, `pnpm typecheck`, `pnpm test`, `pnpm build`, and grep the UI source for `console.log` and index-keyed `<For>` (a second callback argument used as the key).

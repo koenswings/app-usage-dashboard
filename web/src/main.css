@@ -276,6 +276,7 @@ td { padding: 7px 8px; border-bottom: 1px solid #f1f5f9; }
   display: flex; gap: 2px; height: 56px; align-items: stretch; margin-top: 8px;
 }
 .presence-seg { min-width: 4px; border-radius: 3px; }
+.presence-seg--pad { min-width: 0; background: transparent; border-radius: 0; }
 .presence-seg--on { background: var(--on); }
 .presence-seg--off { background: var(--off); }
 .presence-seg--gapUnknown {

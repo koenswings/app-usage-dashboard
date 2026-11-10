@@ -24,7 +24,7 @@ interface InstanceMetaProps {
   demo: boolean;
   listed: boolean;
   hookStatus: HookStatus;
-  skipReason?: SkipReason;
+  skipReason?: SkipReason | null;
   clock: ClockHonesty | null;
   collectedAt: string | null;
   showNoData?: boolean;

@@ -5,16 +5,17 @@ export function formatDateTime(iso: IsoDateTime | null, timeZone: string): strin
   if (!iso) return 'Never pulled';
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
-  const fmt = new Intl.DateTimeFormat('en-GB', {
-    timeZone,
+  const options: Intl.DateTimeFormatOptions = {
     day: 'numeric',
     month: 'short',
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
     hour12: false,
-  });
-  return `${fmt.format(date)} ${timeZone}`;
+  };
+  if (timeZone) options.timeZone = timeZone;
+  const fmt = new Intl.DateTimeFormat('en-GB', options);
+  return timeZone ? `${fmt.format(date)} ${timeZone}` : fmt.format(date);
 }
 
 export function formatDataFrom(iso: IsoDate | null): string | null {
