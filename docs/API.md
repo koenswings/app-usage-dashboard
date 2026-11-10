@@ -24,13 +24,13 @@ The kit files do not carry a deployment id. idea maps `(engine, day)` to `deploy
 
 ## Aggregation rules
 
-- The day-file identity field is `instance` (not `instanceId`).
-- Census (`setup` on Kolibri / Nextcloud) comes from the last `hookStatus: ok` day in the week and is not summed.
-- Activity counters (sessions, minutes, page views, workflow events) are summed across ok days. `distinctArticles` is the max of daily counts (the export does not include the full article set, so a true weekly union is not available).
-- Any day whose `clock.synced` is false marks that instance's week `clock.synced` false (`clockTrustworthy` on the school-week response).
+- The day-file identity field is `instance`. HTTP responses also send `instanceId` as an alias of the same value.
+- Census and Nextcloud `setup` come from the last `hookStatus: ok` day in the week and are not summed. Nextcloud `setup` and `logins` use singular `admin` / `teacher` / `learner` keys, each `{total, beyondSeed}`. `beyondSeed` is read from the hook; it is `null` when the hook omitted it. The collector does not invent it (no `teachers - 1` heuristic). `otherGroups` stays on Nextcloud `setup`. Kolibri HTTP `setup` is Pixel's flat `Census` (the hook's RoleCount totals are mapped into `learnersRegistered` / `teachers` / `admins`).
+- Activity counters (sessions, minutes, page views, workflow events, office opens/read/edit) are summed across ok days. Nextcloud weekly `office.distinctDocuments` is the last ok day's value (not a sum or max). Kiwix `distinctArticles` is the max of daily counts (the export does not include the article set, so a true weekly union is not available).
+- Any instance whose `clock` is present and `synced` is false marks that week untrusted (`clockTrusted` on the school-week and per-app week responses). A null clock does not taint the week.
 - Stub / failed day files keep `hookStatus` (`ok` \| `timeout` \| `failed` \| `invalid` \| `skipped` \| `unlisted-no-hook` \| `no-hook`) and optional `skipReason`. App payloads on those days are treated as null; they do not overwrite an earlier ok summary.
-- Nextcloud `office`, `setup`, `logins`, `appsOpened` and `workflows` are stored and served in the Engine shapes. Role keys are singular (`admin`, `teacher`, `learner`) on `office.byGroup` and `logins`. `setup` census fields stay `teachers` / `learners`. `appsOpened` is an object (`{ "files": n }`). `workflows` uses `fileDropLinks` and `fileDropUploads`.
-- Scorecard `fileDrops` is `fileDropUploads` for the week (files received, not links created). `documentsCreatedOrEdited*` is null: the stored office object has `read` / `edit` / `distinctDocuments`, not created-vs-edited by role.
+- Nextcloud `office.byGroup` stays numeric (`{admin, teacher, learner}`), not RoleCount. `appsOpened` is an object (`{ "files": n }`). `workflows` uses `fileDropLinks` and `fileDropUploads`.
+- The scorecard Nextcloud block matches Pixel's `ScorecardNextcloudInputs` (`worksheetShares`, `editShares`, `fileDropLinks`, `fileDropUploads`, `schoolFilesShares`, `officeOpens`, `officeDistinctDocuments`, `officeRead`, `officeEdit`, `officeEstimatedMinutes`). Setup extras are `nextcloudTeacherBeyondSeed` and `nextcloudLearnerBeyondSeed` (null when the hook did not emit `beyondSeed`).
 - `port` on the instance breakdown is always null: it is not in the export.
 - `KitTimezone.utcOffset` comes from the latest presence sample's RFC 3339 offset. `timeZone` is the optional IANA name from the registry; without it the label is `kit local time (UTC±n)`.
 

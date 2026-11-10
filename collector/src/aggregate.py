@@ -78,8 +78,8 @@ def empty_scorecard() -> dict[str, Any]:
             "learnersEnrolled": None,
             "teachers": None,
             "admins": None,
-            "nextcloudTeachersBeyondSeeds": None,
-            "nextcloudLearnersBeyondSeeds": None,
+            "nextcloudTeacherBeyondSeed": None,
+            "nextcloudLearnerBeyondSeed": None,
         },
         "teachingCycle": {
             "lessonsCreated": None,
@@ -102,11 +102,15 @@ def empty_scorecard() -> dict[str, Any]:
         },
         "nextcloud": {
             "worksheetShares": None,
-            "fileDrops": None,
-            "officeOpensTeachers": None,
-            "officeOpensLearners": None,
-            "documentsCreatedOrEditedTeachers": None,
-            "documentsCreatedOrEditedLearners": None,
+            "editShares": None,
+            "fileDropLinks": None,
+            "fileDropUploads": None,
+            "schoolFilesShares": None,
+            "officeOpens": None,
+            "officeDistinctDocuments": None,
+            "officeRead": None,
+            "officeEdit": None,
+            "officeEstimatedMinutes": None,
         },
         "wikipedia": {
             "pageViewsOwn": None,
@@ -264,10 +268,12 @@ def instance_envelope(rows: list[Any]) -> dict[str, Any]:
     if listed is None and hasattr(last, "keys") and "listed" in last.keys():
         listed = bool(last["listed"]) if last["listed"] is not None else None
     demo = bool(last_payload.get("demo")) if last_ok is None else bool(last_ok.get("demo"))
+    instance = last_payload.get("instance") or (
+        last["instance"] if hasattr(last, "keys") else last.get("instance")
+    )
     return {
-        "instance": last_payload.get("instance") or (
-            last["instance"] if hasattr(last, "keys") else last.get("instance")
-        ),
+        "instance": instance,
+        "instanceId": instance,
         "name": (last_ok or last_payload).get("name") or "",
         "app": (last_ok or last_payload).get("app") or last["app"] if hasattr(last, "keys") and "app" in last.keys() else (last_ok or last_payload).get("app"),
         "demo": demo,
@@ -282,14 +288,75 @@ def instance_envelope(rows: list[Any]) -> dict[str, Any]:
     }
 
 
+def _as_int(value: Any) -> int | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return int(value)
+    return None
+
+
+def read_role_count(src: dict[str, Any] | None, role: str) -> dict[str, Any] | None:
+    """Read {total, beyondSeed} from a hook RoleCount, or map a legacy integer / {users}."""
+    if not src:
+        return None
+    aliases = [role]
+    if role == "teacher":
+        aliases.append("teachers")
+    elif role == "learner":
+        aliases.append("learners")
+    elif role == "admin":
+        aliases.append("admins")
+    for key in aliases:
+        item = src.get(key)
+        if isinstance(item, dict):
+            if "total" in item:
+                beyond = item.get("beyondSeed")
+                return {
+                    "total": int(item["total"] or 0),
+                    "beyondSeed": None if beyond is None else int(beyond),
+                }
+            if "users" in item:
+                return {"total": int(item.get("users") or 0), "beyondSeed": None}
+        n = _as_int(item)
+        if n is not None:
+            return {"total": n, "beyondSeed": None}
+    return None
+
+
+def role_total(setup: dict[str, Any], singular: str, *legacy: str) -> int | None:
+    rc = read_role_count(setup, singular)
+    if rc is not None:
+        return rc["total"]
+    for key in legacy:
+        n = _as_int(setup.get(key))
+        if n is not None:
+            return n
+    return None
+
+
 def _census_from_setup(setup: dict[str, Any] | None) -> dict[str, Any]:
     out = empty_census()
     if not setup:
         return out
-    for key in out:
+    for key in ("classes", "classesDelta", "learnersEnrolled", "learnersRegisteredDelta", "teachersDelta"):
         if key in setup:
-            out[key] = setup[key]
+            out[key] = _as_int(setup.get(key))
+    out["learnersRegistered"] = role_total(setup, "learner", "learnersRegistered")
+    out["teachers"] = role_total(setup, "teacher", "teachers")
+    out["admins"] = role_total(setup, "admin", "admins")
     return out
+
+
+def clocks_trusted(instances: list[dict[str, Any]]) -> bool:
+    """False when any instance clock is present and unsynced (Pixel weekClockTrusted)."""
+    for inst in instances:
+        clock = inst.get("clock")
+        if clock is None:
+            continue
+        if not clock.get("synced", True):
+            return False
+    return True
 
 
 def kolibri_week(rows: list[Any]) -> dict[str, Any]:
@@ -377,24 +444,22 @@ def nextcloud_week(rows: list[Any]) -> dict[str, Any]:
     ok_payloads = env.pop("_ok_payloads")
     last_ok = env.pop("_last_ok")
     env["app"] = "nextcloud"
+    env.pop("flags", None)
     if not ok_payloads:
         env.update({"setup": None, "logins": None, "office": None, "appsOpened": None, "workflows": None})
         return env
     setup_src = (last_ok or {}).get("setup") or {}
-    teachers = int(setup_src.get("teachers") or 0)
-    learners = int(setup_src.get("learners") or 0)
     env["setup"] = {
-        "admin": int(setup_src.get("admin") or setup_src.get("admins") or 0),
-        "teachers": teachers,
-        "learners": learners,
+        "admin": read_role_count(setup_src, "admin") or {"total": 0, "beyondSeed": None},
+        "teacher": read_role_count(setup_src, "teacher") or {"total": 0, "beyondSeed": None},
+        "learner": read_role_count(setup_src, "learner") or {"total": 0, "beyondSeed": None},
         "otherGroups": setup_src.get("otherGroups") or {},
-        "teachersBeyondSeeds": max(0, teachers - 1),
-        "learnersBeyondSeeds": max(0, learners - 1),
     }
-    logins = {"admin": {"users": 0}, "teacher": {"users": 0}, "learner": {"users": 0}}
+    logins = {role: {"total": 0, "beyondSeed": 0} for role in ("admin", "teacher", "learner")}
+    beyond_known = {role: True for role in logins}
     office = {
         "opens": 0, "distinctDocuments": 0, "read": 0, "edit": 0,
-        "estimatedMinutes": 0,
+        "estimatedMinutes": None,
         "byGroup": {"admin": 0, "teacher": 0, "learner": 0},
         "mime": {"text": 0, "sheet": 0, "slides": 0},
     }
@@ -403,20 +468,25 @@ def nextcloud_week(rows: list[Any]) -> dict[str, Any]:
         "worksheetShares": 0, "editShares": 0,
         "fileDropLinks": 0, "fileDropUploads": 0, "schoolFilesShares": 0,
     }
-    max_distinct = 0
-    max_tokens_minutes = 0
+    est_sum = 0
+    has_est = False
     for payload in ok_payloads:
         raw_logins = payload.get("logins") or {}
         for role in ("admin", "teacher", "learner"):
-            logins[role]["users"] += _login_users(raw_logins, role)
+            rc = read_role_count(raw_logins, role) or {"total": 0, "beyondSeed": None}
+            logins[role]["total"] += rc["total"]
+            if rc["beyondSeed"] is None:
+                beyond_known[role] = False
+            else:
+                logins[role]["beyondSeed"] += rc["beyondSeed"]
         off = payload.get("office") or {}
         office["opens"] += int(off.get("opens") or off.get("tokens") or 0)
-        max_distinct = max(max_distinct, int(off.get("distinctDocuments") or 0))
         office["read"] += int(off.get("read") or 0)
         office["edit"] += int(off.get("edit") or 0)
         est = off.get("estimatedMinutes")
         if isinstance(est, (int, float)):
-            max_tokens_minutes += int(est)
+            has_est = True
+            est_sum += int(est)
         for role in ("admin", "teacher", "learner"):
             office["byGroup"][role] += _by_group(off, role)
         mime = off.get("mime") or {}
@@ -437,8 +507,12 @@ def nextcloud_week(rows: list[Any]) -> dict[str, Any]:
         # Older draft used fileDrops as a single field.
         if "fileDrops" in wf and not wf.get("fileDropUploads"):
             workflows["fileDropUploads"] += int(wf.get("fileDrops") or 0)
-    office["distinctDocuments"] = max_distinct
-    office["estimatedMinutes"] = max_tokens_minutes or None
+    for role in logins:
+        if not beyond_known[role]:
+            logins[role]["beyondSeed"] = None
+    last_ok_office = (last_ok or {}).get("office") or {}
+    office["distinctDocuments"] = int(last_ok_office.get("distinctDocuments") or 0)
+    office["estimatedMinutes"] = est_sum if has_est else None
     env["logins"] = logins
     env["office"] = office
     env["appsOpened"] = apps
@@ -450,6 +524,7 @@ def kiwix_week(rows: list[Any]) -> dict[str, Any]:
     env = instance_envelope(rows)
     ok_payloads = env.pop("_ok_payloads")
     env.pop("_last_ok", None)
+    env.pop("flags", None)
     env["app"] = "kiwix"
     if not ok_payloads:
         env.update({
@@ -499,6 +574,7 @@ def discovered_instance(rows: list[Any]) -> dict[str, Any]:
             note = "Engine-unlisted container; no matching hook"
     return {
         "instance": week.get("instance"),
+        "instanceId": week.get("instance"),
         "name": week.get("name") or "",
         "app": app,
         "demo": week.get("demo"),
@@ -609,27 +685,46 @@ def scorecard_from_weeks(
 
     own_n = own_instances([n for n in nextcloud if n.get("setup") is not None])
     if own_n:
-        teachers_beyond = learners_beyond = 0
-        worksheet = drops = opens_t = opens_l = 0
+        teacher_beyond = learner_beyond = None
+        worksheet = edit_shares = file_drop_links = file_drop_uploads = school_files = 0
+        office_opens = office_distinct = office_read = office_edit = 0
+        office_est = 0
+        has_est = False
         for inst in own_n:
             setup = inst.get("setup") or {}
-            teachers_beyond += int(setup.get("teachersBeyondSeeds") or 0)
-            learners_beyond += int(setup.get("learnersBeyondSeeds") or 0)
+            teacher_rc = read_role_count(setup, "teacher")
+            learner_rc = read_role_count(setup, "learner")
+            if teacher_beyond is None and teacher_rc and teacher_rc.get("beyondSeed") is not None:
+                teacher_beyond = int(teacher_rc["beyondSeed"])
+            if learner_beyond is None and learner_rc and learner_rc.get("beyondSeed") is not None:
+                learner_beyond = int(learner_rc["beyondSeed"])
             wf = inst.get("workflows") or {}
             worksheet += int(wf.get("worksheetShares") or 0)
-            drops += int(wf.get("fileDropUploads") or wf.get("fileDrops") or 0)
+            edit_shares += int(wf.get("editShares") or 0)
+            file_drop_links += int(wf.get("fileDropLinks") or 0)
+            file_drop_uploads += int(wf.get("fileDropUploads") or wf.get("fileDrops") or 0)
+            school_files += int(wf.get("schoolFilesShares") or 0)
             off = inst.get("office") or {}
-            opens_t += _by_group(off, "teacher")
-            opens_l += _by_group(off, "learner")
-        card["setup"]["nextcloudTeachersBeyondSeeds"] = teachers_beyond
-        card["setup"]["nextcloudLearnersBeyondSeeds"] = learners_beyond
+            office_opens += int(off.get("opens") or 0)
+            office_distinct += int(off.get("distinctDocuments") or 0)
+            office_read += int(off.get("read") or 0)
+            office_edit += int(off.get("edit") or 0)
+            if isinstance(off.get("estimatedMinutes"), (int, float)):
+                has_est = True
+                office_est += int(off["estimatedMinutes"])
+        card["setup"]["nextcloudTeacherBeyondSeed"] = teacher_beyond
+        card["setup"]["nextcloudLearnerBeyondSeed"] = learner_beyond
         card["nextcloud"].update({
             "worksheetShares": worksheet,
-            "fileDrops": drops,
-            "officeOpensTeachers": opens_t,
-            "officeOpensLearners": opens_l,
-            "documentsCreatedOrEditedTeachers": None,
-            "documentsCreatedOrEditedLearners": None,
+            "editShares": edit_shares,
+            "fileDropLinks": file_drop_links,
+            "fileDropUploads": file_drop_uploads,
+            "schoolFilesShares": school_files,
+            "officeOpens": office_opens,
+            "officeDistinctDocuments": office_distinct,
+            "officeRead": office_read,
+            "officeEdit": office_edit,
+            "officeEstimatedMinutes": office_est if has_est else None,
         })
 
     own_z = own_instances([z for z in kiwix if z.get("pageViews") is not None])

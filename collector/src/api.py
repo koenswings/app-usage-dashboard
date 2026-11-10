@@ -286,10 +286,7 @@ def handle(conn, method: str, path: str, body: dict[str, Any] | None, user: str 
                         "segments": bundle["segments"],
                         "summary": "",
                     },
-                    "clockTrustworthy": all(
-                        (inst.get("clock") or {}).get("synced", True)
-                        for inst in bundle["instances"]
-                    ),
+                    "clockTrusted": agg.clocks_trusted(bundle["instances"]),
                 }, None
             if tail == ["presence"]:
                 return 200, {
@@ -340,11 +337,29 @@ def handle(conn, method: str, path: str, body: dict[str, Any] | None, user: str 
                     "transitions": transitions,
                 }, None
             if tail == ["kolibri"]:
-                return 200, {"schema": agg.API_SCHEMA, "deploymentId": deployment_id, "weekStart": week_start, "instances": bundle["kolibri"]}, None
+                return 200, {
+                    "schema": agg.API_SCHEMA,
+                    "deploymentId": deployment_id,
+                    "weekStart": week_start,
+                    "clockTrusted": agg.clocks_trusted(bundle["kolibri"]),
+                    "instances": bundle["kolibri"],
+                }, None
             if tail == ["nextcloud"]:
-                return 200, {"schema": agg.API_SCHEMA, "deploymentId": deployment_id, "weekStart": week_start, "instances": bundle["nextcloud"]}, None
+                return 200, {
+                    "schema": agg.API_SCHEMA,
+                    "deploymentId": deployment_id,
+                    "weekStart": week_start,
+                    "clockTrusted": agg.clocks_trusted(bundle["nextcloud"]),
+                    "instances": bundle["nextcloud"],
+                }, None
             if tail == ["kiwix"]:
-                return 200, {"schema": agg.API_SCHEMA, "deploymentId": deployment_id, "weekStart": week_start, "instances": bundle["kiwix"]}, None
+                return 200, {
+                    "schema": agg.API_SCHEMA,
+                    "deploymentId": deployment_id,
+                    "weekStart": week_start,
+                    "clockTrusted": agg.clocks_trusted(bundle["kiwix"]),
+                    "instances": bundle["kiwix"],
+                }, None
             if tail == ["instances"]:
                 return 200, {"schema": agg.API_SCHEMA, "deploymentId": deployment_id, "weekStart": week_start, "instances": bundle["instances"]}, None
 

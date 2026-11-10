@@ -33,9 +33,11 @@ def export_for(engine="happy-zebra"):
         "collectedAt": "2026-11-10T02:12:00+02:00",
         "hookStatus": "ok",
         "setup": {
-            "classes": 2, "classesDelta": 0, "learnersRegistered": 8,
-            "learnersRegisteredDelta": 0, "learnersEnrolled": 6,
-            "teachers": 1, "teachersDelta": 0, "admins": 1,
+            "classes": 2, "classesDelta": 0,
+            "learnersEnrolled": 6, "learnersRegisteredDelta": 0, "teachersDelta": 0,
+            "admin": {"total": 1, "beyondSeed": 0},
+            "teacher": {"total": 1, "beyondSeed": 0},
+            "learner": {"total": 8, "beyondSeed": 8},
         },
         "signins": {
             "learner": {"users": 4, "sessions": 4, "minutes": 10},
@@ -62,8 +64,17 @@ def export_for(engine="happy-zebra"):
         "clock": {"synced": True, "correctedBoots": 0},
         "collectedAt": "2026-11-10T02:13:00+02:00",
         "hookStatus": "ok",
-        "setup": {"admin": 1, "teachers": 2, "learners": 3, "otherGroups": {}},
-        "logins": {"admin": {"users": 1}, "teacher": {"users": 1}, "learner": {"users": 0}},
+        "setup": {
+            "admin": {"total": 1, "beyondSeed": 0},
+            "teacher": {"total": 2, "beyondSeed": 1},
+            "learner": {"total": 3, "beyondSeed": 2},
+            "otherGroups": {},
+        },
+        "logins": {
+            "admin": {"total": 1, "beyondSeed": 0},
+            "teacher": {"total": 1, "beyondSeed": 0},
+            "learner": {"total": 0, "beyondSeed": 0},
+        },
         "office": {
             "opens": 3, "distinctDocuments": 1, "read": 1, "edit": 2,
             "estimatedMinutes": 15,
@@ -215,14 +226,21 @@ class ApiTests(unittest.TestCase):
         self.assertTrue(card["hasUsageData"])
         self.assertEqual(card["headlines"]["classes"], 2)
         self.assertEqual(card["scorecard"]["setup"]["classes"], 2)
-        self.assertEqual(card["scorecard"]["nextcloud"]["fileDrops"], 2)
-        self.assertIsNone(card["scorecard"]["nextcloud"]["documentsCreatedOrEditedTeachers"])
+        self.assertEqual(card["scorecard"]["nextcloud"]["fileDropUploads"], 2)
+        self.assertEqual(card["scorecard"]["nextcloud"]["fileDropLinks"], 0)
+        self.assertEqual(card["scorecard"]["nextcloud"]["officeOpens"], 3)
+        self.assertEqual(card["scorecard"]["nextcloud"]["officeEdit"], 2)
+        self.assertEqual(card["scorecard"]["setup"]["nextcloudTeacherBeyondSeed"], 1)
+        self.assertEqual(card["scorecard"]["setup"]["nextcloudLearnerBeyondSeed"], 2)
+        self.assertNotIn("fileDrops", card["scorecard"]["nextcloud"])
+        self.assertNotIn("documentsCreatedOrEditedTeachers", card["scorecard"]["nextcloud"])
 
         status, school = self.call("GET", "/api/v1/weeks/%s/schools/dep-nharira" % WEEK)
         self.assertEqual(status, 200, school)
         self.assertEqual(school["census"]["classes"], 2)
         self.assertEqual(school["timezone"]["timeZone"], "Africa/Harare")
-        self.assertTrue(school["clockTrustworthy"])
+        self.assertTrue(school["clockTrusted"])
+        self.assertNotIn("clockTrustworthy", school)
         states = {s["state"] for s in school["presence"]["segments"]}
         self.assertTrue(states.issubset({"on", "off", "gapUnknown", "collectorGap"}))
         self.assertIn("on", states)
@@ -230,7 +248,8 @@ class ApiTests(unittest.TestCase):
         status, kolibri = self.call("GET", "/api/v1/weeks/%s/schools/dep-nharira/kolibri" % WEEK)
         inst = kolibri["instances"][0]
         self.assertEqual(inst["instance"], "kolibri-a")
-        self.assertNotIn("instanceId", inst)
+        self.assertEqual(inst["instanceId"], "kolibri-a")
+        self.assertTrue(kolibri["clockTrusted"])
         self.assertEqual(inst["hookStatus"], "ok")
         self.assertIn("clock", inst)
         self.assertIn("collectedAt", inst)
@@ -238,8 +257,11 @@ class ApiTests(unittest.TestCase):
 
         status, nc = self.call("GET", "/api/v1/weeks/%s/schools/dep-nharira/nextcloud" % WEEK)
         n = nc["instances"][0]
+        self.assertTrue(nc["clockTrusted"])
+        self.assertEqual(n["instanceId"], "nextcloud-a")
         self.assertEqual(n["office"]["byGroup"]["teacher"], 2)
-        self.assertEqual(n["logins"]["teacher"]["users"], 1)
+        self.assertEqual(n["logins"]["teacher"], {"total": 1, "beyondSeed": 0})
+        self.assertEqual(n["setup"]["teacher"], {"total": 2, "beyondSeed": 1})
         self.assertEqual(n["appsOpened"]["files"], 4)
         self.assertEqual(n["workflows"]["fileDropUploads"], 2)
 
