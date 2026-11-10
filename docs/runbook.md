@@ -15,7 +15,7 @@ The Engine assigns `${port}` in the instance `.env`. The web entrypoint refuses 
 | instance `.env` `TS_AUTHKEY` | tagged, non-ephemeral auth key for `tag:idea-hub` | Engine instance env (not this repo) |
 | `IDEA_USAGE_ADMIN_PASSWORD` | operator login (default convention `admin911!` if unset) | instance env |
 
-Atlas installs the matching public key on each kit as helper v8 (`/etc/ssh/idea_usage_keys/pi`), pinned `from=` the sidecar's own Tailscale IPv4, forced command `/usr/local/sbin/idea-usage-export`. Never paste a key into chat or git.
+Atlas installs the matching public key on each kit as helper v7 (`/etc/ssh/idea_usage_keys/pi`), pinned `from=` the sidecar's own Tailscale IPv4, forced command `/usr/local/sbin/idea-usage-export`. Never paste a key into chat or git.
 
 If sidecar state is lost, Koen re-registers the node and sets its previous 100.x IPv4 in the Tailscale admin console so the kits' `from=` lines keep working (idea#375).
 
