@@ -1,0 +1,472 @@
+"""HTTP API: idea-usage-api/1 (Pixel #415 after Axle's corrections)."""
+from __future__ import annotations
+
+import json
+import os
+from datetime import datetime, timedelta, timezone
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import Any
+from urllib.parse import urlparse
+
+from . import aggregate as agg
+from . import auth
+from . import db
+from . import presence as presence_mod
+
+PUBLIC_PATHS = {
+    ("GET", "/api/v1/health"),
+    ("GET", "/api/v1/session"),
+    ("POST", "/api/v1/session"),
+    ("DELETE", "/api/v1/session"),
+}
+
+
+def error_body(code: str, message: str, details=None) -> dict[str, Any]:
+    body: dict[str, Any] = {"error": {"code": code, "message": message}}
+    if details is not None:
+        body["error"]["details"] = details
+    return body
+
+
+def _kit_tz(conn, kit) -> dict[str, str]:
+    offset = None
+    row = conn.execute(
+        "SELECT ts FROM presence_samples WHERE engine = ? ORDER BY ts DESC LIMIT 1",
+        (kit["engine"],),
+    ).fetchone()
+    if row:
+        offset = agg.offset_from_ts(row["ts"])
+    return agg.kit_timezone(kit["timezone"], offset)
+
+
+def _summaries(conn, engine: str, week_start: str):
+    days = agg.week_dates(week_start)
+    rows = conn.execute(
+        """SELECT * FROM daily_summaries
+           WHERE engine = ? AND day >= ? AND day <= ?
+           ORDER BY day, instance""",
+        (engine, days[0], days[-1]),
+    ).fetchall()
+    return rows
+
+
+def _weeks_available(conn) -> list[str]:
+    rows = conn.execute("SELECT DISTINCT day FROM daily_summaries ORDER BY day DESC").fetchall()
+    mondays = []
+    seen = set()
+    for row in rows:
+        day = agg.parse_iso_date(row["day"])
+        monday = (day - timedelta(days=day.weekday())).isoformat()
+        if monday not in seen:
+            seen.add(monday)
+            mondays.append(monday)
+    if not mondays:
+        today = datetime.now().date()
+        mondays = [(today - timedelta(days=today.weekday())).isoformat()]
+    return mondays
+
+
+def _current_monday() -> str:
+    today = datetime.now().date()
+    return (today - timedelta(days=today.weekday())).isoformat()
+
+
+def _week_bundle(conn, kit, week_start: str) -> dict[str, Any]:
+    rows = _summaries(conn, kit["engine"], week_start)
+    grouped = agg.group_by_instance(rows)
+    kolibri, nextcloud, kiwix, instances = [], [], [], []
+    for instance_rows in grouped.values():
+        app = instance_rows[0]["app"]
+        if app == "kolibri":
+            item = agg.kolibri_week(instance_rows)
+            kolibri.append(item)
+        elif app == "nextcloud":
+            item = agg.nextcloud_week(instance_rows)
+            nextcloud.append(item)
+        elif app == "kiwix":
+            item = agg.kiwix_week(instance_rows)
+            kiwix.append(item)
+        else:
+            item = agg.instance_envelope(instance_rows)
+            item.pop("_ok_payloads", None)
+            item.pop("_last_ok", None)
+        instances.append(agg.discovered_instance(instance_rows))
+    p_rows = conn.execute(
+        """SELECT day, on_minutes, school_hours_on_minutes, boots,
+                  longest_gap_minutes, length_known
+           FROM presence_days WHERE engine = ? AND day >= ? AND day <= ? ORDER BY day""",
+        (kit["engine"], week_start, agg.add_days(week_start, 6)),
+    ).fetchall()
+    presence_days = [
+        {
+            "day": r["day"],
+            "onMinutes": r["on_minutes"],
+            "schoolHoursOnMinutes": r["school_hours_on_minutes"],
+            "boots": r["boots"],
+            "longestGapMinutes": r["longest_gap_minutes"],
+            "lengthKnown": bool(r["length_known"]),
+        }
+        for r in p_rows
+    ]
+    scorecard = agg.scorecard_from_weeks(kolibri, nextcloud, kiwix, presence_days, week_start)
+    has_usage = bool(rows)
+    stale, data_from = agg.freshness(kit["last_pulled"])
+    tz = _kit_tz(conn, kit)
+    segs = conn.execute(
+        """SELECT state, start, end, length_known FROM presence_segments
+           WHERE engine = ? ORDER BY start""",
+        (kit["engine"],),
+    ).fetchall()
+    start = presence_mod.parse_ts("%sT00:00:00%s" % (week_start, tz["utcOffset"] or "+00:00"))
+    end = start + timedelta(days=7)
+    raw_segments = [
+        {"state": s["state"], "start": s["start"], "end": s["end"], "lengthKnown": bool(s["length_known"])}
+        for s in segs
+    ]
+    segments = presence_mod.clip_segments(raw_segments, start, end)
+    return {
+        "kolibri": kolibri,
+        "nextcloud": nextcloud,
+        "kiwix": kiwix,
+        "instances": instances,
+        "presence_days": presence_days,
+        "segments": segments,
+        "scorecard": scorecard,
+        "hasUsageData": has_usage,
+        "stale": stale,
+        "dataFrom": data_from,
+        "timezone": tz,
+        "headlines": agg.headlines_from(scorecard),
+        "note": agg.school_note(kit["note"] or "", instances, has_usage),
+        "census": (agg.own_instances(kolibri)[0]["setup"] if agg.own_instances(kolibri) and agg.own_instances(kolibri)[0].get("setup") else agg.empty_census()),
+    }
+
+
+def meta_payload(sample_data: bool = False) -> dict[str, Any]:
+    return {
+        "schema": agg.API_SCHEMA,
+        "daySchema": agg.DAY_SCHEMA,
+        "thresholdsConfigured": False,
+        "staleAfterHours": int(os.environ.get("STALE_AFTER_HOURS") or agg.STALE_AFTER_HOURS),
+        "hourlyChartMinWeeklyViews": int(
+            os.environ.get("HOURLY_CHART_MIN_WEEKLY_VIEWS") or agg.HOURLY_CHART_MIN_WEEKLY_VIEWS
+        ),
+        "headerTimeZone": os.environ.get("HEADER_TIMEZONE") or agg.HEADER_TIMEZONE,
+        "sampleData": sample_data,
+    }
+
+
+def handle(conn, method: str, path: str, body: dict[str, Any] | None, user: str | None, secure: bool):
+    parsed = urlparse(path)
+    route = parsed.path.rstrip("/") or "/"
+    parts = [p for p in route.split("/") if p]
+
+    if method == "GET" and route == "/api/v1/health":
+        return 200, {"ok": True, "schema": agg.API_SCHEMA}, None
+
+    if method == "GET" and route == "/api/v1/session":
+        if user:
+            return 200, {"schema": agg.API_SCHEMA, "authenticated": True, "user": {"username": user, "role": "operator"}}, None
+        return 200, {"schema": agg.API_SCHEMA, "authenticated": False, "user": None}, None
+
+    if method == "POST" and route == "/api/v1/session":
+        username = (body or {}).get("username") or ""
+        password = (body or {}).get("password") or ""
+        if not auth.check_credentials(username, password):
+            return 401, error_body("unauthorized", "Unknown operator or wrong password"), None
+        token = auth.mint_token(username)
+        return 200, {
+            "schema": agg.API_SCHEMA,
+            "authenticated": True,
+            "user": {"username": username, "role": "operator"},
+        }, auth.set_cookie_header(token, secure=secure)
+
+    if method == "DELETE" and route == "/api/v1/session":
+        return 200, {
+            "schema": agg.API_SCHEMA,
+            "authenticated": False,
+            "user": None,
+        }, auth.clear_cookie_header(secure=secure)
+
+    if (method, route) not in PUBLIC_PATHS and user is None:
+        return 401, error_body("unauthorized", "Operator session required"), None
+
+    if method == "GET" and route == "/api/v1/meta":
+        return 200, meta_payload(), None
+
+    if method == "GET" and route == "/api/v1/kits":
+        kits = []
+        for row in conn.execute("SELECT * FROM kits ORDER BY school, engine"):
+            kits.append({
+                "engine": row["engine"],
+                "tailscaleName": row["tailscale_name"],
+                "school": row["school"],
+                "deploymentId": row["deployment_id"],
+                "lastPulled": row["last_pulled"],
+                "monitoringEnabled": row["monitoring_enabled"] != 0 if row["monitoring_enabled"] is not None else False,
+            })
+        return 200, {"schema": agg.API_SCHEMA, "kits": kits}, None
+
+    if method == "GET" and route == "/api/v1/weeks":
+        weeks = _weeks_available(conn)
+        return 200, {"schema": agg.API_SCHEMA, "weeks": weeks, "currentWeekStart": _current_monday()}, None
+
+    if method == "GET" and len(parts) == 4 and parts[:3] == ["api", "v1", "weeks"] and parts[3] and route.endswith("/overview"):
+        # /api/v1/weeks/{weekStart}/overview — handled below via split
+        pass
+
+    # /api/v1/weeks/{weekStart}/...
+    if method == "GET" and len(parts) >= 4 and parts[:3] == ["api", "v1", "weeks"]:
+        week_start = parts[3]
+        if not agg.is_monday(week_start):
+            return 400, error_body("validation", "weekStart must be a Monday (YYYY-MM-DD)", {"weekStart": week_start}), None
+        rest = parts[4:]
+        meta = meta_payload()
+        week_end = agg.friday_of(week_start)
+        if rest == ["overview"]:
+            cards = []
+            suggestions = []
+            for kit in conn.execute("SELECT * FROM kits ORDER BY school, engine"):
+                bundle = _week_bundle(conn, kit, week_start)
+                card = {
+                    "deploymentId": kit["deployment_id"],
+                    "school": kit["school"],
+                    "engine": kit["engine"],
+                    "note": bundle["note"],
+                    "lastPulled": kit["last_pulled"],
+                    "stale": bundle["stale"],
+                    "dataFrom": bundle["dataFrom"],
+                    "hasUsageData": bundle["hasUsageData"],
+                    "scorecard": bundle["scorecard"],
+                    "headlines": bundle["headlines"],
+                }
+                cards.append(card)
+                sug = agg.help_suggestions_for(card, kit, bundle["scorecard"])
+                if sug:
+                    suggestions.append(sug)
+            return 200, {
+                "schema": agg.API_SCHEMA,
+                "weekStart": week_start,
+                "weekEnd": week_end,
+                "weekLabel": agg.format_week_label(week_start, week_end),
+                "thresholdsConfigured": meta["thresholdsConfigured"],
+                "sampleData": meta["sampleData"],
+                "staleAfterHours": meta["staleAfterHours"],
+                "cards": cards,
+                "helpSuggestions": suggestions,
+            }, None
+
+        if len(rest) >= 2 and rest[0] == "schools":
+            deployment_id = rest[1]
+            kit = db.kit_by_deployment(conn, deployment_id)
+            if kit is None:
+                return 404, error_body("not_found", "Unknown deployment", {"deploymentId": deployment_id}), None
+            bundle = _week_bundle(conn, kit, week_start)
+            tail = rest[2:]
+            if not tail:
+                return 200, {
+                    "schema": agg.API_SCHEMA,
+                    "weekStart": week_start,
+                    "weekEnd": week_end,
+                    "deploymentId": deployment_id,
+                    "school": kit["school"],
+                    "engine": kit["engine"],
+                    "lastPulled": kit["last_pulled"],
+                    "stale": bundle["stale"],
+                    "dataFrom": bundle["dataFrom"],
+                    "hasUsageData": bundle["hasUsageData"],
+                    "monitoringEnabled": kit["monitoring_enabled"] != 0 if kit["monitoring_enabled"] is not None else False,
+                    "thresholdsConfigured": meta["thresholdsConfigured"],
+                    "sampleData": meta["sampleData"],
+                    "timezone": bundle["timezone"],
+                    "scorecard": bundle["scorecard"],
+                    "census": bundle["census"],
+                    "presence": {
+                        "timezone": bundle["timezone"],
+                        "segments": bundle["segments"],
+                        "summary": "",
+                    },
+                    "clockTrustworthy": all(
+                        (inst.get("clock") or {}).get("synced", True)
+                        for inst in bundle["instances"]
+                    ),
+                }, None
+            if tail == ["presence"]:
+                return 200, {
+                    "schema": agg.API_SCHEMA,
+                    "deploymentId": deployment_id,
+                    "weekStart": week_start,
+                    "timezone": bundle["timezone"],
+                    "segments": bundle["segments"],
+                    "days": bundle["presence_days"],
+                }, None
+            if tail == ["uplink"]:
+                samples = [
+                    {
+                        "timestamp": r["timestamp"],
+                        "engine": r["engine"],
+                        "online": bool(r["online"]),
+                        "lastSeen": r["last_seen"],
+                        "via": r["via"],
+                        "latencyMs": r["latency_ms"],
+                    }
+                    for r in conn.execute(
+                        """SELECT * FROM uplink_samples WHERE engine = ?
+                           AND timestamp >= ? AND timestamp < ?
+                           ORDER BY timestamp""",
+                        (kit["engine"], "%sT00:00:00" % week_start, "%sT00:00:00" % agg.add_days(week_start, 7)),
+                    )
+                ]
+                transitions = [
+                    {
+                        "timestamp": r["timestamp"],
+                        "engine": r["engine"],
+                        "fromState": r["from_state"],
+                        "toState": r["to_state"],
+                    }
+                    for r in conn.execute(
+                        """SELECT * FROM uplink_transitions WHERE engine = ?
+                           AND timestamp >= ? AND timestamp < ?
+                           ORDER BY timestamp""",
+                        (kit["engine"], "%sT00:00:00" % week_start, "%sT00:00:00" % agg.add_days(week_start, 7)),
+                    )
+                ]
+                return 200, {
+                    "schema": agg.API_SCHEMA,
+                    "deploymentId": deployment_id,
+                    "weekStart": week_start,
+                    "timezone": bundle["timezone"],
+                    "samples": samples,
+                    "transitions": transitions,
+                }, None
+            if tail == ["kolibri"]:
+                return 200, {"schema": agg.API_SCHEMA, "deploymentId": deployment_id, "weekStart": week_start, "instances": bundle["kolibri"]}, None
+            if tail == ["nextcloud"]:
+                return 200, {"schema": agg.API_SCHEMA, "deploymentId": deployment_id, "weekStart": week_start, "instances": bundle["nextcloud"]}, None
+            if tail == ["kiwix"]:
+                return 200, {"schema": agg.API_SCHEMA, "deploymentId": deployment_id, "weekStart": week_start, "instances": bundle["kiwix"]}, None
+            if tail == ["instances"]:
+                return 200, {"schema": agg.API_SCHEMA, "deploymentId": deployment_id, "weekStart": week_start, "instances": bundle["instances"]}, None
+
+    if len(parts) == 5 and parts[:3] == ["api", "v1", "schools"] and parts[4] == "help-events":
+        deployment_id = parts[3]
+        kit = db.kit_by_deployment(conn, deployment_id)
+        if kit is None:
+            return 404, error_body("not_found", "Unknown deployment", {"deploymentId": deployment_id}), None
+        if method == "GET":
+            events = []
+            for row in conn.execute(
+                "SELECT * FROM help_events WHERE deployment_id = ? ORDER BY offered_on, created_at",
+                (deployment_id,),
+            ):
+                events.append({
+                    "id": row["id"],
+                    "deploymentId": row["deployment_id"],
+                    "offeredOn": row["offered_on"],
+                    "tutorialChapters": json.loads(row["tutorial_chapters"]),
+                    "note": row["note"],
+                    "createdBy": row["created_by"],
+                    "createdAt": row["created_at"],
+                })
+            trend = []
+            for week_start in _weeks_available(conn):
+                bundle = _week_bundle(conn, kit, week_start)
+                trend.append({"weekStart": week_start, "scorecard": bundle["scorecard"]})
+            return 200, {
+                "schema": agg.API_SCHEMA,
+                "deploymentId": deployment_id,
+                "events": events,
+                "weeklyTrend": trend,
+            }, None
+        if method == "POST":
+            offered = (body or {}).get("offeredOn") or ""
+            chapters = (body or {}).get("tutorialChapters")
+            note = (body or {}).get("note") or ""
+            if not offered or len(offered) != 10:
+                return 400, error_body("validation", "offeredOn must be YYYY-MM-DD"), None
+            try:
+                agg.parse_iso_date(offered)
+            except ValueError:
+                return 400, error_body("validation", "offeredOn must be YYYY-MM-DD"), None
+            if not isinstance(chapters, list) or not all(isinstance(c, str) for c in chapters):
+                return 400, error_body("validation", "tutorialChapters must be an array of strings"), None
+            import uuid
+            created = db.now_rfc3339()
+            event_id = str(uuid.uuid4())
+            conn.execute(
+                """INSERT INTO help_events(id, deployment_id, offered_on, tutorial_chapters, note, created_by, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (event_id, deployment_id, offered, json.dumps(chapters), note, user or "", created),
+            )
+            conn.commit()
+            return 201, {
+                "id": event_id,
+                "deploymentId": deployment_id,
+                "offeredOn": offered,
+                "tutorialChapters": chapters,
+                "note": note,
+                "createdBy": user or "",
+                "createdAt": created,
+            }, None
+
+    return 404, error_body("not_found", "No such endpoint"), None
+
+
+class Handler(BaseHTTPRequestHandler):
+    conn = None
+
+    def log_message(self, fmt, *args):
+        return
+
+    def _read_json(self):
+        length = int(self.headers.get("Content-Length") or 0)
+        if not length:
+            return {}
+        raw = self.rfile.read(length)
+        if not raw:
+            return {}
+        return json.loads(raw.decode("utf-8"))
+
+    def _send(self, status: int, payload: dict[str, Any], set_cookie: str | None):
+        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        if set_cookie:
+            self.send_header("Set-Cookie", set_cookie)
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _dispatch(self, method: str):
+        secure = (self.headers.get("X-Forwarded-Proto") == "https") or (self.command == "https")
+        token = auth.cookie_from_header(self.headers.get("Cookie"))
+        user = auth.read_token(token)
+        try:
+            body = self._read_json() if method in ("POST", "PUT", "PATCH") else None
+        except json.JSONDecodeError:
+            self._send(400, error_body("validation", "Request body is not JSON"), None)
+            return
+        try:
+            status, payload, cookie = handle(self.conn, method, self.path, body, user, secure)
+        except Exception as exc:  # noqa: BLE001 — last-resort envelope
+            status, payload, cookie = 500, error_body("unavailable", "Internal error"), None
+            # Keep the reason out of the client body; it still lands in stderr for operators.
+            sys_stderr = __import__("sys").stderr
+            print("api error: %s" % exc, file=sys_stderr)
+        self._send(status, payload, cookie)
+
+    def do_GET(self):
+        self._dispatch("GET")
+
+    def do_POST(self):
+        self._dispatch("POST")
+
+    def do_DELETE(self):
+        self._dispatch("DELETE")
+
+
+def serve(conn, bind: str = "0.0.0.0:8080"):
+    host, port_s = bind.rsplit(":", 1)
+    Handler.conn = conn
+    server = ThreadingHTTPServer((host, int(port_s)), Handler)
+    return server

@@ -1,0 +1,93 @@
+x-app:
+  name: usage-dashboard
+  title: Field usage dashboard
+  description: >
+    Programme field-usage dashboard for idea. Records uplink history through a
+    Tailscale userspace sidecar and pulls kit usage summaries into SQLite.
+    Install only on idea (system disk, via installApp), never on a school kit.
+  url: https://github.com/koenswings/app-usage-dashboard
+  category: admin
+  icon: icon.png
+  author: Koen Swings
+  version: "1.0"
+  instanceName: usage-dashboard
+  healthCheck:
+    path: /api/v1/health
+    expect: '"ok"'
+  healthTimeout: 180
+  updatesFrom: []
+  migrationNote: >
+    First release. The collector creates SQLite on first start under ./data.
+  snapshotExclude: []
+  backup:
+    exclude:
+      - keys
+      - tailscale
+
+services:
+  tailscale:
+    image: tailscale/tailscale:v1.88.3
+    labels:
+      x-app-version: "1.0"
+    hostname: idea-hub
+    restart: unless-stopped
+    pull_policy: never
+    environment:
+      - TS_AUTHKEY=${TS_AUTHKEY:-}
+      - TS_STATE_DIR=/var/lib/tailscale
+      - TS_USERSPACE=true
+      - TS_SOCKS5_SERVER=127.0.0.1:1055
+      - TS_LOCAL_ADDR_PORT=127.0.0.1:8384
+      - TS_EXTRA_ARGS=--advertise-tags=tag:idea-hub
+      - TS_HOSTNAME=${TS_HOSTNAME:-idea-hub}
+      - TS_ACCEPT_DNS=false
+    volumes:
+      - ./data/tailscale:/var/lib/tailscale
+      - ./collector/sidecar-wrap.sh:/sidecar-wrap.sh:ro
+    entrypoint: ["/bin/sh", "/sidecar-wrap.sh"]
+
+  collector:
+    image: python:3.12-slim-bookworm
+    labels:
+      x-app-version: "1.0"
+    restart: unless-stopped
+    pull_policy: never
+    network_mode: service:tailscale
+    depends_on:
+      - tailscale
+    environment:
+      - DATA_DIR=/data
+      - REGISTRY_PATH=/data/registry.json
+      - PULL_KEY=/data/keys/pull_key
+      - TS_LOCALAPI=http://127.0.0.1:8384
+      - TS_SOCKS5=127.0.0.1:1055
+      - TS_STATE_DIR=/data/tailscale
+      - COLLECTOR_BIND=0.0.0.0:8080
+      - HEADER_TIMEZONE=Europe/Brussels
+      - STALE_AFTER_HOURS=48
+      - HOURLY_CHART_MIN_WEEKLY_VIEWS=20
+      - IDEA_USAGE_ADMIN_PASSWORD=${IDEA_USAGE_ADMIN_PASSWORD:-admin911!}
+      - IDEA_USAGE_SESSION_SECRET=${IDEA_USAGE_SESSION_SECRET:-}
+    volumes:
+      - ./data:/data
+      - ./collector:/app:ro
+    working_dir: /app
+    entrypoint: ["/bin/sh", "/app/entrypoint.sh"]
+
+  web:
+    image: nginx:1.28-alpine@sha256:a8b39bd9cf0f83869a2162827a0caf6137ddf759d50a171451b335cecc87d236
+    labels:
+      x-app-version: "1.0"
+    restart: unless-stopped
+    pull_policy: never
+    depends_on:
+      - collector
+    ports:
+      - ${port}:8080
+    environment:
+      - IDEA_WEB_PORT=${port}
+    volumes:
+      - ./web/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./web/entrypoint.sh:/entrypoint.sh:ro
+      - ./web/placeholder:/usr/share/nginx/html:ro
+    entrypoint: ["/bin/sh", "/entrypoint.sh"]
