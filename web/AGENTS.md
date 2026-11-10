@@ -30,7 +30,7 @@ QC before a PR: `pnpm install`, `pnpm typecheck`, `pnpm test`, `pnpm build`, and
 - Read-only `GET /api/v1/...` except `POST` help-events (and the session login/logout). No direct SQLite
 - Banner and help wording always say “offer help”, never “retract”
 - Presence states: `on`, `off`, `gapUnknown`, `collectorGap`. The last two are hatched grey with their own words, never drawn as the kit going dark
-- Pages 6–8 are first functional versions and need a sketch sign-off
+- Display defaults (`staleAfterHours`, `hourlyChartMinWeeklyViews`) live in `src/config/display.ts` and yield to `/api/v1/meta`
 
 ## Layout
 

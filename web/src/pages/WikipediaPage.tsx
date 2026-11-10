@@ -1,5 +1,7 @@
 import { For, Show } from 'solid-js';
 import type { KiwixInstanceWeek, KiwixWeekResponse } from '../api/types';
+import { instanceKey } from '../api/types';
+import { ClockWeekWarning, InstanceMeta } from '../components/InstanceMeta';
 import { SchoolNav } from '../components/SchoolNav';
 
 export function shouldShowHourlyChart(pageViews: number, minWeekly: number): boolean {
@@ -20,8 +22,8 @@ export function HourlyChart(props: {
       when={shouldShowHourlyChart(props.pageViews, props.minWeekly)}
       fallback={
         <p class="muted" data-testid="hourly-chart-hidden">
-          Hourly views are hidden below the weekly minimum ({props.minWeekly} page views)
-          so a small school stays away from a per-hour picture.
+          Views by hour are hidden when the week has fewer than {props.minWeekly} page
+          views, so a small school does not get a picture that is almost hour-by-hour.
         </p>
       }
     >
@@ -41,51 +43,67 @@ export function HourlyChart(props: {
 }
 
 function InstancePanel(props: { instance: KiwixInstanceWeek; minWeekly: number }) {
-  const articleIds = () => props.instance.topArticles.map((article) => article.title);
+  const articles = () => props.instance.topArticles ?? [];
+  const articleIds = () => articles().map((article) => article.title);
+  const pageViews = () => props.instance.pageViews;
+  const byHour = () => props.instance.byHour;
+  const hasPayload = () =>
+    props.instance.hookStatus === 'ok' && pageViews() !== null && props.instance.sessions !== null;
 
   return (
-    <section class="panel instance-block" data-testid={`kiwix-instance-${props.instance.instanceId}`}>
-      <strong>{props.instance.name}</strong>
-      <div style={{ 'margin-top': '8px' }}>
-        <span class="tag">{props.instance.listed ? 'listed' : 'unlisted'} · {props.instance.instanceId}</span>
-        <Show when={props.instance.demo}><span class="tag tag--demo">Demo</span></Show>
-      </div>
-      <p class="muted">No accounts — page views and articles only, never a person.</p>
-      <div class="scorecard-card__stats" style={{ border: 0, padding: 0, margin: '0 0 10px' }}>
-        <div><strong>{props.instance.pageViews}</strong>page views</div>
-        <div><strong>{props.instance.distinctArticles}</strong>articles</div>
-        <div><strong>{props.instance.sessions}</strong>sessions</div>
-      </div>
-      <table>
-        <thead>
-          <tr>
-            <th>Top articles</th>
-            <th class="right">Views</th>
-          </tr>
-        </thead>
-        <tbody>
-          <For each={articleIds()}>
-            {(id) => {
-              const row = () => props.instance.topArticles.find((item) => item.title === id);
-              return (
-                <Show when={row()}>
-                  {(item) => (
-                    <tr>
-                      <td>{item().title}</td>
-                      <td class="right">{item().views}</td>
-                    </tr>
-                  )}
-                </Show>
-              );
-            }}
-          </For>
-        </tbody>
-      </table>
-      <HourlyChart
-        views={props.instance.byHour}
-        pageViews={props.instance.pageViews}
-        minWeekly={props.minWeekly}
+    <section class="panel instance-block" data-testid={`kiwix-instance-${instanceKey(props.instance)}`}>
+      <InstanceMeta
+        name={props.instance.name}
+        demo={props.instance.demo}
+        listed={props.instance.listed}
+        hookStatus={props.instance.hookStatus}
+        skipReason={props.instance.skipReason}
+        clock={props.instance.clock}
+        collectedAt={props.instance.collectedAt}
+        showNoData={!hasPayload()}
       />
+      <Show when={hasPayload()}>
+        <p class="muted">No accounts — page views and articles only, never a person.</p>
+        <div class="scorecard-card__stats scorecard-card__stats--flush">
+          <div><strong>{pageViews()}</strong>page views</div>
+          <div><strong>{props.instance.distinctArticles}</strong>articles</div>
+          <div><strong>{props.instance.sessions}</strong>sessions</div>
+        </div>
+        <Show when={articles().length > 0}>
+          <table>
+            <thead>
+              <tr>
+                <th>Top articles</th>
+                <th class="right">Views</th>
+              </tr>
+            </thead>
+            <tbody>
+              <For each={articleIds()}>
+                {(id) => {
+                  const row = () => articles().find((item) => item.title === id);
+                  return (
+                    <Show when={row()}>
+                      {(item) => (
+                        <tr>
+                          <td>{item().title}</td>
+                          <td class="right">{item().views}</td>
+                        </tr>
+                      )}
+                    </Show>
+                  );
+                }}
+              </For>
+            </tbody>
+          </table>
+        </Show>
+        <Show when={byHour() && pageViews() !== null}>
+          <HourlyChart
+            views={byHour() ?? []}
+            pageViews={pageViews() ?? 0}
+            minWeekly={props.minWeekly}
+          />
+        </Show>
+      </Show>
     </section>
   );
 }
@@ -97,19 +115,20 @@ interface WikipediaPageProps {
 }
 
 export function WikipediaPage(props: WikipediaPageProps) {
-  const ids = () => props.data.instances.map((item) => item.instanceId);
+  const ids = () => props.data.instances.map(instanceKey);
 
   return (
     <>
       <SchoolNav deploymentId={props.data.deploymentId} week={props.data.weekStart} current="wikipedia" />
       <div class="wrap">
         <h2>{props.school} · Wikipedia offline</h2>
+        <ClockWeekWarning trusted={props.data.clockTrusted} />
         <Show when={props.data.instances.length === 0}>
           <p>No data</p>
         </Show>
         <For each={ids()}>
           {(id) => {
-            const instance = () => props.data.instances.find((item) => item.instanceId === id);
+            const instance = () => props.data.instances.find((item) => instanceKey(item) === id);
             return (
               <Show when={instance()}>
                 {(item) => (

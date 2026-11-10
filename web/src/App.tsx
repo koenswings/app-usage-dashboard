@@ -3,6 +3,7 @@ import { api } from './api/client';
 import type { MetaResponse, SessionResponse, WeeksResponse } from './api/types';
 import { Footer, Header, SampleNote } from './components/Header';
 import { WeekPicker } from './components/WeekPicker';
+import { resolveHourlyChartMinWeeklyViews } from './config/display';
 import { parseHash, toHash, type Route } from './lib/route';
 import { formatWeekLabel, fridayOf } from './lib/week';
 import { FleetOverview } from './pages/FleetOverview';
@@ -179,43 +180,43 @@ export default function App() {
               <SampleNote />
             </Show>
             <Show when={pageLoading()}>
-              <p class="wrap">Loading…</p>
+              <p class="wrap status-banner" role="status">Loading…</p>
             </Show>
             <Show when={pageError()}>
-              <p class="wrap">Could not load this page.</p>
+              <p class="wrap status-banner status-banner--error" role="alert">Could not load this page.</p>
             </Show>
-            <Show when={page().kind === 'overview'}>
+            <Show when={!pageLoading() && !pageError() && page().kind === 'overview'}>
               <FleetOverview
                 overview={page().data}
                 headerTimeZone={meta()?.headerTimeZone ?? 'Europe/Brussels'}
               />
             </Show>
-            <Show when={page().kind === 'school'}>
+            <Show when={!pageLoading() && !pageError() && page().kind === 'school'}>
               <SchoolWeek
                 data={page().data}
                 headerTimeZone={meta()?.headerTimeZone ?? 'Europe/Brussels'}
               />
             </Show>
-            <Show when={page().kind === 'kolibri'}>
+            <Show when={!pageLoading() && !pageError() && page().kind === 'kolibri'}>
               <KolibriPage
                 data={page().data}
                 school={schoolName(String(page().data?.deploymentId ?? route().deploymentId ?? ''))}
               />
             </Show>
-            <Show when={page().kind === 'nextcloud'}>
+            <Show when={!pageLoading() && !pageError() && page().kind === 'nextcloud'}>
               <NextcloudPage
                 data={page().data}
                 school={schoolName(String(page().data?.deploymentId ?? route().deploymentId ?? ''))}
               />
             </Show>
-            <Show when={page().kind === 'wikipedia'}>
+            <Show when={!pageLoading() && !pageError() && page().kind === 'wikipedia'}>
               <WikipediaPage
                 data={page().data}
                 school={schoolName(String(page().data?.deploymentId ?? route().deploymentId ?? ''))}
-                hourlyChartMinWeeklyViews={meta()?.hourlyChartMinWeeklyViews ?? 20}
+                hourlyChartMinWeeklyViews={resolveHourlyChartMinWeeklyViews(meta()?.hourlyChartMinWeeklyViews)}
               />
             </Show>
-            <Show when={page().kind === 'help'}>
+            <Show when={!pageLoading() && !pageError() && page().kind === 'help'}>
               <HelpTimeline
                 deploymentId={route().deploymentId ?? ''}
                 week={week()}
@@ -227,14 +228,14 @@ export default function App() {
                 }}
               />
             </Show>
-            <Show when={page().kind === 'uplink'}>
+            <Show when={!pageLoading() && !pageError() && page().kind === 'uplink'}>
               <UplinkHistory
                 data={page().data}
                 school={schoolName(String(page().data?.deploymentId ?? ''))}
                 segments={page().segments ?? []}
               />
             </Show>
-            <Show when={page().kind === 'instances'}>
+            <Show when={!pageLoading() && !pageError() && page().kind === 'instances'}>
               <InstanceBreakdown
                 data={page().data}
                 school={schoolName(String(page().data?.deploymentId ?? ''))}

@@ -1,4 +1,4 @@
-import { API_SCHEMA } from '../api/types';
+import { API_SCHEMA, weekClockTrusted } from '../api/types';
 import type { CreateHelpEventRequest, HelpEvent, HelpEventsResponse } from '../api/types';
 import { fridayOf, isMonday } from '../lib/week';
 import {
@@ -21,6 +21,14 @@ import {
   segmentsFor,
   uplinkFor,
 } from './data';
+
+function clockTrustedFor(deploymentId: string, weekStart: string): boolean {
+  return weekClockTrusted([
+    ...kolibriFor(deploymentId, weekStart),
+    ...nextcloudFor(deploymentId, weekStart),
+    ...kiwixFor(deploymentId, weekStart),
+  ]);
+}
 
 const SESSION_COOKIE = 'idea_usage_session';
 const MOCK_USER = 'admin';
@@ -187,6 +195,7 @@ export function mockFetch(input: string, init?: RequestInit): Promise<Response> 
       monitoringEnabled: deploymentId !== 'dep-kind-panda',
       thresholdsConfigured: false,
       sampleData: true,
+      clockTrusted: clockTrustedFor(deploymentId, weekStart),
       timezone: HARARE,
       scorecard: scorecardFor(deploymentId, weekStart),
       census: censusFor(deploymentId, weekStart),
@@ -230,27 +239,33 @@ export function mockFetch(input: string, init?: RequestInit): Promise<Response> 
       }));
     }
     if (kind === 'kolibri') {
+      const instances = kolibriFor(deploymentId, weekStart);
       return Promise.resolve(json({
         schema: API_SCHEMA,
         deploymentId,
         weekStart,
-        instances: kolibriFor(deploymentId, weekStart),
+        clockTrusted: weekClockTrusted(instances),
+        instances,
       }));
     }
     if (kind === 'nextcloud') {
+      const instances = nextcloudFor(deploymentId, weekStart);
       return Promise.resolve(json({
         schema: API_SCHEMA,
         deploymentId,
         weekStart,
-        instances: nextcloudFor(deploymentId, weekStart),
+        clockTrusted: weekClockTrusted(instances),
+        instances,
       }));
     }
     if (kind === 'kiwix') {
+      const instances = kiwixFor(deploymentId, weekStart);
       return Promise.resolve(json({
         schema: API_SCHEMA,
         deploymentId,
         weekStart,
-        instances: kiwixFor(deploymentId, weekStart),
+        clockTrusted: weekClockTrusted(instances),
+        instances,
       }));
     }
     return Promise.resolve(json(instancesFor(deploymentId, weekStart)));

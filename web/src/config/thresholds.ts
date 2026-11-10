@@ -47,7 +47,7 @@ export function lineHasData(id: ScorecardLineId, inputs: ScorecardInputs): boole
     case 'learnersOperate':
       return inputs.learnersOperate.learnerShareOfMinutes !== null || inputs.learnersOperate.learnerSessions !== null;
     case 'nextcloud':
-      return inputs.nextcloud.worksheetShares !== null || inputs.nextcloud.officeOpensTeachers !== null;
+      return inputs.nextcloud.worksheetShares !== null || inputs.nextcloud.officeOpens !== null;
     case 'wikipedia':
       return inputs.wikipedia.pageViewsOwn !== null;
   }

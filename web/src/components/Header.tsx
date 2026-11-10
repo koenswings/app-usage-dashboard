@@ -49,10 +49,3 @@ export function Footer() {
   );
 }
 
-export function SketchNote() {
-  return (
-    <div class="sketch-note" data-testid="sketch-note">
-      This page is a first functional version and needs a sketch sign-off (idea#415).
-    </div>
-  );
-}

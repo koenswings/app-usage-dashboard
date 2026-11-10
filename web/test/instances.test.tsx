@@ -14,7 +14,8 @@ describe('instance breakdown', () => {
     expect(own).not.toBe(demo);
     expect(own).not.toBe(unlisted);
     expect(demo.textContent).toMatch(/Demo/);
-    expect(unlisted.textContent).toMatch(/unlisted/);
-    expect(unlisted.textContent).toMatch(/unlistedBorrowed/);
+    expect(unlisted.textContent).toMatch(/Extra copy/);
+    expect(unlisted.textContent).toMatch(/Measured/);
+    expect(unlisted.textContent).not.toMatch(/unlistedBorrowed/);
   });
 });

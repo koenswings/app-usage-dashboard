@@ -15,8 +15,8 @@ const LINKS: Array<{ id: PageName; label: string }> = [
   { id: 'nextcloud', label: 'Nextcloud' },
   { id: 'wikipedia', label: 'Wikipedia' },
   { id: 'help', label: 'Help' },
-  { id: 'uplink', label: 'Uplink' },
-  { id: 'instances', label: 'Instances' },
+  { id: 'uplink', label: 'Reachability' },
+  { id: 'instances', label: 'Apps' },
 ];
 
 export function SchoolNav(props: SchoolNavProps) {

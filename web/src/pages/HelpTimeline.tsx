@@ -1,6 +1,5 @@
 import { For, Show, createSignal } from 'solid-js';
 import type { HelpEvent, HelpEventsResponse } from '../api/types';
-import { SketchNote } from '../components/Header';
 import { SchoolNav } from '../components/SchoolNav';
 import { formatPercent } from '../lib/format';
 import { formatWeekLabel, fridayOf } from '../lib/week';
@@ -46,7 +45,6 @@ export function HelpTimeline(props: HelpTimelineProps) {
     <>
       <SchoolNav deploymentId={props.deploymentId} week={props.week} current="help" />
       <div class="wrap">
-        <SketchNote />
         <h2>{props.school} · Help offered</h2>
         <p class="muted">
           Record when help was offered. The dashboard never invents an event and never
@@ -55,6 +53,8 @@ export function HelpTimeline(props: HelpTimelineProps) {
         <Show when={props.data.events.length === 0}>
           <p>No help has been recorded for this school yet.</p>
         </Show>
+        <Show when={props.data.events.length > 0}>
+        <div class="table-wrap">
         <table>
           <thead>
             <tr>
@@ -84,7 +84,11 @@ export function HelpTimeline(props: HelpTimelineProps) {
             </For>
           </tbody>
         </table>
-        <h3 style={{ 'font-size': '14px', 'margin-top': '20px' }}>Weekly trend (raw counts, not a grade)</h3>
+        </div>
+        </Show>
+        <Show when={props.data.weeklyTrend.length > 0}>
+        <h3 class="section-heading">Weekly trend (raw counts, not a grade)</h3>
+        <div class="table-wrap">
         <table>
           <thead>
             <tr>
@@ -114,6 +118,8 @@ export function HelpTimeline(props: HelpTimelineProps) {
             </For>
           </tbody>
         </table>
+        </div>
+        </Show>
         <form class="panel" style={{ 'margin-top': '16px' }} onSubmit={submit} data-testid="help-event-form">
           <strong>Record that help was offered</strong>
           <div class="form-row">

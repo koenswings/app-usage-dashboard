@@ -28,11 +28,18 @@ const STATE_WORD: Record<PresenceStripState, string> = {
 
 const WEEKDAY = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
 
-function durationMs(segment: PresenceStripSegment): number {
+function trackWeight(segment: PresenceStripSegment): number {
   const start = Date.parse(segment.start);
   const end = Date.parse(segment.end);
   if (Number.isNaN(start) || Number.isNaN(end) || end <= start) return 1;
+  // lengthKnown:false is never a measured duration. Keep the calendar span
+  // so the block sits on the week, but do not treat it as a known length.
   return end - start;
+}
+
+function segmentTitle(segment: PresenceStripSegment): string {
+  if (!segment.lengthKnown) return STATE_WORD[segment.state];
+  return `${STATE_WORD[segment.state]} · ${segment.start} – ${segment.end}`;
 }
 
 function segmentId(segment: PresenceStripSegment): string {
@@ -47,7 +54,8 @@ export function PresenceStrip(props: PresenceStripProps) {
       <header class="presence-strip__head">
         <strong>Kit active / idle this week</strong>
         <p>
-          Each block is one continuous presence segment; width is proportional to its
+          Each block is one continuous presence segment. Width follows the calendar.
+          A hatched block is a gap whose length is not known — it is not a measured
           duration. Ticks are in {props.timeZoneLabel}.
         </p>
       </header>
@@ -64,14 +72,10 @@ export function PresenceStrip(props: PresenceStripProps) {
                   {(item) => (
                     <div
                       class={`presence-seg presence-seg--${item().state}`}
-                      style={{ flex: String(durationMs(item())) }}
-                      title={`${STATE_WORD[item().state]} · ${item().start} – ${item().end}`}
+                      style={{ flex: String(trackWeight(item())) }}
+                      title={segmentTitle(item())}
                       data-state={item().state}
-                    >
-                      <Show when={item().state === 'gapUnknown' || item().state === 'collectorGap'}>
-                        <span class="presence-seg__word">{STATE_WORD[item().state]}</span>
-                      </Show>
-                    </div>
+                    />
                   )}
                 </Show>
               );

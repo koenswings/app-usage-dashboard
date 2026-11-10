@@ -8,12 +8,12 @@ describe('hourly chart hiding', () => {
     expect(shouldShowHourlyChart(8, 20)).toBe(false);
 
     const shown = render(() => (
-      <HourlyChart views={nhariraKiwix[0].byHour} pageViews={nhariraKiwix[0].pageViews} minWeekly={20} />
+      <HourlyChart views={nhariraKiwix[0].byHour ?? []} pageViews={nhariraKiwix[0].pageViews ?? 0} minWeekly={20} />
     ));
     expect(shown.getByTestId('hourly-chart')).toBeTruthy();
 
     const hidden = render(() => (
-      <HourlyChart views={chigondaKiwix[0].byHour} pageViews={chigondaKiwix[0].pageViews} minWeekly={20} />
+      <HourlyChart views={chigondaKiwix[0].byHour ?? []} pageViews={chigondaKiwix[0].pageViews ?? 0} minWeekly={20} />
     ));
     expect(hidden.getByTestId('hourly-chart-hidden')).toBeTruthy();
     expect(hidden.queryByTestId('hourly-chart')).toBeNull();

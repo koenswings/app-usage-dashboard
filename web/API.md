@@ -13,7 +13,7 @@ TypeScript types live in `src/api/types.ts`.
 | Name | Value | Meaning |
 |---|---|---|
 | HTTP API schema | `idea-usage-api/1` | This document. Every JSON response includes `"schema": "idea-usage-api/1"`. |
-| Day-file schema | `idea-usage-day/1` | §7.6 files pulled from the kit (`/var/lib/idea/usage/<day>/<instanceId>.json`). |
+| Day-file schema | `idea-usage-day/1` | §7.6 files pulled from the kit (`/var/lib/idea/usage/<day>/<instance>.json`). The day-file identity field is `instance`; `instanceId` is an accepted alias. |
 
 A breaking change increments the HTTP API schema. Unknown fields must be ignored by the client.
 
@@ -72,8 +72,8 @@ Week paths use `weekStart`: the Monday of the school week as `YYYY-MM-DD`. A non
 `MetaResponse` fields:
 
 - `thresholdsConfigured` — `false` until Koen sets cut-offs (idea#375). The API still returns raw scorecard **inputs**, never a grade
-- `staleAfterHours` — a card whose `lastPulled` is older than this has `stale: true` and `dataFrom: "<YYYY-MM-DD>"`
-- `hourlyChartMinWeeklyViews` — the UI hides Wikipedia views-by-hour when that instance's weekly `pageViews` is below this number
+- `staleAfterHours` — a card whose `lastPulled` is older than this has `stale: true` and `dataFrom: "<YYYY-MM-DD>"`. Server value wins. If meta omits it, the UI uses `48` from `src/config/display.ts`
+- `hourlyChartMinWeeklyViews` — the UI hides Wikipedia views-by-hour when that instance's weekly `pageViews` is below this number. Server value wins. If meta omits it, the UI uses `20` from `src/config/display.ts`
 - `headerTimeZone` — typically `Europe/Brussels`
 - `sampleData` — `true` when serving labelled sample / mock data
 - `daySchema` — `idea-usage-day/1`
@@ -134,13 +134,25 @@ Shown next to the power sampler so "dark to us" (uplink down) and "powered off" 
 | `GET` | `/api/v1/weeks/{weekStart}/schools/{deploymentId}/nextcloud` | `NextcloudWeekResponse` |
 | `GET` | `/api/v1/weeks/{weekStart}/schools/{deploymentId}/kiwix` | `KiwixWeekResponse` |
 
-One object per **instance**. Own, Demo and unlisted instances stay on their own lines and are never summed together. Each instance carries `instanceId`, `name`, `demo`, `listed` and `flags`.
+One object per **instance**. Own, Demo and extra copies stay on their own lines and are never summed together.
 
-**Kolibri** mirrors §7.6: `clock`, `setup` (census + deltas), `signins` (`learner` / `coach` / `admin` each `{ users, sessions, minutes }`), `guest` (`visits`, `seconds`), `teaching` (`lessonsCreated`, `lessonsVisible`, `quizzesCreated`, `quizzesStarted`, `quizzesEnded`), `content[]` (`channel`, `title`, `kind`, `role`, `visits`, `seconds`, `completions`, `assigned`).
+Every instance (all three apps) carries the Engine envelope: `instance` (day-file identity; `instanceId` is an alias), `name`, `hookStatus`, `listed`, `demo`, `clock`, `collectedAt`, and `skipReason` when `hookStatus` is `skipped`. App payloads are optional and `null` on stubs and failed days so the UI can tell “the measurement failed” apart from “nothing has been collected yet” (`collectedAt` is null). `flags` is Kolibri-only.
 
-**Nextcloud** (sibling file in §7.6): `setup` (group census plus `teachersBeyondSeeds` / `learnersBeyondSeeds`), `logins` by role, `office` (opens and documents created/edited by role; `estimatedMinutes*` may be null — exact editing minutes are not stored), `appsOpened` (`appId`, `opens` — no role unless a later counter exists), `workflows` (`worksheetShares`, `editShares`, `fileDrops`, `schoolFilesShares`).
+`hookStatus` (agent-engine-dev#308): `ok | timeout | failed | invalid | skipped | unlisted-no-hook | no-hook`. A working borrowed hook on an extra copy is `ok` with `listed: false` — there is no `unlistedBorrowed`. `missing` was renamed to `no-hook`. When status is `skipped`, `skipReason` is `backup | update | move | temperature`. The UI shows each status in plain words.
 
-**Kiwix / Wikipedia** (sibling file in §7.6): `pageViews`, `distinctArticles`, `sessions`, `topArticles[]` (`title`, `views`), `byHour` (24 kit-local hourly totals). No identity. The UI hides `byHour` when `pageViews < hourlyChartMinWeeklyViews`.
+Each app-week response also has `clockTrusted`. It is `false` when any day-file this week had `clock.synced === false`; the whole week is then untrustworthy for time-based reading.
+
+**Kolibri** mirrors §7.6: `clock`, `setup` (census + deltas; snapshot from the last ok day), `signins` (`learner` / `coach` / `admin` each `{ users, sessions, minutes }`, summed across ok days), `guest` (`visits`, `seconds` — convert to minutes only for the scorecard), `teaching` (summed), `content[]` (`channel`, `title`, `kind`, `role`, `visits`, `seconds`, `completions`, `assigned`, summed). `flags` may include `demoSeedExcluded`.
+
+**Nextcloud** follows the Engine usage contract (agent-engine-dev#308) as amended (singular role keys; hook-emitted `{total, beyondSeed}`). These fields are **not** taken as-is from the original §7.6 sketch:
+
+- `setup`: `{ admin, teacher, learner, otherGroups? }` where each of `admin` / `teacher` / `learner` is `{ total, beyondSeed }` emitted by the hook. Do not derive beyond-seed on idea. `otherGroups` is kept (a map of extra group name → count) unless the Engine later drops it.
+- `logins`: `{ admin, teacher, learner }`, each `{ total, beyondSeed }`
+- `office`: `{ opens, distinctDocuments, read, edit, estimatedMinutes, byGroup: { admin, teacher, learner }, mime: { text, sheet, slides } }`. Single `estimatedMinutes` (no per-role split). No created/edited fields. Do not re-reduce this object. `distinctDocuments` is already the Engine’s union across that day’s samples. A week response must not sum daily `distinctDocuments` (that would over-count); it may pass through the last ok day’s value. If office is missing, it is `null`.
+- `appsOpened`: a map of App id → open count. May be missing or empty. No role unless a later counter exists.
+- `workflows`: `{ worksheetShares, editShares, fileDropLinks, fileDropUploads, schoolFilesShares }` (`fileDropLinks` and `fileDropUploads` are separate)
+
+**Kiwix / Wikipedia** (sibling file in §7.6): `pageViews`, `distinctArticles`, `sessions`, `topArticles[]` (`title`, `views`), `byHour` (24 kit-local hourly totals), summed across ok days. No identity. The UI hides `byHour` when `pageViews < hourlyChartMinWeeklyViews`.
 
 ### Instance breakdown (page 8)
 
@@ -148,7 +160,7 @@ One object per **instance**. Own, Demo and unlisted instances stay on their own 
 |---|---|---|
 | `GET` | `/api/v1/weeks/{weekStart}/schools/{deploymentId}/instances` | `InstancesResponse` |
 
-Every discovered container, including Engine-unlisted ones (for example a Kolibri on :62561). Fields: `instanceId`, `name`, `app`, `demo`, `listed`, `hookStatus` (`ok` \| `unlistedBorrowed` \| `unlistedNoHook` \| `missing`), `port`, `note`. Two Kolibris never collapse into one number.
+Every discovered container, including extra (Engine-unlisted) copies. Fields: the instance envelope (`instance`, `name`, `app`, `demo`, `listed`, `hookStatus`, `skipReason?`, `clock`, `collectedAt`) plus an optional `note`. `port` is not part of the operator-facing table. Two Kolibris never collapse into one number.
 
 ### Help events (page 6, Q7) — only write
 
@@ -166,10 +178,10 @@ The App never invents a help event. `HelpEventsResponse.weeklyTrend` is an array
 The six lines from §4. The API returns the measurements, not a colour or a pass/fail:
 
 1. **Available** — `schoolDaysOn`, `schoolDaysExpected`, `schoolHoursOnMinutes`, `bootsPerSchoolDay`, `longestGapMinutes`
-2. **Set up** — own-Kolibri `classes`, `learnersRegistered`, `learnersEnrolled`, `teachers`, `admins`; own-Nextcloud `nextcloudTeachersBeyondSeeds`, `nextcloudLearnersBeyondSeeds`
+2. **Set up** — own-Kolibri `classes`, `learnersRegistered`, `learnersEnrolled`, `teachers`, `admins`; own-Nextcloud `nextcloudTeacherBeyondSeed`, `nextcloudLearnerBeyondSeed` (read from hook `setup.teacher.beyondSeed` / `setup.learner.beyondSeed` on the last ok day)
 3. **Teaching cycle** — `lessonsCreated`, `lessonsVisible`, `quizzesCreated`, `quizzesStarted`, `learnerSessionsOnAssigned`, `assignedShareOfLearnerVisits`
-4. **Learners operate** — sessions and minutes by role, plus `learnerShareOfMinutes`
-5. **Nextcloud** — `worksheetShares`, `fileDrops`, office opens and documents created/edited by role
+4. **Learners operate** — sessions and minutes by role, plus `learnerShareOfMinutes`. Guest time stays as `seconds` on the instance payload and is converted to minutes only here
+5. **Nextcloud** — `worksheetShares`, `editShares`, `fileDropLinks`, `fileDropUploads`, `schoolFilesShares`, `officeOpens`, `officeDistinctDocuments`, `officeRead`, `officeEdit`, `officeEstimatedMinutes`
 6. **Wikipedia** — `pageViewsOwn`, `sessionsOwn`, `distinctArticlesOwn` on the school's own instance (Demo excluded)
 
 `null` means no data for that input (kit not pulled, monitoring off, or that app produced no summary). Null is shown as **No data**, never as a failing grade.
@@ -194,17 +206,28 @@ Threshold comparison, if it is ever enabled, lives in one UI module (`src/config
 | `weekStart` / `weekEnd` / `weekLabel` / `GET /weeks` | Week picker (accepted UI change 5) |
 | Scorecard input object grouping (`available`, `setup`, …) | §4 lines packaged so the UI does not re-derive them from day files |
 | `bootsPerSchoolDay`, `schoolDaysOn`, `schoolHoursOnMinutes` | Derived from `presence_days` for the Available line |
-| `nextcloudTeachersBeyondSeeds`, `nextcloudLearnersBeyondSeeds` | §4 "beyond the seeds" |
+| `nextcloudTeacherBeyondSeed`, `nextcloudLearnerBeyondSeed` | Scorecard copies of hook `setup.*.beyondSeed` on the last ok day; not derived on idea |
 | `assignedShareOfLearnerVisits`, `learnerShareOfMinutes`, `learnerSessionsOnAssigned` | Teaching-cycle and learners-operate ratios already aggregated |
-| `listed`, `hookStatus`, `port` | Instance breakdown of unlisted containers (Axle: borrow hook or `unlistedNoHook`) |
-| `teachersBeyondSeeds` / `learnersBeyondSeeds` on Nextcloud setup | Same seed rule, per instance |
-| `estimatedMinutesTeachers` / `estimatedMinutesLearners` | Honest Office-time estimate; may be null |
+| `listed`, `hookStatus`, `skipReason`, `collectedAt` | Instance envelope from the Engine contract (agent-engine-dev#308) |
+| `clockTrusted` | Week-level roll-up: any unsynced clock makes the week untrustworthy |
 | `HelpEvent` (`id`, `offeredOn`, `tutorialChapters`, `note`, `createdBy`, `createdAt`) | §7.5 `help_events` column names were not specified |
 | `weeklyTrend` on help-events | Before/after comparison for page 6 |
 | `SessionResponse`, cookie `idea_usage_session` | Cookie equivalent of the Console operator session |
 | Error envelope (`error.code` / `message` / `details`) | Uniform client handling |
 
-Fields taken as-is from §7.6 / §7.5 / the agreed presence shape are **not** listed above: `engine`, `day`, `app`, `instance`, `name`, `demo`, `clock`, `setup` census fields, `signins`, `content`, `teaching`, `guest`, `flags`, Nextcloud `setup` / `logins` / `office` / `appsOpened` / `workflows`, Kiwix `pageViews` / `distinctArticles` / `sessions` / `topArticles` / `byHour`, presence `{state,start,end,lengthKnown}`, uplink sample/transition columns, `lastPulled`.
+Fields taken as-is from §7.6 / §7.5 / the agreed presence shape are **not** listed above: `engine`, `day`, `app`, `instance`, `name`, `demo`, `clock`, Kolibri `setup` census fields, `signins`, `content`, `teaching`, `guest`, `flags`, Kiwix `pageViews` / `distinctArticles` / `sessions` / `topArticles` / `byHour`, presence `{state,start,end,lengthKnown}`, uplink sample/transition columns, `lastPulled`.
+
+Reshaped Nextcloud fields (`setup`, `logins`, `office`, `appsOpened`, `workflows`) follow the Engine usage contract and the Kid/Axle amendment (singular `admin` / `teacher` / `learner` keys and `{total, beyondSeed}` role counts). They are documented in the Nextcloud section above, not treated as unchanged §7.6.
+
+## Week roll-ups
+
+The HTTP week objects are aggregates of ok day-files:
+
+- Census / Nextcloud `setup` is a snapshot from the **last ok day**, never summed. Daily deltas may be summed.
+- Sign-ins, teaching, content visits/seconds/completions, and Kiwix counts are summed across ok days.
+- Any day with `clock.synced === false` marks the whole week untrustworthy (`clockTrusted: false`). The UI shows a visible warning.
+- A presence segment with `lengthKnown: false` is never displayed as a real duration.
+- Guest time stays in `seconds` on the payload; convert to minutes only when building scorecard `guestMinutes`.
 
 ## What the UI will not call
 

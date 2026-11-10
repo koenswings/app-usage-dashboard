@@ -1,100 +1,125 @@
 import { For, Show } from 'solid-js';
-import type { KolibriInstanceWeek, KolibriWeekResponse } from '../api/types';
+import type { KolibriContentRow, KolibriInstanceWeek, KolibriWeekResponse } from '../api/types';
+import { instanceKey } from '../api/types';
+import { ClockWeekWarning, InstanceMeta } from '../components/InstanceMeta';
 import { SchoolNav } from '../components/SchoolNav';
-import { formatCount } from '../lib/format';
+import { formatCount, formatUnit } from '../lib/format';
+import { roleLabel } from '../lib/labels';
 
 interface KolibriPageProps {
   data: KolibriWeekResponse;
   school: string;
 }
 
-function contentId(row: KolibriInstanceWeek['content'][number]): string {
+function contentId(row: KolibriContentRow): string {
   return `${row.channel}|${row.title}|${row.role}`;
 }
 
 function InstancePanel(props: { instance: KolibriInstanceWeek }) {
-  const roles = () => [
-    { id: 'learner', label: 'Learners', activity: props.instance.signins.learner },
-    { id: 'coach', label: 'Teachers / coaches', activity: props.instance.signins.coach },
-    { id: 'admin', label: 'Admin', activity: props.instance.signins.admin },
-    {
-      id: 'guest',
-      label: 'Guest (not signed in)',
-      activity: {
-        users: null,
-        sessions: props.instance.guest.visits,
-        minutes: Math.round(props.instance.guest.seconds / 60),
-      },
-    },
-  ];
-  const roleIds = () => roles().map((row) => row.id);
-  const contentIds = () => props.instance.content.map(contentId);
+  const signins = () => props.instance.signins;
+  const guest = () => props.instance.guest;
   const teaching = () => props.instance.teaching;
+  const content = () => props.instance.content ?? [];
+  const roles = () => {
+    const activity = signins();
+    const guestRow = guest();
+    if (!activity || !guestRow) return [];
+    return [
+      { id: 'learner', label: 'Learners', activity: activity.learner },
+      { id: 'coach', label: 'Teachers', activity: activity.coach },
+      { id: 'admin', label: 'Admin', activity: activity.admin },
+      {
+        id: 'guest',
+        label: 'Guest (not signed in)',
+        activity: {
+          users: null,
+          sessions: guestRow.visits,
+          minutes: Math.round(guestRow.seconds / 60),
+        },
+      },
+    ];
+  };
+  const roleIds = () => roles().map((row) => row.id);
+  const contentIds = () => content().map(contentId);
+  const hasPayload = () =>
+    props.instance.hookStatus === 'ok' && signins() !== null && teaching() !== null;
 
   return (
-    <section class="panel instance-block" data-testid={`kolibri-instance-${props.instance.instanceId}`}>
-      <strong>{props.instance.name}</strong>
-      <div style={{ 'margin-top': '8px' }}>
-        <span class="tag">{props.instance.listed ? 'listed' : 'unlisted'} · {props.instance.instanceId}</span>
-        <Show when={props.instance.demo}><span class="tag tag--demo">Demo</span></Show>
-        <Show when={!props.instance.listed}><span class="tag tag--unlisted">Unlisted</span></Show>
-      </div>
-      <p class="muted">
-        Teaching cycle: {teaching().lessonsCreated} lessons created, {teaching().lessonsVisible} visible,
-        {' '}{teaching().quizzesCreated} quizzes created, {teaching().quizzesStarted} started,
-        {' '}{teaching().quizzesEnded} ended.
-      </p>
-      <table>
-        <thead>
-          <tr>
-            <th>Role</th>
-            <th class="right">Accounts</th>
-            <th class="right">Sessions</th>
-            <th class="right">Minutes</th>
-          </tr>
-        </thead>
-        <tbody>
-          <For each={roleIds()}>
-            {(id) => {
-              const row = () => roles().find((item) => item.id === id);
-              return (
-                <Show when={row()}>
-                  {(item) => (
-                    <tr>
-                      <td>{item().label}</td>
-                      <td class="right">{formatCount(item().activity.users)}</td>
-                      <td class="right">{item().activity.sessions}</td>
-                      <td class="right">{item().activity.minutes}</td>
-                    </tr>
-                  )}
-                </Show>
-              );
-            }}
-          </For>
-        </tbody>
-      </table>
-      <Show when={props.instance.content.length > 0}>
-        <h3 style={{ 'font-size': '13px', 'margin-top': '16px' }}>Content this week</h3>
+    <section class="panel instance-block" data-testid={`kolibri-instance-${instanceKey(props.instance)}`}>
+      <InstanceMeta
+        name={props.instance.name}
+        demo={props.instance.demo}
+        listed={props.instance.listed}
+        hookStatus={props.instance.hookStatus}
+        skipReason={props.instance.skipReason}
+        clock={props.instance.clock}
+        collectedAt={props.instance.collectedAt}
+        showNoData={!hasPayload()}
+      />
+      <Show when={hasPayload() && teaching()}>
+        {(cycle) => (
+          <p class="muted">
+            Teaching cycle: {formatUnit(cycle().lessonsCreated, 'lesson created', 'lessons created')},
+            {' '}{formatUnit(cycle().lessonsVisible, 'visible', 'visible')},
+            {' '}{formatUnit(cycle().quizzesCreated, 'quiz created', 'quizzes created')},
+            {' '}{formatUnit(cycle().quizzesStarted, 'started', 'started')},
+            {' '}{formatUnit(cycle().quizzesEnded, 'ended', 'ended')}.
+          </p>
+        )}
+      </Show>
+      <Show when={hasPayload() && roles().length > 0}>
+        <table>
+          <thead>
+            <tr>
+              <th>Role</th>
+              <th class="right">Accounts</th>
+              <th class="right">Sessions</th>
+              <th class="right">Minutes</th>
+            </tr>
+          </thead>
+          <tbody>
+            <For each={roleIds()}>
+              {(id) => {
+                const row = () => roles().find((item) => item.id === id);
+                return (
+                  <Show when={row()}>
+                    {(item) => (
+                      <tr>
+                        <td>{item().label}</td>
+                        <td class="right">{formatCount(item().activity.users)}</td>
+                        <td class="right">{item().activity.sessions}</td>
+                        <td class="right">{item().activity.minutes}</td>
+                      </tr>
+                    )}
+                  </Show>
+                );
+              }}
+            </For>
+          </tbody>
+        </table>
+      </Show>
+      <Show when={hasPayload() && content().length > 0}>
+        <h3 class="section-heading">Content this week</h3>
         <table>
           <thead>
             <tr>
               <th>Channel / title</th>
               <th>Role</th>
               <th class="right">Visits</th>
-              <th class="right">Min</th>
+              <th class="right">Minutes</th>
               <th>Assigned</th>
             </tr>
           </thead>
           <tbody>
             <For each={contentIds()}>
               {(id) => {
-                const row = () => props.instance.content.find((item) => contentId(item) === id);
+                const row = () => content().find((item) => contentId(item) === id);
                 return (
                   <Show when={row()}>
                     {(item) => (
                       <tr>
                         <td>{item().channel} · {item().title}</td>
-                        <td>{item().role}</td>
+                        <td>{roleLabel(item().role)}</td>
                         <td class="right">{item().visits}</td>
                         <td class="right">{Math.round(item().seconds / 60)}</td>
                         <td>{item().assigned ? 'assigned' : 'free'}</td>
@@ -112,20 +137,21 @@ function InstancePanel(props: { instance: KolibriInstanceWeek }) {
 }
 
 export function KolibriPage(props: KolibriPageProps) {
-  const ids = () => props.data.instances.map((item) => item.instanceId);
+  const ids = () => props.data.instances.map(instanceKey);
 
   return (
     <>
       <SchoolNav deploymentId={props.data.deploymentId} week={props.data.weekStart} current="kolibri" />
       <div class="wrap">
         <h2>{props.school} · Kolibri this week</h2>
-        <p class="muted">Each instance stays on its own line, including Demo and unlisted containers.</p>
+        <p class="muted">Each copy stays on its own line, including Demo and extra copies.</p>
+        <ClockWeekWarning trusted={props.data.clockTrusted} />
         <Show when={props.data.instances.length === 0}>
           <p>No data</p>
         </Show>
         <For each={ids()}>
           {(id) => {
-            const instance = () => props.data.instances.find((item) => item.instanceId === id);
+            const instance = () => props.data.instances.find((item) => instanceKey(item) === id);
             return (
               <Show when={instance()}>
                 {(item) => <InstancePanel instance={item()} />}

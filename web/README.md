@@ -35,9 +35,45 @@ The mock adapter accepts username `admin` and password `mock-operator`. That pas
 
 Sample fixtures (Nharira / healthy-looking counts, Chigonda / offer-help banner plus stale data and a tiny Wikipedia week, kind-panda / No data) are clearly labelled “Sample data” in the UI.
 
+## Display defaults
+
+`GET /api/v1/meta` wins when it sends a number. If it omits a field, `src/config/display.ts` supplies:
+
+| Setting | Default | Used for |
+|---|---|---|
+| `staleAfterHours` | `48` | A card whose `lastPulled` is older than this is marked “data from &lt;date&gt;” |
+| `hourlyChartMinWeeklyViews` | `20` | Hide Wikipedia views-by-hour when that copy’s weekly page views are below this |
+
+Scorecard grade cut-offs are separate and stay unset until idea#375 (`src/config/thresholds.ts`). The UI keeps showing “Thresholds not set”.
+
+## Pages against proposal §2
+
+| Page | Nav label | §2 question | What it answers |
+|---|---|---|---|
+| Fleet overview | Fleet | Q1–Q8 at a glance | Six scorecard lines (Available, Set up, Teaching cycle, Learners operate, Nextcloud, Wikipedia) plus last-pulled freshness |
+| School week | Week | Q1, Q3 | Kit on/off/gap pattern and who is on the books (census) |
+| Kolibri | Kolibri | Q2, Q3, Q4, Q6 | Anyone using the app while the kit is on; who operates (role census and sign-ins); lessons, quizzes, assigned vs free content; school’s own vs Demo vs extra copies |
+| Nextcloud | Nextcloud | Q5, Q6 | Roles, apps opened, Office, sharing workflows; school’s own vs Demo vs extra copies |
+| Wikipedia | Wikipedia | Q6, Q8 | Views, articles, sessions, top articles, views by hour (hidden on a tiny week); school’s own vs Demo |
+| Help offered | Help | Q7 | Whether use changes after help was offered (record + weekly raw counts) |
+| Reachability | Reachability | Q1 | Whether idea could reach the kit, next to the power sampler, so “not reachable to us” is not read as “powered off” |
+| Apps | Apps | Q6 | Every copy on its own line (own / Demo / extra) so two Kolibris are never added together |
+
+Pages 6–8 no longer carry a “needs sketch sign-off” banner. They stay because each one answers a §2 question.
+
+### Dropped or reworded (did not map to §2, or was jargon)
+
+- “Needs sketch sign-off” banners
+- Raw instance ids and “listed / unlisted” tags (now “School’s own”, “Demo”, “Extra copy”)
+- Tailscale `via` (DERP / direct) and `latencyMs` on the reachability page
+- Instance port column
+- “Beyond seeds” as a number derived on idea (the hook now emits `beyondSeed`; the UI reads it directly)
+- Collabora CODE and raw Nextcloud app ids (shown as Files / Office / Photos)
+- Empty scorecard bars (no cut-offs until idea#375)
+- Nextcloud “documents created / edited” by role (replaced by the Engine `office` object)
+
 ## Constraints
 
 - TypeScript strict, one CSS file (`src/main.css`), no CSS framework, no CDN, no web fonts from the network
 - Every `<For>` is keyed by a stable ID, never by array index
 - Scorecard thresholds live in `src/config/thresholds.ts` only; until Koen sets them the UI shows “Thresholds not set”
-- Pages 6–8 (help timeline, uplink history, instance breakdown) are first functional versions and need a sketch sign-off

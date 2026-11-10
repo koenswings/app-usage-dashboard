@@ -68,14 +68,6 @@ export function ScorecardCard(props: ScorecardCardProps) {
                       <i class={`scorecard-line__icon scorecard-line__icon--${item().tone}`} aria-hidden="true" />
                       {item().label}
                     </span>
-                    <div class="scorecard-line__bar" aria-hidden="true">
-                      <Show when={item().barPercent !== null}>
-                        <span
-                          class={`scorecard-line__fill scorecard-line__fill--${item().tone}`}
-                          style={{ width: `${item().barPercent ?? 0}%` }}
-                        />
-                      </Show>
-                    </div>
                     <span class="scorecard-line__detail">{item().detail}</span>
                     <span class="scorecard-line__word">{item().word}</span>
                   </div>

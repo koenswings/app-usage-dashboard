@@ -10,7 +10,7 @@ import {
   type CardPill,
   type ScorecardLineId,
 } from '../config/thresholds';
-import { formatCount, formatMinutes, formatPercent } from './format';
+import { formatCount, formatMinutes, formatPercent, formatUnit } from './format';
 import type { ScorecardHeadlineView, ScorecardLineView } from '../components/shared/ScorecardCard';
 
 export function lineDetail(id: ScorecardLineId, inputs: ScorecardInputs): string {
@@ -35,9 +35,9 @@ export function lineDetail(id: ScorecardLineId, inputs: ScorecardInputs): string
       return `${formatPercent(inputs.learnersOperate.learnerShareOfMinutes)} learner minutes`;
     }
     case 'nextcloud': {
-      const { worksheetShares, fileDrops } = inputs.nextcloud;
-      if (worksheetShares === null && fileDrops === null) return '—';
-      return `${formatCount(worksheetShares)} shares · ${formatCount(fileDrops)} drops`;
+      const { worksheetShares, fileDropUploads, officeOpens } = inputs.nextcloud;
+      if (worksheetShares === null && fileDropUploads === null && officeOpens === null) return '—';
+      return `${formatUnit(worksheetShares, 'worksheet share', 'worksheet shares')} · ${formatUnit(fileDropUploads, 'file-drop upload', 'file-drop uploads')}`;
     }
     case 'wikipedia': {
       if (inputs.wikipedia.pageViewsOwn === null) return '—';

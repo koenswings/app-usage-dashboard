@@ -167,8 +167,10 @@ export interface ScorecardSetupInputs {
   learnersEnrolled: number | null;
   teachers: number | null;
   admins: number | null;
-  nextcloudTeachersBeyondSeeds: number | null;
-  nextcloudLearnersBeyondSeeds: number | null;
+  /** From own-Nextcloud `setup.teacher.beyondSeed` (hook-emitted, last ok day). */
+  nextcloudTeacherBeyondSeed: number | null;
+  /** From own-Nextcloud `setup.learner.beyondSeed` (hook-emitted, last ok day). */
+  nextcloudLearnerBeyondSeed: number | null;
 }
 
 export interface ScorecardTeachingInputs {
@@ -196,11 +198,15 @@ export interface ScorecardLearnersOperateInputs {
 
 export interface ScorecardNextcloudInputs {
   worksheetShares: number | null;
-  fileDrops: number | null;
-  officeOpensTeachers: number | null;
-  officeOpensLearners: number | null;
-  documentsCreatedOrEditedTeachers: number | null;
-  documentsCreatedOrEditedLearners: number | null;
+  editShares: number | null;
+  fileDropLinks: number | null;
+  fileDropUploads: number | null;
+  schoolFilesShares: number | null;
+  officeOpens: number | null;
+  officeDistinctDocuments: number | null;
+  officeRead: number | null;
+  officeEdit: number | null;
+  officeEstimatedMinutes: number | null;
 }
 
 export interface ScorecardWikipediaInputs {
@@ -302,6 +308,11 @@ export interface SchoolWeekResponse {
   monitoringEnabled: boolean;
   thresholdsConfigured: boolean;
   sampleData: boolean;
+  /**
+   * False when any ok day-file this week had `clock.synced === false`.
+   * The whole week is then untrustworthy for time-based reading.
+   */
+  clockTrusted: boolean;
   timezone: KitTimezone;
   scorecard: ScorecardInputs;
   census: Census;
@@ -393,29 +404,74 @@ export interface ClockHonesty {
   correctedBoots: number;
 }
 
-export interface KolibriInstanceWeek {
-  instanceId: string;
+/**
+ * Engine hookStatus (agent-engine-dev#308). A working borrowed hook on an
+ * extra copy is `ok` with `listed: false`. There is no `unlistedBorrowed`.
+ * `missing` was renamed to `no-hook`.
+ */
+export type HookStatus =
+  | 'ok'
+  | 'timeout'
+  | 'failed'
+  | 'invalid'
+  | 'skipped'
+  | 'unlisted-no-hook'
+  | 'no-hook';
+
+/** Present when `hookStatus` is `skipped`. */
+export type SkipReason = 'backup' | 'update' | 'move' | 'temperature';
+
+export type AppKind = 'kolibri' | 'nextcloud' | 'kiwix' | 'other';
+
+/**
+ * Shared envelope on every instance (all three apps). Day-file identity is
+ * `instance`. `instanceId` is an accepted alias for the same value.
+ *
+ * App payloads are optional / null on stubs and failed days so the UI can
+ * tell "the hook failed" apart from "nothing has been collected yet"
+ * (`collectedAt === null` and no payload).
+ */
+export interface InstanceEnvelope {
+  instance: string;
+  /** Alias of `instance`. Prefer `instance`. */
+  instanceId?: string;
   name: string;
-  app: 'kolibri';
-  demo: boolean;
+  hookStatus: HookStatus;
+  skipReason?: SkipReason;
   listed: boolean;
-  flags: string[];
-  clock: ClockHonesty;
-  setup: Census;
+  demo: boolean;
+  clock: ClockHonesty | null;
+  collectedAt: IsoDateTime | null;
+}
+
+export function instanceKey(row: { instance?: string; instanceId?: string }): string {
+  return row.instance || row.instanceId || '';
+}
+
+export function weekClockTrusted(instances: Array<{ clock: ClockHonesty | null }>): boolean {
+  return instances.every((row) => row.clock === null || row.clock.synced);
+}
+
+export interface KolibriInstanceWeek extends InstanceEnvelope {
+  app: 'kolibri';
+  /** Kolibri-only (e.g. demoSeedExcluded). Other apps omit this. */
+  flags?: string[] | null;
+  setup: Census | null;
   signins: {
     learner: RoleActivity;
     coach: RoleActivity;
     admin: RoleActivity;
-  };
-  guest: { visits: number; seconds: number };
-  teaching: KolibriTeaching;
-  content: KolibriContentRow[];
+  } | null;
+  guest: { visits: number; seconds: number } | null;
+  teaching: KolibriTeaching | null;
+  content: KolibriContentRow[] | null;
 }
 
 export interface KolibriWeekResponse {
   schema: ApiSchema;
   deploymentId: string;
   weekStart: WeekStart;
+  clockTrusted: boolean;
   instances: KolibriInstanceWeek[];
 }
 
@@ -423,61 +479,69 @@ export interface KolibriWeekResponse {
 // Nextcloud week aggregates
 // ---------------------------------------------------------------------------
 
+/** Hook-emitted role census. `beyondSeed` is not derived on idea. */
+export interface RoleCount {
+  total: number;
+  beyondSeed: number;
+}
+
+export type SchoolRole = 'admin' | 'teacher' | 'learner';
+
 export interface NextcloudSetup {
-  teachers: number;
-  learners: number;
-  admins: number;
-  teachersBeyondSeeds: number;
-  learnersBeyondSeeds: number;
+  admin: RoleCount;
+  teacher: RoleCount;
+  learner: RoleCount;
+  /** Extra Nextcloud groups the hook listed; keep unless the Engine drops it. */
+  otherGroups?: Record<string, number>;
 }
 
 export interface NextcloudLogins {
-  teachers: number;
-  learners: number;
-  admins: number;
+  admin: RoleCount;
+  teacher: RoleCount;
+  learner: RoleCount;
 }
 
+/**
+ * Office activity as already reduced by the Engine. Do not re-reduce into
+ * created/edited-by-role. `distinctDocuments` is the Engine's union across
+ * that day's samples (not something idea should union again for the day).
+ * A week response must not sum daily `distinctDocuments` (that would
+ * over-count); it may pass through the last ok day's value.
+ */
 export interface NextcloudOffice {
-  opensTeachers: number;
-  opensLearners: number;
-  documentsCreatedOrEditedTeachers: number;
-  documentsCreatedOrEditedLearners: number;
-  /** Estimate only (WOPI token sampling); exact editing minutes are not stored. */
-  estimatedMinutesTeachers: number | null;
-  estimatedMinutesLearners: number | null;
-}
-
-export interface NextcloudAppOpen {
-  appId: string;
-  /** Container-log counts have no role (§3 Q5). */
   opens: number;
+  distinctDocuments: number;
+  read: number;
+  edit: number;
+  /** Single estimate; no per-role split. Null when the hook could not estimate. */
+  estimatedMinutes: number | null;
+  byGroup: { admin: number; teacher: number; learner: number };
+  mime: { text: number; sheet: number; slides: number };
 }
 
 export interface NextcloudWorkflows {
   worksheetShares: number;
   editShares: number;
-  fileDrops: number;
+  fileDropLinks: number;
+  fileDropUploads: number;
   schoolFilesShares: number;
 }
 
-export interface NextcloudInstanceWeek {
-  instanceId: string;
-  name: string;
+export interface NextcloudInstanceWeek extends InstanceEnvelope {
   app: 'nextcloud';
-  demo: boolean;
-  listed: boolean;
-  flags: string[];
-  setup: NextcloudSetup;
-  logins: NextcloudLogins;
-  office: NextcloudOffice;
-  appsOpened: NextcloudAppOpen[];
-  workflows: NextcloudWorkflows;
+  setup: NextcloudSetup | null;
+  logins: NextcloudLogins | null;
+  office: NextcloudOffice | null;
+  /** App id → open count. May be missing or empty. */
+  appsOpened: Record<string, number> | null;
+  workflows: NextcloudWorkflows | null;
 }
 
 export interface NextcloudWeekResponse {
   schema: ApiSchema;
   deploymentId: string;
   weekStart: WeekStart;
+  clockTrusted: boolean;
   instances: NextcloudInstanceWeek[];
 }
 
@@ -490,45 +554,33 @@ export interface KiwixTopArticle {
   views: number;
 }
 
-export interface KiwixInstanceWeek {
-  instanceId: string;
-  name: string;
+export interface KiwixInstanceWeek extends InstanceEnvelope {
   app: 'kiwix';
-  demo: boolean;
-  listed: boolean;
-  flags: string[];
-  pageViews: number;
-  distinctArticles: number;
-  sessions: number;
-  topArticles: KiwixTopArticle[];
+  pageViews: number | null;
+  distinctArticles: number | null;
+  sessions: number | null;
+  topArticles: KiwixTopArticle[] | null;
   /** Length 24, kit-local hour 0–23. School-level only; never per person. */
-  byHour: number[];
+  byHour: number[] | null;
 }
 
 export interface KiwixWeekResponse {
   schema: ApiSchema;
   deploymentId: string;
   weekStart: WeekStart;
+  clockTrusted: boolean;
   instances: KiwixInstanceWeek[];
 }
 
 // ---------------------------------------------------------------------------
-// Instance breakdown (every discovered container, including unlisted)
+// Instance breakdown (every discovered container, including extra copies)
 // ---------------------------------------------------------------------------
 
-export type AppKind = 'kolibri' | 'nextcloud' | 'kiwix' | 'other';
-
-export type HookStatus = 'ok' | 'unlistedBorrowed' | 'unlistedNoHook' | 'missing';
-
-export interface DiscoveredInstance {
-  instanceId: string;
-  name: string;
+export interface DiscoveredInstance extends InstanceEnvelope {
   app: AppKind;
-  demo: boolean;
-  listed: boolean;
-  hookStatus: HookStatus;
-  port: number | null;
-  note: string;
+  /** Optional implementation detail; the UI does not display it. */
+  port?: number | null;
+  note?: string;
 }
 
 export interface InstancesResponse {

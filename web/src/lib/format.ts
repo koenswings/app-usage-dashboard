@@ -39,3 +39,8 @@ export function formatCount(value: number | null): string {
   if (value === null) return '—';
   return String(value);
 }
+
+export function formatUnit(value: number | null, singular: string, plural: string): string {
+  if (value === null) return '—';
+  return `${value} ${value === 1 ? singular : plural}`;
+}

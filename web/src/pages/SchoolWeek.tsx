@@ -2,6 +2,7 @@ import { For, Show } from 'solid-js';
 import type { SchoolWeekResponse } from '../api/types';
 import { PresenceStrip } from '../components/shared/PresenceStrip';
 import { ScorecardCard } from '../components/shared/ScorecardCard';
+import { ClockWeekWarning } from '../components/InstanceMeta';
 import { SchoolNav } from '../components/SchoolNav';
 import { formatCount, formatDataFrom, formatDateTime, formatMinutes, formatPercent } from '../lib/format';
 import { buildHeadlines, buildPill, buildScorecardLines } from '../lib/scorecardView';
@@ -25,7 +26,7 @@ export function SchoolWeek(props: SchoolWeekProps) {
       id: 'learners',
       label: 'Learners registered',
       value: formatCount(census().learnersRegistered),
-      sub: `${formatCount(census().learnersEnrolled)} enrolled in a class · ch. 3.2–3.3`,
+      sub: `${formatCount(census().learnersEnrolled)} enrolled in a class`,
     },
     {
       id: 'teachers',
@@ -58,6 +59,7 @@ export function SchoolWeek(props: SchoolWeekProps) {
         <h2>
           {props.data.school} · {props.data.engine} · week detail
         </h2>
+        <ClockWeekWarning trusted={props.data.clockTrusted} />
         <p class="muted">
           Last pulled: {formatDateTime(props.data.lastPulled, props.headerTimeZone)}
           <Show when={props.data.stale && props.data.dataFrom}>
