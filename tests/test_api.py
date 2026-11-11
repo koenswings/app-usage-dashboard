@@ -281,6 +281,8 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(card["scorecard"]["nextcloud"]["fileDropUploads"], 2)
         self.assertEqual(card["scorecard"]["nextcloud"]["fileDropLinks"], 0)
         self.assertEqual(card["scorecard"]["nextcloud"]["officeOpens"], 3)
+        self.assertEqual(card["scorecard"]["nextcloud"]["officeOpensTeacherLearner"], 3)
+        self.assertEqual(card["scorecard"]["nextcloud"]["officeOpensAdmin"], 0)
         self.assertEqual(card["scorecard"]["nextcloud"]["officeEdit"], 2)
         self.assertEqual(card["scorecard"]["setup"]["nextcloudTeacherBeyondSeed"], 1)
         self.assertEqual(card["scorecard"]["setup"]["nextcloudLearnerBeyondSeed"], 2)

@@ -77,6 +77,8 @@ def amber_scorecard():
             "fileDropUploads": 0,
             "schoolFilesShares": 0,
             "officeOpens": 0,
+            "officeOpensTeacherLearner": 0,
+            "officeOpensAdmin": 0,
             "officeDistinctDocuments": 0,
             "officeRead": 0,
             "officeEdit": 0,
@@ -99,6 +101,8 @@ def green_scorecard():
     card["learnersOperate"]["coachSessions"] = 2
     card["learnersOperate"]["adminSessions"] = 1
     card["nextcloud"]["officeOpens"] = 2
+    card["nextcloud"]["officeOpensTeacherLearner"] = 2
+    card["nextcloud"]["officeOpensAdmin"] = 0
     card["wikipedia"]["pageViewsOwn"] = 12
     return card
 
@@ -195,6 +199,16 @@ class ToneTests(unittest.TestCase):
         card["nextcloud"]["fileDropLinks"] = 9
         self.assertEqual(line_tones(card)["nextcloud"], AMBER)
         card["nextcloud"]["officeOpens"] = 1
+        card["nextcloud"]["officeOpensTeacherLearner"] = 1
+        self.assertEqual(line_tones(card)["nextcloud"], GREEN)
+
+    def test_nextcloud_ignores_admin_office_opens(self):
+        card = amber_scorecard()
+        card["nextcloud"]["officeOpens"] = 8
+        card["nextcloud"]["officeOpensAdmin"] = 8
+        card["nextcloud"]["officeOpensTeacherLearner"] = 0
+        self.assertEqual(line_tones(card)["nextcloud"], AMBER)
+        card["nextcloud"]["officeOpensTeacherLearner"] = 1
         self.assertEqual(line_tones(card)["nextcloud"], GREEN)
 
     def test_setup_is_yes_no(self):

@@ -108,6 +108,8 @@ def empty_scorecard() -> dict[str, Any]:
             "fileDropUploads": None,
             "schoolFilesShares": None,
             "officeOpens": None,
+            "officeOpensTeacherLearner": None,
+            "officeOpensAdmin": None,
             "officeDistinctDocuments": None,
             "officeRead": None,
             "officeEdit": None,
@@ -448,6 +450,26 @@ def _by_group(office: dict[str, Any], role: str) -> int:
     return int(by_group.get(plural.get(role, role)) or 0)
 
 
+def office_open_split(office: dict[str, Any] | None) -> tuple[int | None, int | None]:
+    """Teacher+learner opens and admin opens, from office.byGroup.
+
+    Old day files with no byGroup (or an empty / all-zero byGroup) while
+    total ``opens`` is greater than 0 have an unknown split: both values
+    are None. That way we never treat unattributed opens as teacher or
+    learner activity, and we never invent an admin count of zero. A week
+    with no opens is (0, 0).
+    """
+    if not office:
+        return None, None
+    opens = int(office.get("opens") or office.get("tokens") or 0)
+    teacher = _by_group(office, "teacher")
+    learner = _by_group(office, "learner")
+    admin = _by_group(office, "admin")
+    if teacher + learner + admin == 0 and opens > 0:
+        return None, None
+    return teacher + learner, admin
+
+
 def nextcloud_week(rows: list[Any]) -> dict[str, Any]:
     env = instance_envelope(rows)
     ok_payloads = env.pop("_ok_payloads")
@@ -697,6 +719,8 @@ def scorecard_from_weeks(
         teacher_beyond = learner_beyond = None
         worksheet = edit_shares = file_drop_links = file_drop_uploads = school_files = 0
         office_opens = office_distinct = office_read = office_edit = 0
+        office_tl = office_admin = 0
+        has_office_split = False
         office_est = 0
         has_est = False
         for inst in own_n:
@@ -715,6 +739,11 @@ def scorecard_from_weeks(
             school_files += int(wf.get("schoolFilesShares") or 0)
             off = inst.get("office") or {}
             office_opens += int(off.get("opens") or 0)
+            teacher_learner, admin_opens = office_open_split(off)
+            if teacher_learner is not None:
+                has_office_split = True
+                office_tl += teacher_learner
+                office_admin += int(admin_opens or 0)
             # Sum across the school's own Nextcloud instances: document ids
             # are salted per instance, so two own Nextclouds hold different documents.
             office_distinct += int(off.get("distinctDocuments") or 0)
@@ -732,6 +761,8 @@ def scorecard_from_weeks(
             "fileDropUploads": file_drop_uploads,
             "schoolFilesShares": school_files,
             "officeOpens": office_opens,
+            "officeOpensTeacherLearner": office_tl if has_office_split else None,
+            "officeOpensAdmin": office_admin if has_office_split else None,
             "officeDistinctDocuments": office_distinct,
             "officeRead": office_read,
             "officeEdit": office_edit,

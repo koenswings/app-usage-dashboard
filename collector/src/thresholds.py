@@ -226,7 +226,8 @@ def nextcloud_actions(scorecard: dict[str, Any]) -> int | None:
         nc.get("editShares"),
         nc.get("schoolFilesShares"),
         nc.get("fileDropUploads"),
-        nc.get("officeOpens"),
+        # U-7 line 5: Office opens by a teacher or learner. Admin opens do not count.
+        nc.get("officeOpensTeacherLearner"),
     ]
     if all(v is None for v in parts):
         return None

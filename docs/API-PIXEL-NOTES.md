@@ -8,7 +8,11 @@ The collector on `kid/i414-collector` serves `web/API.md` and `web/src/api/types
 
 ## Scorecard document-edit fields
 
-`b4fa49b` dropped `documentsCreatedOrEditedTeachers` / `documentsCreatedOrEditedLearners` and the teacher/learner office-open split. The collector does not invent those fields. It serves the `office*` counters on `ScorecardNextcloudInputs` (`officeOpens`, `officeDistinctDocuments`, `officeRead`, `officeEdit`, `officeEstimatedMinutes`) from the stored office object. There is no created-versus-edited-by-role reduction.
+`b4fa49b` dropped `documentsCreatedOrEditedTeachers` / `documentsCreatedOrEditedLearners`. The collector still does not invent a created-versus-edited-by-role reduction. It serves the `office*` counters on `ScorecardNextcloudInputs` (`officeOpens`, `officeDistinctDocuments`, `officeRead`, `officeEdit`, `officeEstimatedMinutes`) from the stored office object.
+
+Steve's U-7 line 5 decision: Office opens that count are by a teacher or learner, not an admin. The scorecard now also sends `officeOpensTeacherLearner` (`office.byGroup.teacher` + `office.byGroup.learner`) and `officeOpensAdmin` (`office.byGroup.admin`), keeping total `officeOpens`. Old day files with no `byGroup` (while `opens` > 0) send `null` for both split fields, not `0`. `nextcloudMinActions` uses `officeOpensTeacherLearner` only; a null split contributes 0, so unattributed or admin-only opens do not meet the threshold.
+
+Please add `officeOpensTeacherLearner` and `officeOpensAdmin` to `ScorecardNextcloudInputs` on the Console PR (`web/API.md` and `web/src/api/types.ts` are yours). Workflows — `worksheetShares`, `editShares`, `fileDropLinks`, `fileDropUploads`, `schoolFilesShares` — have no `byGroup` in the Engine day file or the collector, so they stay unsplit totals. I did not change them.
 
 ## `GET /api/v1/health` is public
 
