@@ -116,12 +116,52 @@ class E2eTarFallbackTests(unittest.TestCase):
             self.assertIn("services/python:3.12-slim-bookworm.tar", planned)
             self.assertIn("services/tailscale_tailscale:v1.88.3.tar", planned)
             commands = (dest / "dry-run-meta" / "planned-commands.txt").read_text(encoding="utf-8")
+            # idea#445: the web tar is the Engine-identical export of the pin, never a local build.
+            pin = [l.split("image:", 1)[1].strip() for l in (REPO / "compose.yaml").read_text(encoding="utf-8").splitlines()
+                   if l.strip().startswith("image: ghcr.io/koenswings/usage-dashboard-web")][0]
+            self.assertIn("script/publish-web-image.sh --export-tar services --pin " + pin, commands)
+            self.assertIn("script/verify-service-tar.sh compose.yaml services", commands)
+            self.assertNotIn("docker build", commands)
+            self.assertIn("ghcr.io/koenswings/usage-dashboard-web@" + pin.split("@", 1)[1], commands)
             self.assertIn("installApp usage-dashboard-1.0", commands)
             self.assertIn("--source", commands)
             self.assertIn("--fresh", commands)
             self.assertIn("--keep", commands)
             self.assertIn("since 2026-10-01", commands)
 
+
+    def test_post_install_asserts_repo_pin_and_tag(self):
+        body = _function_body(self.text, "assert_web_pin_resolves")
+        self.assertIn('"$WEB_REPO@$WEB_DIGEST"', body)
+        self.assertIn('"$WEB_IMAGE"', body)
+        self.assertIn("RepoDigests", body)
+        self.assertIn('[ "$id_tag" = "$id_pin" ]', body)
+        live = _function_body(self.text, "run_live")
+        self.assertIn("assert_web_pin_resolves", live)
+        self.assertIn('"$VERIFY" "$REPO/compose.yaml" /services', live)
+        self.assertIn("export_web_tar", live)
+        export = _function_body(self.text, "export_web_tar")
+        self.assertIn('"$PUBLISH" --export-tar', export)
+        # Teardown never untags the pinned web image.
+        self.assertNotIn("docker image rm", _function_body(self.text, "remove_test_images"))
+        # A container using the pin (the live hub) is never touched.
+        self.assertIn("container_image_ids", _function_body(self.text, "unname_web_image"))
+
+    def test_refuses_unpinned_web_image(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            (repo / "script").mkdir(parents=True)
+            for f in (p for p in (REPO / "script").iterdir() if p.is_file()):
+                (repo / "script" / f.name).write_bytes(f.read_bytes())
+                (repo / "script" / f.name).chmod(f.stat().st_mode)
+            text = (REPO / "compose.yaml").read_text(encoding="utf-8")
+            text = re.sub(r"image: ghcr.io/koenswings/usage-dashboard-web:1.0@sha256:[0-9a-f]{64}",
+                          "image: usage-dashboard-web:local-abc", text)
+            (repo / "compose.yaml").write_text(text, encoding="utf-8")
+            result = subprocess.run([str(repo / "script" / "e2e-tar-fallback.sh"), "--dry-run", "--dest", str(Path(tmp) / "d")],
+                                    capture_output=True, text=True, cwd=str(repo))
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("must be digest-pinned", result.stderr)
 
     def test_ingest_handles_root_owned_registry(self):
         """Host-side ingest must sudo (or match ownership) for root-owned ./data."""

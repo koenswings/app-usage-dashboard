@@ -1,18 +1,15 @@
 # Packaging the web image
 
-The Engine's `installApp` / `buildInstance` runs `docker image pull` on every
-compose `image:` (see `serviceImageTarPath` in Engine `Instance.ts`). It skips
-the pull only when a matching tar already exists under the disk's `services/`
-directory.
+The web image is published as `ghcr.io/koenswings/usage-dashboard-web` and
+pinned in `compose.yaml` as `repo:tag@sha256:<digest>`
+(`ghcr.io/koenswings/usage-dashboard-web:1.0@sha256:…`). The Engine's
+`installApp` / `buildInstance` pulls every compose `image:` by that full ref,
+tags it `repo:tag` and saves it to the disk's `services/` directory (see
+`buildImageSteps` and `serviceImageTarPath` in Engine `ImageRef.ts` /
+`Instance.ts`). Every start loads those tars again.
 
-`usage-dashboard-web:1.0` is a build-only image (`web/Dockerfile`,
-`pull_policy: never`). A GitHub `installApp` of this branch therefore fails
-unless the image is already present locally or a tar is waiting on the disk.
-The idea03 re-walk worked by building the image on the Pi and saving
-`/services/usage-dashboard-web:1.0.tar` so Engine's existing-tar path accepted
-it. Publishing to `ghcr.io` was approved on 11 Nov 2026 (idea#375 U-10).
-
-This document covers the ghcr publish path, the tar-in-bundle fallback
+This document covers the ghcr publish path, the exact-pin tar export and its
+verification (idea#445), the pin-change runbook, the tar-in-bundle fallback
 kept for offline installs, and how `GET /api/v1/health` reports the git
 commit without an instance `.env` hack.
 
@@ -66,8 +63,8 @@ Koen approved publishing on 11 Nov 2026 (Europe/Brussels). The image
 is `ghcr.io/koenswings/usage-dashboard-web`. The package must be
 **public** so idea can `docker pull` it without credentials.
 
-`script/publish-web-image.sh` builds `linux/arm64` with buildx and
-tags both:
+`script/publish-web-image.sh --push` builds `linux/arm64` with buildx and
+pushes two tags:
 
 ```
 ghcr.io/koenswings/usage-dashboard-web:<x-app.version>
@@ -83,7 +80,14 @@ distinguishable. The tag shape follows
 
 The script passes `--build-arg COMMIT=<full sha>` and prints `digest:`
 plus a ready-to-paste `pin:` line. It pushes **only** when invoked
-with an explicit `--push`.
+with an explicit `--push`. Add `--export-tar <dir>` to also write the
+tar of the new pin (see "Exact-pin tar export" below).
+
+Without `--push` the script makes a **local test build** tagged only
+`usage-dashboard-web:local-<shortsha>`. Local builds never get a
+`ghcr.io/…` name or a published tag (`:1.0`, `:1.0-<shortsha>`), so they
+can't shadow the pinned image, be mistaken for it, or end up in a
+`services/` tar (idea#445). Their digest is not a pin.
 
 Pushing requires a GitHub token with `write:packages` and
 `read:packages`, and a `docker login ghcr.io` on the host that runs
@@ -139,53 +143,158 @@ from an agent session). After a successful publish:
    ghcr form `ghcr.io/koenswings/usage-dashboard-web:1.0@sha256:<64 hex>`
    (a `:1.0-<shortsha>@sha256:…` pin is also accepted).
 
-Until the digest is filled in, `compose.yaml` keeps the local `build:`
-path so a developer (or the tar-in-bundle fallback) can still produce
-`usage-dashboard-web:1.0`.
+5. Follow the **pin-change runbook** below on every disk that already
+   holds the App. `pin-web-digest.sh` prints it at the end of every run.
+
+## Exact-pin tar export (idea#445)
+
+```sh
+script/publish-web-image.sh --export-tar <dir>                  # pin from compose.yaml web
+script/publish-web-image.sh --export-tar <dir> --pin <repo:tag@sha256:…>
+script/publish-web-image.sh --push --export-tar <dir>           # the pin just pushed
+```
+
+This does exactly what the Engine's install path does, and nothing else:
+
+1. `docker image pull --platform linux/arm64 <pin>`
+2. `docker image tag <pin> <repo:tag>`
+3. `docker save <repo:tag> > <dir>/<tar name>.partial` (a plain save, never `--platform`)
+4. `script/verify-service-tar.sh --tar <…>.partial --image <pin>`
+5. `mv` of the `.partial` file to its real name (same directory, so the rename is atomic)
+
+A local build is never saved. If the verify step fails, the `.partial` file
+stays where it is and nothing gets the real name. If the real tar already
+exists and matches the pin, it is left alone. If it exists but doesn't match,
+the export stops: quarantine the old tar first (runbook step 1).
+
+The tar name is the Engine's `serviceImageTarName(ref)`: `saveName(ref)`
+(`repo:tag`, digest stripped) with every `/` replaced by `_`, plus `.tar`. For
+the web pin that is `ghcr.io_koenswings_usage-dashboard-web:1.0.tar`.
+`script/verify-service-tar.sh --print-tar-name <ref>` prints it.
+
+## Verify a service tar
+
+```sh
+script/verify-service-tar.sh <compose.yaml> <services-dir> [--service web]
+script/verify-service-tar.sh --tar <file.tar> --image <repo:tag@sha256:…>
+```
+
+It is read-only and needs no Docker: it opens the tar with Python's `tarfile`
+and reads `index.json`, `manifest.json` and the top-level blob, without
+extracting anything. For every digest-pinned compose image it checks
+`<services-dir>/<serviceImageTarName>`. Images pinned by tag only are skipped
+(`SKIP`).
+
+The verdict is a line-for-line port of the Engine's pre-load check,
+`checkServiceTarPin` in agent-engine-dev `src/data/ImageRef.ts` (#327), so
+the script and the Engine always agree. The **named entry** is the
+`index.json` descriptor whose `io.containerd.image.name` (or a repo-like
+`org.opencontainers.image.ref.name`, one containing `/` or `:`) equals
+`repo:tag`, with `docker.io/library/` normalised. A single unnamed entry
+counts as named. `manifest.json` `RepoTags` must also name `repo:tag`.
+
+| State | When | Engine on start |
+|---|---|---|
+| `MATCH` `layout=index` | the named entry is an image index and its digest == the pin; **or** a bare `index.json` that is itself an image index, with no name annotation, whose bytes hash to the pin | loads it (if the pin isn't already local) |
+| `MATCH` `layout=manifest` | the named entry is a single manifest whose digest == the pin (a one-platform image with no index, such as the old `ef48f1fa`) | loads it |
+| `MISMATCH` `layout=index` | the named image index has another digest (a stale tar) | **quarantines** it, never loads it |
+| `MISMATCH` `layout=manifest` | the tar holds only a platform manifest while the pin is something else (usually the index); e.g. `docker save --platform` or a classic-store save. **Always refused** (Steve's idea#445 decision): after `docker load`, `repo:tag@<index>` doesn't resolve offline | **quarantines** it |
+| `UNREADABLE` | no `index.json` or `manifest.json`, or not JSON; no entries; no entry named `repo:tag`; `RepoTags` without `repo:tag`; the same name on two different digests; no sha256 digest; a top-level blob that's missing or doesn't hash to its digest; an unknown media type; not a tar | doesn't quarantine it; fails the start only if the pin isn't local |
+| `MISSING` | no tar under that name (a pre-#322 digest-named tar is called out) | warns, continues |
+
+There's no override for `MISMATCH`.
+
+Exit codes, worst state first: `1` = a `MISMATCH`, `3` = an `UNREADABLE`
+tar, `4` = a `MISSING` tar, `0` = all `MATCH`, `2` = usage or compose error.
+Each image prints one `STATE …` line (with `layout=` and `digest=` when
+known), then a `summary:` line with the counts. For operators: `1` means the
+Engine will quarantine that tar, so re-export it. `3` means look at the tar
+by hand, because the Engine leaves it in place.
+
+**Docker 29, containerd image store.** Plain `docker save repo:tag` on idea03
+(Docker 29.4.0, `io.containerd.snapshotter.v1`) writes an OCI layout. Its
+`index.json` has one entry: the image's top-level descriptor as pulled, with
+`io.containerd.image.name=<repo:tag>`. The 11 Nov 10:51 tar of `ef48f1fa` is
+an example: one `application/vnd.docker.distribution.manifest.v2+json` entry
+with digest `ef48f1fa…` and its blob present. For an image pulled by its
+index digest, the Engine's idea#322 notes (PR #296) record that a plain save
+keeps the index (`.Id` = index digest). The first real save of `9b5501f0`
+(Atlas's idea03 refresh) checks that with step 3 of the runbook below.
+
+## Pin-change runbook
+
+The tar name only depends on `repo:tag`, so when the pin moves, the old tar
+keeps the same file name on every disk that already holds the App. Nothing
+replaces it. An Engine start then loads the old tar, which moves `repo:tag`
+back to the old image (idea#445). Whenever the web pin changes, on every Pi or
+App Disk that already has this App, inside a fleet claim, with `<services>`
+= `/services` on a System Disk or `<diskRoot>/services` on an App Disk:
+
+1. **Quarantine the old tar** (move, never delete):
+   `mv <services>/ghcr.io_koenswings_usage-dashboard-web:1.0.tar /home/pi/kid-quarantine/<run>/`
+2. **Export a fresh tar of the pin**:
+   `script/publish-web-image.sh --export-tar <services> --pin <pin>`
+3. **Verify it**: `script/verify-service-tar.sh compose.yaml <services>`.
+   Every pinned image must say `MATCH` (exit 0). Exit 1 (`MISMATCH`) means
+   it's still stale: go back to step 1. Exit 3 (`UNREADABLE`) means inspect
+   the tar.
+4. **Point the local tag at the pin**:
+   `docker tag <repo>@sha256:<digest> <repo>:<tag>`
+5. **Do one Engine-driven start** (Console start or `startInstance`, not
+   `docker compose up`, which resolves by digest and hides a stale tar).
+   Then confirm that `docker image inspect <repo>:<tag> --format '{{.Id}}'`
+   is the pinned digest (containerd store).
+
+`script/pin-web-digest.sh` prints these steps, filled in with the new pin, at
+the end of every run. With `--services-dir <dir>` it also runs step 3 for the
+web service against that directory.
+
+## Engine contract this relies on (idea#445, Axle)
+
+The App-side tools make sure a disk only ever gets a tar that matches the pin.
+The Engine side (agent-engine-dev, Axle) makes a stale tar harmless:
+
+- `verifyServiceImageDigest` checks `repo@<digest>` (RepoDigests), not `repo:tag`.
+- A start skips the tar load when the pinned digest is already local, and points `repo:tag` back at it.
+- Before loading a tar, the Engine checks that its digest equals the pin. A mismatched tar is quarantined, not loaded.
+- `installApp` compares an existing tar with the pin instead of skipping it with "already exists".
+- copyApp, moveApp and restoreApp name tars with `serviceImageTarName`, the same as install. Until then, they silently skip pinned `@sha256` refs.
+
+`verify-service-tar.sh` mirrors that pre-load check (`checkServiceTarPin`,
+agent-engine-dev #327). If the Engine rule changes, change the script with it.
 
 ## Fallback: ship a docker-save tar on the App Disk
 
-For an offline App Disk, or if ghcr is unreachable, ship the image as a tar next to the App bundle.
-Engine's existing-tar path looks for
+For an offline App Disk, or if ghcr is unreachable, ship the image as a tar
+next to the App bundle. The Engine's existing-tar path looks for
 
 ```
-<diskRoot>/services/<image with every / replaced by _>.tar
+<diskRoot>/services/<serviceImageTarName(ref)>
 ```
 
-For the published compose pin `ghcr.io/koenswings/usage-dashboard-web:1.0@sha256:…` that is:
+For the compose pin `ghcr.io/koenswings/usage-dashboard-web:1.0@sha256:…` that is:
 
 ```
 <diskRoot>/services/ghcr.io_koenswings_usage-dashboard-web:1.0.tar
 ```
 
-(`saveName()` strips the digest, then every `/` becomes `_`). The earlier local-build name `image: usage-dashboard-web:1.0` used:
+(`saveName()` strips the digest, then every `/` becomes `_`). `<diskRoot>` is
+the App Disk root (`/apps`, `/instances`, `/services`), not a folder inside
+`apps/usage-dashboard-1.0/`. On a GitHub `installApp` onto the system disk the
+same path is `/services/ghcr.io_koenswings_usage-dashboard-web:1.0.tar`.
 
-```
-<diskRoot>/services/usage-dashboard-web:1.0.tar
-```
-
-`<diskRoot>` is the App Disk root (`/apps`, `/instances`, `/services`), not
-a folder inside `apps/usage-dashboard-1.0/`. `build-app-bundle.sh` already
-writes service tars there (`save="${img%%@*}"`, then every `/` → `_`).
-On a GitHub `installApp` onto the system disk the same path is
-`/services/ghcr.io_koenswings_usage-dashboard-web:1.0.tar`.
-
-Build (on an arm64 host, or with buildx `--platform linux/arm64`) and save
-under the compose image's `saveName()` (digest stripped):
+Produce it **only** with the exact-pin export, on any host with Docker that
+can reach ghcr:
 
 ```sh
-COMMIT=$(git rev-parse HEAD)
-docker build --platform linux/arm64 \
-  --build-arg "COMMIT=$COMMIT" \
-  -f web/Dockerfile -t ghcr.io/koenswings/usage-dashboard-web:1.0 .
-docker save ghcr.io/koenswings/usage-dashboard-web:1.0 \
-  > services/ghcr.io_koenswings_usage-dashboard-web:1.0.tar
+script/publish-web-image.sh --export-tar <diskRoot>/services
+script/verify-service-tar.sh compose.yaml <diskRoot>/services
 ```
 
-Put that file at
-`<diskRoot>/services/ghcr.io_koenswings_usage-dashboard-web:1.0.tar`
-before `installApp`. Engine then prints that the image already exists and
-does not `docker pull`.
+Never `docker build` + `docker save` a local build under the pinned name. Its
+digest is never the ghcr pin, so the Engine's digest check refuses it, and a
+stale or local tar under that name would move `repo:tag` off the pin on the
+next Engine start.
 
 ### Size
 
@@ -207,17 +316,17 @@ tar.
 ### Tradeoffs versus ghcr
 
 - **Works offline** and needs no registry permission (U-10). The idea03
-  re-walk already proved Engine accepts this exact filename.
+  re-walk already proved the Engine accepts this exact file name.
 - **Adds ~25 MiB** to every App Disk that carries the dashboard.
-- The local tag `usage-dashboard-web:1.0` is reused for the whole 1.0
-  line. `build-app-bundle.sh` never overwrites an existing tar (image+tag
-  names are treated as immutable releases). A later rebuild of the same
-  tag will be ignored unless the old tar is removed first. The ghcr tag
-  `1.0-<shortsha>` does not have that collision.
-- The tar is a single-platform arm64 image. That is what the kits need;
-  it will not run on an amd64 developer laptop.
-- GitHub `installApp` without the tar still hits `docker pull
-  usage-dashboard-web:1.0` and fails.
+- The tar name is `repo:tag` only, so it is reused for the whole 1.0
+  line. `build-app-bundle.sh` and the Engine's install path don't overwrite
+  an existing tar. After a pin change, the old tar has to be quarantined
+  and re-exported (pin-change runbook). `verify-service-tar.sh` catches a
+  stale one.
+- The tar only carries linux/arm64 content (the index plus its arm64
+  manifest). That is what the kits need; it won't run on an amd64
+  developer laptop.
+- A GitHub `installApp` without the tar pulls the pin from ghcr (public).
 
 Prefer the ghcr digest-pin once the image is published and compose.yaml is pinned. Keep this fallback for offline App Disks
 and for a GitHub `installApp` that cannot reach ghcr.
@@ -229,19 +338,26 @@ fallback. It is meant to run as `pi` on a claimed ARM64 pool Pi (idea03, or
 idea04). It refuses to start unless `hostname` is one of those two and the
 fleet-state claim is Kid.
 
-It stages `apps/usage-dashboard-1.0/` from `git ls-files`, injects
-`collector/build-info.json` with `script/write-build-info.sh`, builds the
-arm64 web image (`docker build --platform linux/arm64`), saves
+It stages `apps/usage-dashboard-1.0/` from `git ls-files` and injects
+`collector/build-info.json` with `script/write-build-info.sh`. It then moves any
+existing web tar aside and exports
 
 ```
-<diskRoot>/services/usage-dashboard-web:1.0.tar
+/services/ghcr.io_koenswings_usage-dashboard-web:1.0.tar
 ```
 
-plus the other compose service tars Engine will load (`python:3.12-slim-bookworm`,
-`tailscale_tailscale:v1.88.3`). `nginx:1.28-alpine` is only the web image
+with `script/publish-web-image.sh --export-tar /services --pin <compose pin>`
+(never a local build; the script refuses an unpinned web image). It also saves
+the other compose service tars the Engine will load
+(`python:3.12-slim-bookworm`, `tailscale_tailscale:v1.88.3`) and runs
+`script/verify-service-tar.sh compose.yaml /services` on all of them. `nginx:1.28-alpine` is only the web image
 build base, not a compose service, so it is not saved as a service tar.
-The local `usage-dashboard-web:1.0` image is then removed so the only way it
-can reappear is `docker image load` of the tar. The script queues
+The names `repo:tag` and `repo@<pin>` are then removed (names only, no
+`-f`), so `docker image load` of the tar is the only way they come back. If a
+container (such as the live hub) uses the pinned image, nothing is removed and
+the run notes that the load was not forced. After the Engine install it
+asserts that `repo@<pin>` exists and that `repo:tag` resolves to the same image
+with `repo@<pin>` in its RepoDigests. Teardown never untags the web image. The script queues
 
 ```
 installApp usage-dashboard-1.0 <systemDiskId> --source <systemDiskId> --fresh --name usage-dashboard-tar-e2e

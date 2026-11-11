@@ -16,6 +16,12 @@
 # --digest skips the registry inspect (used by tests, or when the digest is
 # already known). Does not push an image, change package visibility, or
 # commit. Does not create git tags.
+#
+# Every run ends by printing the pin-change runbook (idea#445): each disk that
+# already holds this App keeps the OLD tar under the same repo:tag file name, so
+# it must be quarantined, re-exported, verified and re-tagged.
+# --services-dir <dir> also runs script/verify-service-tar.sh on that dir for the
+# new pin (read-only; it fails until the runbook has been done there).
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -24,10 +30,11 @@ IMAGE=""
 COMPOSE="$REPO/compose.yaml"
 DIGEST=""
 CHECK_ONLY=0
+SERVICES_DIR=""
 
 die() { echo "ERROR: $*" >&2; exit 1; }
 
-usage() { sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; }
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -35,6 +42,7 @@ while [ $# -gt 0 ]; do
     --compose) COMPOSE="${2:-}"; [ -n "$COMPOSE" ] || die "--compose needs a value"; shift 2 ;;
     --digest) DIGEST="${2:-}"; [ -n "$DIGEST" ] || die "--digest needs a value"; shift 2 ;;
     --check-only) CHECK_ONLY=1; shift ;;
+    --services-dir) SERVICES_DIR="${2:-}"; [ -n "$SERVICES_DIR" ] || die "--services-dir needs a value"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) die "unknown arg: $1" ;;
   esac
@@ -165,7 +173,33 @@ fi
 PIN="ghcr.io/koenswings/usage-dashboard-web:${VERSION}@${DIGEST}"
 echo "pin:    $PIN"
 
+print_runbook() {
+  local digest="${PIN##*@}" name tarname repo
+  name=$(python3 "$HERE/verify_service_tar.py" --print-save-name "$PIN")
+  tarname=$(python3 "$HERE/verify_service_tar.py" --print-tar-name "$PIN")
+  repo="${name%:*}"
+  cat <<EOF
+
+Pin-change runbook (idea#445; docs/packaging.md). On every Pi or App Disk that
+already has this App, inside a fleet claim, with <services> = /services on a
+System Disk or <diskRoot>/services on an App Disk:
+  1. Quarantine the old tar (move, never delete):
+       mv <services>/$tarname /home/pi/kid-quarantine/<run>/
+  2. Export a fresh tar of the pin (never a local build):
+       script/publish-web-image.sh --export-tar <services> --pin $PIN
+  3. Verify it (every pinned image must say MATCH; exit 1 = MISMATCH, still
+     stale; exit 3 = UNREADABLE, inspect by hand):
+       script/verify-service-tar.sh compose.yaml <services>
+  4. Point the local tag at the pin:
+       docker tag $repo@$digest $name
+  5. Do one Engine-driven start (Console start or startInstance, not
+     docker compose up), then check
+       docker image inspect $name --format '{{.Id}}'   ==  $digest  (containerd image store)
+EOF
+}
+
 if [ "$CHECK_ONLY" = 1 ]; then
+  print_runbook
   exit 0
 fi
 
@@ -234,3 +268,10 @@ print("wrote:  %s" % path)
 PY
 
 echo "updated $COMPOSE"
+
+print_runbook
+if [ -n "$SERVICES_DIR" ]; then
+  echo
+  echo "verify: $SERVICES_DIR against the new pin"
+  "$HERE/verify-service-tar.sh" "$COMPOSE" "$SERVICES_DIR" --service web
+fi
