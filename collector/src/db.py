@@ -3,10 +3,16 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
+import sys
+import tempfile
 from datetime import datetime, timezone
 
 SCHEMA_VERSION = 1
+SNAPSHOT_KEEP = 14
+# One consistent copy per UTC day: ./data/backup/usage-YYYY-MM-DD.sqlite
+SNAPSHOT_NAME_RE = re.compile(r"^usage-([0-9]{4}-[0-9]{2}-[0-9]{2})\.sqlite$")
 
 DDL = """
 PRAGMA journal_mode = WAL;
@@ -160,23 +166,104 @@ def vacuum_into(conn: sqlite3.Connection, dest: str) -> None:
     conn.execute("VACUUM INTO ?", (dest,))
 
 
-def prune_backups(backup_dir: str, keep: int = 14) -> None:
+def utc_day(now: datetime | None = None) -> str:
+    """Calendar day in UTC, used as the snapshot's once-per-day key and filename."""
+    if now is None:
+        now = datetime.now(timezone.utc)
+    elif now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    else:
+        now = now.astimezone(timezone.utc)
+    return now.date().isoformat()
+
+
+def is_snapshot_name(name: str) -> bool:
+    return SNAPSHOT_NAME_RE.match(name) is not None
+
+
+def snapshot_path(backup_dir: str, day: str) -> str:
+    return os.path.join(backup_dir, f"usage-{day}.sqlite")
+
+
+def list_snapshot_files(backup_dir: str) -> list[tuple[str, str]]:
+    """(utc_day, path) for usage-YYYY-MM-DD.sqlite files, newest day first."""
     if not os.path.isdir(backup_dir):
-        return
-    files = sorted(
-        (
-            os.path.join(backup_dir, name)
-            for name in os.listdir(backup_dir)
-            if name.endswith(".sqlite")
-        ),
-        key=os.path.getmtime,
-        reverse=True,
-    )
-    for stale in files[keep:]:
+        return []
+    found: list[tuple[str, str]] = []
+    for name in os.listdir(backup_dir):
+        m = SNAPSHOT_NAME_RE.match(name)
+        if not m:
+            continue
+        found.append((m.group(1), os.path.join(backup_dir, name)))
+    found.sort(key=lambda item: item[0], reverse=True)
+    return found
+
+
+def prune_backups(backup_dir: str, keep: int = SNAPSHOT_KEEP) -> list[str]:
+    """Delete older usage-YYYY-MM-DD.sqlite files only. Other files are left alone."""
+    if not os.path.isdir(backup_dir):
+        return []
+    removed: list[str] = []
+    for _day, path in list_snapshot_files(backup_dir)[keep:]:
         try:
-            os.remove(stale)
+            os.remove(path)
+            removed.append(path)
         except OSError:
             pass
+    return removed
+
+
+def take_daily_snapshot(
+    conn: sqlite3.Connection,
+    backup_dir: str,
+    now: datetime | None = None,
+    keep: int = SNAPSHOT_KEEP,
+    vacuum=None,
+) -> str | None:
+    """Write today's UTC snapshot if that file does not already exist.
+
+    Uses VACUUM INTO a temp file in backup_dir, then os.replace onto
+    usage-YYYY-MM-DD.sqlite. Returns the new path, or None if the day's
+    file was already present (restart-safe). Raises on failure.
+    """
+    day = utc_day(now)
+    os.makedirs(backup_dir, exist_ok=True)
+    dest = snapshot_path(backup_dir, day)
+    if os.path.exists(dest):
+        return None
+    fd, tmp = tempfile.mkstemp(prefix=f"usage-{day}.", suffix=".tmp", dir=backup_dir)
+    os.close(fd)
+    os.unlink(tmp)
+    try:
+        (vacuum or vacuum_into)(conn, tmp)
+        os.replace(tmp, dest)
+    except Exception:
+        if os.path.exists(tmp):
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+        raise
+    prune_backups(backup_dir, keep=keep)
+    return dest
+
+
+def maybe_daily_snapshot(
+    conn: sqlite3.Connection,
+    backup_dir: str,
+    now: datetime | None = None,
+    keep: int = SNAPSHOT_KEEP,
+    vacuum=None,
+) -> str | None:
+    """take_daily_snapshot, but log failures to stderr and never raise."""
+    try:
+        path = take_daily_snapshot(conn, backup_dir, now=now, keep=keep, vacuum=vacuum)
+        if path:
+            print("collector: wrote daily snapshot %s" % path, file=sys.stderr, flush=True)
+        return path
+    except Exception as exc:
+        print("collector: daily snapshot failed: %s" % exc, file=sys.stderr, flush=True)
+        return None
 
 
 def load_registry(conn: sqlite3.Connection, path: str) -> int:

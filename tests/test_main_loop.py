@@ -182,6 +182,7 @@ class UnixLocalAPILoopTests(unittest.TestCase):
 
         self.fake_pull = fake_pull
         self._env = {
+            "DATA_DIR": self.tmp,
             "TS_SOCKET": self.fake.path,
             "TS_RESTART_FLAG": os.path.join(self.tmp, "restart-requested"),
             "PULL_KEY": self.key,

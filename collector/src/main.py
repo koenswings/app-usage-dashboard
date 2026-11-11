@@ -226,7 +226,12 @@ def peer_online(status: dict, tailscale_name: str) -> tuple[bool, str | None, st
     return False, None, None
 
 
-def loop(conn, stop_event: threading.Event | None = None, pull_fn=None) -> None:
+def backup_dir_from_env() -> str:
+    return os.path.join(os.environ.get("DATA_DIR") or "/data", "backup")
+
+
+def loop(conn, stop_event: threading.Event | None = None, pull_fn=None,
+         backup_dir: str | None = None, snapshot_fn=None) -> None:
     poll_s = env_int("POLL_INTERVAL_S", 60)
     uplink_s = env_int("UPLINK_INTERVAL_S", 300)
     pull_s = env_int("PULL_ONLINE_INTERVAL_S", 21600)
@@ -243,10 +248,16 @@ def loop(conn, stop_event: threading.Event | None = None, pull_fn=None) -> None:
     bad_since: float | None = None
     last_restart_at = 0.0
     fail_streak = 0
+    snap_dir = backup_dir if backup_dir is not None else backup_dir_from_env()
+    take_snap = snapshot_fn or (lambda c: db.maybe_daily_snapshot(c, snap_dir))
 
     while True:
         if stop_event is not None and stop_event.is_set():
             return
+        try:
+            take_snap(conn)
+        except Exception as exc:
+            print("collector: daily snapshot failed: %s" % exc, file=sys.stderr, flush=True)
         status, error = localapi_status(sock)
         now = time.time()
         decision = decide_sidecar_action(
