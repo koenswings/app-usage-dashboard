@@ -4,7 +4,12 @@ describe('public collector endpoints', () => {
   it('serves health without a session cookie', async () => {
     const res = await mockFetch('/api/v1/health', { method: 'GET' });
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, schema: 'idea-usage-api/1' });
+    expect(await res.json()).toEqual({
+      ok: true,
+      schema: 'idea-usage-api/1',
+      version: '1.0',
+      commit: 'mock0000000000000000000000000000000000000',
+    });
   });
 
   it('returns authenticated:false on GET /session without a cookie, not an error', async () => {

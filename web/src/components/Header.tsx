@@ -40,10 +40,19 @@ export function SampleNote() {
   );
 }
 
-export function Footer() {
+interface FooterProps {
+  versionLabel?: string | null;
+}
+
+export function Footer(props: FooterProps) {
   return (
     <footer class="site-footer">
       <div>IDEA Field Usage · dashboard App on <span>idea</span> · data store on idea only</div>
+      <Show when={props.versionLabel}>
+        {(label) => (
+          <div class="site-footer__version" data-testid="app-version">{label()}</div>
+        )}
+      </Show>
       <div>No data never counts against a school · the dashboard informs a human decision</div>
     </footer>
   );
