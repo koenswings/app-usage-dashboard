@@ -178,3 +178,73 @@ tar.
 
 Prefer the ghcr digest-pin once U-10 is approved. Keep this fallback
 documented in case Koen says no.
+
+## Tar-fallback e2e test (pool Pi)
+
+`script/e2e-tar-fallback.sh` is the end-to-end `installApp` proof of this
+fallback. It is meant to run as `pi` on a claimed ARM64 pool Pi (idea03, or
+idea04). It refuses to start unless `hostname` is one of those two and the
+fleet-state claim is Kid.
+
+It stages `apps/usage-dashboard-1.0/` from `git ls-files`, injects
+`collector/build-info.json` with `script/write-build-info.sh`, builds the
+arm64 web image (`docker build --platform linux/arm64`), saves
+
+```
+<diskRoot>/services/usage-dashboard-web:1.0.tar
+```
+
+plus the other compose service tars Engine will load (`python:3.12-slim-bookworm`,
+`tailscale_tailscale:v1.88.3`). `nginx:1.28-alpine` is only the web image
+build base, not a compose service, so it is not saved as a service tar.
+The local `usage-dashboard-web:1.0` image is then removed so the only way it
+can reappear is `docker image load` of the tar. The script queues
+
+```
+installApp usage-dashboard-1.0 <systemDiskId> --source <systemDiskId> --fresh --name usage-dashboard-tar-e2e
+```
+
+through the Engine Automerge command queue (`script/send-engine-command.mjs`),
+the same Console path the earlier re-walk used, but on the **local-disk**
+route so the staged `build-info.json` is what `/api/v1/health` reports.
+(A GitHub `installApp usage-dashboard@<sha>` clone would not include that
+gitignored file.) Engine 8241221 `stopInstance` needs `<instanceId> <diskId>`.
+
+After health, `/`, and `/assets/x.js` assertions, the default path is
+`stopInstance`, `removeInstance`, then `docker rm` (no `-v`) of any Exited
+leftovers (idea#424; this is still required on Engine 8241221 even though
+agent-engine-dev#311 changes compose-down behaviour — that change is not
+deployed on idea03). Written tars and the staged bundle are moved to
+`/home/pi/kid-quarantine/<run>/`, never deleted. Before/after snapshots
+(`docker ps -a`, `docker images`, `pm2 ls`, `lsblk`, `losetup -a`) are
+diffed.
+
+`--keep` skips teardown and leaves the instance running. `--ingest-history
+[<dir>]` (default `/home/pi/kid-quarantine/20261111T001400/usage`) copies
+that tree to a scratch dir under the run folder, flattens `.archive/` day
+directories into the scratch root, exports `since 2026-10-01` with
+`IDEA_USAGE_ROOT` pointing at the scratch, and ingests the NDJSON into the
+new instance with `script/ingest-usage-export.py` (the same host-side
+`interpret_export` + `store_export` path as the earlier proofs). It then
+ingests a live `since 2026-10-01` of `/var/lib/idea/usage` the same way
+(read-only). It never writes `/var/lib/idea/usage` and never runs
+`archive-and-clear`.
+
+Dry-run, on any host, with no Docker and no Engine:
+
+```sh
+script/e2e-tar-fallback.sh --dry-run [--dest /tmp/tar-fallback-dry]
+```
+
+On idea03, after the System Disk is registered (`IDEA_CONFIG_FILE` pointing
+at `/home/pi/kid-i416-installapp/engine-config-8241221.yaml`, `systemDiskSkip:
+false`; do not edit the deployed Engine tree):
+
+```sh
+# as pi, from a checkout of this branch, with FLEET_STATE set at a file
+# whose idea03.claim is Kid:
+script/e2e-tar-fallback.sh --keep --ingest-history
+```
+
+Pause above 75 °C and resume below 65 °C. Never touch `/disks/sdb1`, Disk B,
+the WD SSD, or the protected disk serials. Do not print credentials.

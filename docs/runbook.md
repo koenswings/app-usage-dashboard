@@ -23,6 +23,19 @@ docker manifest inspect \
 
 The inspect output must list platform `linux` / `arm64`, and the digest must match the script's `digest:` line. Then replace the `web:` service as shown in `compose.web-ghcr.example.yaml` (`repo:tag@sha256:digest`, no `build:` block) and run `script/check-compose.mjs --release compose.yaml`. Do not push an image until Koen says yes.
 
+The tar-fallback e2e test (`script/e2e-tar-fallback.sh`) and the host-side
+export ingest (`script/ingest-usage-export.py`) are documented in
+`docs/packaging.md`. On a claimed idea03, after the System Disk is
+registered with the outside `IDEA_CONFIG_FILE`:
+
+```sh
+script/e2e-tar-fallback.sh --keep --ingest-history
+```
+
+`--keep` leaves the instance running. `--ingest-history` re-ingests the
+quarantined usage tree (read-only of the original) plus a live
+`since 2026-10-01` export, without writing `/var/lib/idea/usage`.
+
 ## Secrets
 
 | Path | What | Backup |
