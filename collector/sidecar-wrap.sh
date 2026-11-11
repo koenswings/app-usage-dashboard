@@ -5,6 +5,12 @@
 # BackendState has been non-Running for SIDECAR_RESTART_AFTER_S.
 # NeedsLogin / logged out must never trigger a restart or a join.
 #
+# A restart request sends SIGTERM to containerboot, waits TS_RESTART_TERM_S
+# (default 15), then SIGCONTs and — if it is still alive — SIGKILLs the
+# containerboot process group and any related tailscaled that left the group.
+# A SIGKILLed stopped process dies. Never copy, move, or delete the state
+# file or directory (TS_STATE_DIR / tailscaled.state).
+#
 # A keyed join (TS_AUTHKEY set, no persisted node key) runs exactly once.
 # If that attempt fails or does not reach Running (authorized) before
 # TS_JOIN_TIMEOUT seconds (default 90), the wrapper writes
@@ -29,6 +35,21 @@ esac
 if [ "$JOIN_TIMEOUT" -lt 1 ]; then
   JOIN_TIMEOUT=90
 fi
+
+# Bounded wait after SIGTERM on a collector-requested restart, then SIGCONT
+# and SIGKILL. 0 is rejected for TERM_S (would skip the graceful window).
+TERM_S=${TS_RESTART_TERM_S:-15}
+case "$TERM_S" in
+  ''|*[!0-9]*) TERM_S=15 ;;
+esac
+if [ "$TERM_S" -lt 1 ]; then
+  TERM_S=15
+fi
+# Seconds to wait after SIGCONT before SIGKILL (0 = send them together).
+CONT_S=${TS_RESTART_CONT_S:-1}
+case "$CONT_S" in
+  ''|*[!0-9]*) CONT_S=1 ;;
+esac
 
 state_has_nodekey() {
   dir=$1
@@ -134,6 +155,138 @@ is_running_authorized() {
   return 0
 }
 
+start_containerboot() {
+  # Own process group so SIGKILL -$pgid cannot hit this wrapper.
+  if command -v setsid >/dev/null 2>&1; then
+    setsid "$BOOT" &
+  else
+    "$BOOT" &
+  fi
+}
+
+proc_field() {
+  # Print field $1 (1=state, 2=ppid, 3=pgrp) of /proc/$2/stat.
+  # comm is in parentheses and may contain spaces; parse after the last ").
+  _n=$1
+  _pid=$2
+  [ -n "$_pid" ] && [ -r "/proc/$_pid/stat" ] || return 1
+  _stat=$(cat "/proc/$_pid/stat" 2>/dev/null) || return 1
+  _rest=${_stat##*) }
+  set -- $_rest
+  case "$_n" in
+    1) [ -n "${1:-}" ] || return 1; echo "$1" ;;
+    2) [ -n "${2:-}" ] || return 1; echo "$2" ;;
+    3) [ -n "${3:-}" ] || return 1; echo "$3" ;;
+    *) return 1 ;;
+  esac
+}
+
+proc_ppid() { proc_field 2 "$1"; }
+proc_pgid() { proc_field 3 "$1"; }
+
+collect_related_pids() {
+  boot_pid=$1
+  boot_pgid=$2
+  wrap_pgid=$3
+  found=" $boot_pid "
+  changed=1
+  while [ "$changed" -eq 1 ]; do
+    changed=0
+    for _statf in /proc/[0-9]*/stat; do
+      [ -r "$_statf" ] || continue
+      tpid=${_statf#/proc/}
+      tpid=${tpid%/stat}
+      case "$found" in
+        *" $tpid "*) continue ;;
+      esac
+      [ "$tpid" = "$$" ] && continue
+      tppid=$(proc_ppid "$tpid" || true)
+      tpgid=$(proc_pgid "$tpid" || true)
+      related=0
+      case "$found" in
+        *" $tppid "*) related=1 ;;
+      esac
+      if [ -n "$boot_pgid" ] && [ -n "$wrap_pgid" ] && [ "$boot_pgid" != "$wrap_pgid" ] && [ "$tpgid" = "$boot_pgid" ]; then
+        related=1
+      fi
+      if [ "$related" -eq 1 ]; then
+        found="$found$tpid "
+        changed=1
+      fi
+    done
+  done
+  for tpid in $found; do
+    [ "$tpid" = "$boot_pid" ] && continue
+    [ "$tpid" = "$$" ] && continue
+    printf '%s\n' "$tpid"
+  done
+}
+
+any_alive() {
+  _pid=$1
+  shift
+  if [ -n "$_pid" ] && kill -0 "$_pid" 2>/dev/null; then
+    return 0
+  fi
+  for _tpid in "$@"; do
+    [ -n "$_tpid" ] || continue
+    if kill -0 "$_tpid" 2>/dev/null; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+send_signals() {
+  _sig=$1
+  _pid=$2
+  _pgid=$3
+  _wrap_pgid=$4
+  shift 4
+  if [ -n "$_pgid" ] && [ -n "$_wrap_pgid" ] && [ "$_pgid" != "$_wrap_pgid" ] && [ "$_pgid" != 1 ]; then
+    kill -s "$_sig" -"$_pgid" 2>/dev/null || true
+  fi
+  if [ -n "$_pid" ]; then
+    kill -s "$_sig" "$_pid" 2>/dev/null || true
+  fi
+  for _tpid in "$@"; do
+    [ -n "$_tpid" ] || continue
+    [ "$_tpid" = "$$" ] && continue
+    kill -s "$_sig" "$_tpid" 2>/dev/null || true
+  done
+}
+
+stop_boot() {
+  pid=$1
+  pgid=$(proc_pgid "$pid" || true)
+  wrap_pgid=$(proc_pgid "$$" || true)
+  # Snapshot descendants now so we can still signal them if they reparent.
+  set -- $(collect_related_pids "$pid" "$pgid" "$wrap_pgid")
+  echo "sidecar-wrap: sending SIGTERM to containerboot pid=$pid" >&2
+  send_signals TERM "$pid" "$pgid" "$wrap_pgid" "$@"
+  i=0
+  while [ "$i" -lt "$TERM_S" ]; do
+    if ! any_alive "$pid" "$@"; then
+      wait "$pid" 2>/dev/null || true
+      return 0
+    fi
+    sleep 1
+    i=$((i + 1))
+  done
+  if any_alive "$pid" "$@"; then
+    echo "sidecar-wrap: containerboot still running after ${TERM_S}s; sending SIGCONT then SIGKILL" >&2
+    send_signals CONT "$pid" "$pgid" "$wrap_pgid" "$@"
+    if [ "$CONT_S" -gt 0 ]; then
+      sleep "$CONT_S"
+    fi
+    if any_alive "$pid" "$@"; then
+      echo "sidecar-wrap: sending SIGKILL to the containerboot process group" >&2
+      send_signals KILL "$pid" "$pgid" "$wrap_pgid" "$@"
+    fi
+  fi
+  wait "$pid" 2>/dev/null || true
+}
+
 watch_boot() {
   pid=$1
   while kill -0 "$pid" 2>/dev/null; do
@@ -142,8 +295,7 @@ watch_boot() {
     fi
     if [ -f "$RESTART_FLAG" ]; then
       echo "sidecar-wrap: restart requested by collector watchdog" >&2
-      kill "$pid" 2>/dev/null || true
-      wait "$pid" 2>/dev/null || true
+      stop_boot "$pid"
       return 0
     fi
     sleep 2
@@ -153,7 +305,7 @@ watch_boot() {
 
 keyed_join_once() {
   echo "sidecar-wrap: starting one keyed join attempt (will not retry this key)" >&2
-  "$BOOT" &
+  start_containerboot
   JOIN_PID=$!
   i=0
   while kill -0 "$JOIN_PID" 2>/dev/null; do
@@ -230,7 +382,7 @@ fi
 
 while true; do
   rm -f "$RESTART_FLAG"
-  "$BOOT" &
+  start_containerboot
   pid=$!
   watch_boot "$pid"
   sleep 2

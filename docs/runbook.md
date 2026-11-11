@@ -117,6 +117,24 @@ data) on:
 A LocalAPI timeout or unreachable socket is **not** an identity failure;
 the 10-minute sidecar watchdog still handles that.
 
+### Hung sidecar restart (SIGKILL)
+
+When the collector writes `restart-requested` next to the LocalAPI socket
+(never in `./data/tailscale`), `sidecar-wrap` sends SIGTERM to containerboot
+and waits `TS_RESTART_TERM_S` seconds (default 15). If containerboot or its
+tailscaled are still running — including a SIGSTOPped tailscaled that cannot
+handle SIGTERM — the wrapper sends SIGCONT (so a stopped process can handle
+a pending SIGTERM) and then SIGKILLs the containerboot process group, plus
+tailscaled itself if it left that group. A SIGKILLed stopped process dies,
+so recovery no longer needs a manual SIGCONT.
+
+`TS_RESTART_CONT_S` (default 1) is the short pause between SIGCONT and
+SIGKILL; `0` sends them together. The wrapper never copies, moves, or
+deletes `./data/tailscale` or `tailscaled.state`. The identity guard stays
+fail-closed: a different nodekey, NeedsLogin or logged-out, any AuthURL, a
+state inode or size change, or a blip past the bound still stops the
+collector and never requests this restart.
+
 ### One-join when Koen issues a fresh single-use key
 
 
