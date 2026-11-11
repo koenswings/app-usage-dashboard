@@ -88,7 +88,37 @@ script/check-idea-hub-nodekey.py --state-dir ./data/tailscale --socket /var/run/
 `status --json` file with `--status-json`. The script prints public
 prefixes only; it never prints private keys.)
 
+### Identity guard (NoState blip)
+
+When `sidecar-wrap` restarts containerboot, LocalAPI can briefly report
+`BackendState=NoState` or `Starting` with a zeroed `Self.PublicKey` (seen
+live on idea03 at 20:10 Europe/Brussels on 2026-11-11, lasting about two
+seconds) before the same nodekey returns as `Running`. The collector's
+identity guard **rides out** that blip for `IDENTITY_BLIP_S` seconds
+(default 15) and, if set, `IDENTITY_BLIP_POLLS` consecutive polls
+(default 0 = time bound only). While the blip is in flight the loop polls
+every `IDENTITY_BLIP_POLL_S` seconds (default 1) so a 15-second bound is
+not defeated by the usual 60-second poll interval.
+
+The guard **fails closed immediately** (logs a public prefix or a boolean
+only, never a key or AuthURL; opens a `collector_gaps` row;
+never requests a sidecar restart or a join; keeps serving last-good API
+data) on:
+
+- a real nodekey change (a different **non-zero** `Self.PublicKey`);
+- `NeedsLogin` or a logged-out status (`sidecar-logged-out`);
+- any non-empty `AuthURL`;
+- a `tailscaled.state` inode or size change (a regen / replacement), when
+  that file is visible to the collector (it is not, by default: `./data/tailscale`
+  is a hiding tmpfs — set `TS_STATE_FILE` only for a test or a host-side
+  helper);
+- a blip that outlasts the bound (`sidecar-identity-failed`).
+
+A LocalAPI timeout or unreachable socket is **not** an identity failure;
+the 10-minute sidecar watchdog still handles that.
+
 ### One-join when Koen issues a fresh single-use key
+
 
 If sidecar state is lost, Koen issues a **single-use** auth key and (if
 needed) sets the previous 100.x IPv4 in the Tailscale admin console so the

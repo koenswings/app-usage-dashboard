@@ -102,6 +102,13 @@ services:
       # LocalAPI over the shared unix socket (Host: local-tailscaled.sock).
       # The collector does not mount ./data/tailscale (node key).
       - TS_SOCKET=/var/run/tailscale/tailscaled.sock
+      # Identity guard: ride out a short NoState / Starting / zeroed-PublicKey
+      # blip (containerboot restarting tailscaled) for IDENTITY_BLIP_S seconds.
+      # Fail closed immediately on a real nodekey change, NeedsLogin / logged
+      # out, any AuthURL, a state inode/size change, or a blip past this bound.
+      - IDENTITY_BLIP_S=${IDENTITY_BLIP_S:-15}
+      - IDENTITY_BLIP_POLLS=${IDENTITY_BLIP_POLLS:-0}
+      - IDENTITY_BLIP_POLL_S=${IDENTITY_BLIP_POLL_S:-1}
       - COLLECTOR_BIND=0.0.0.0:8080
       - HEADER_TIMEZONE=Europe/Brussels
       - STALE_AFTER_HOURS=48
@@ -131,7 +138,7 @@ services:
     entrypoint: ["/bin/sh", "/app/entrypoint.sh"]
 
   web:
-    image: ghcr.io/koenswings/usage-dashboard-web:1.0@sha256:ef48f1fab9c24d869eaf9ba57a9b1622e94d0d646f65de0a8fb351e8ceb1004c
+    image: ghcr.io/koenswings/usage-dashboard-web:1.0@sha256:9b5501f0690f02146217595f177496612d107aefd2bd56c181f84c7f1c678139
     labels:
       x-app-version: "1.0"
     restart: unless-stopped
