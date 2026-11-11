@@ -281,7 +281,7 @@ describe('U-7 line evaluation', () => {
     expect(evaluateLine('nextcloud', inputs, DEFAULT_THRESHOLDS).tone).toBe('onTrack');
   });
 
-  it('treats null teacher/learner share and upload splits as 0', () => {
+  it('treats a null teacher/learner split as 0 when any other split is present', () => {
     const inputs = zeroNextcloud(nharira());
     inputs.nextcloud.worksheetShares = 5;
     inputs.nextcloud.worksheetSharesTeacherLearner = null;
@@ -295,7 +295,28 @@ describe('U-7 line evaluation', () => {
     inputs.nextcloud.schoolFilesShares = 1;
     inputs.nextcloud.schoolFilesSharesTeacherLearner = null;
     inputs.nextcloud.schoolFilesSharesAdmin = null;
+    // officeOpensTeacherLearner stays 0 from zeroNextcloud, so the line is measured.
     expect(evaluateLine('nextcloud', inputs, DEFAULT_THRESHOLDS).tone).toBe('needsHelp');
+  });
+
+  it('greys the Nextcloud line when all teacher/learner splits are null, even if flat totals are present', () => {
+    const inputs = zeroNextcloud(nharira());
+    inputs.nextcloud.worksheetShares = 5;
+    inputs.nextcloud.worksheetSharesTeacherLearner = null;
+    inputs.nextcloud.worksheetSharesAdmin = null;
+    inputs.nextcloud.editShares = 2;
+    inputs.nextcloud.editSharesTeacherLearner = null;
+    inputs.nextcloud.editSharesAdmin = null;
+    inputs.nextcloud.fileDropUploads = 3;
+    inputs.nextcloud.fileDropUploadsTeacherLearner = null;
+    inputs.nextcloud.fileDropUploadsAdmin = null;
+    inputs.nextcloud.schoolFilesShares = 1;
+    inputs.nextcloud.schoolFilesSharesTeacherLearner = null;
+    inputs.nextcloud.schoolFilesSharesAdmin = null;
+    inputs.nextcloud.officeOpens = 6;
+    inputs.nextcloud.officeOpensTeacherLearner = null;
+    inputs.nextcloud.officeOpensAdmin = null;
+    expect(evaluateLine('nextcloud', inputs, DEFAULT_THRESHOLDS).tone).toBe('noData');
   });
 
   it('ignores flat share and upload totals larger than the teacher/learner splits', () => {

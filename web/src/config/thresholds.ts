@@ -256,8 +256,9 @@ export function learnerSessionShare(inputs: ScorecardInputs): number | null {
  * Counted Nextcloud actions: the five teacher/learner splits
  * (shares, File drop uploads, and Office opens). Flat totals and admin
  * fields are never used. A null split counts as 0. The line is unmeasured
- * (grey) only when all five TeacherLearner fields and all five flat
- * totals are null (Kid 10a1cc5, idea#431). File drop links do not count.
+ * (grey) when all five TeacherLearner fields are null, even if flat
+ * totals are present — matching collector `nextcloud_actions`. File drop
+ * links do not count.
  */
 export function nextcloudWorkflowActions(inputs: ScorecardInputs): number | null {
   const parts = [
@@ -267,16 +268,7 @@ export function nextcloudWorkflowActions(inputs: ScorecardInputs): number | null
     inputs.nextcloud.fileDropUploadsTeacherLearner,
     inputs.nextcloud.officeOpensTeacherLearner,
   ];
-  const totals = [
-    inputs.nextcloud.worksheetShares,
-    inputs.nextcloud.editShares,
-    inputs.nextcloud.schoolFilesShares,
-    inputs.nextcloud.fileDropUploads,
-    inputs.nextcloud.officeOpens,
-  ];
-  if (parts.every((value) => value === null) && totals.every((value) => value === null)) {
-    return null;
-  }
+  if (parts.every((value) => value === null)) return null;
   return parts.reduce<number>((sum, value) => sum + (value ?? 0), 0);
 }
 
