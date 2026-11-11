@@ -181,27 +181,97 @@ services:
         end = min(i for i in end_candidates if i != -1)
         return rest[:end]
 
-    def test_backup_exclude_covers_secrets_live_db_and_daily_snapshots(self):
-        """Hook-mode exclude: secrets, live db, and dated daily copies."""
+    def _list_under(self, block, key):
+        header = re.search(r"(?m)^    %s:\s*$" % re.escape(key), block)
+        self.assertIsNotNone(header, "missing %s in\n%s" % (key, block))
+        rest = block[header.end():]
+        items = []
+        for line in rest.splitlines():
+            if re.match(r"^    [A-Za-z]", line):
+                break
+            if not line.strip() or line.lstrip().startswith("#"):
+                continue
+            m = re.match(r"^\s+- ([^\s#]+)", line)
+            if m:
+                items.append(m.group(1))
+        return items
+
+    def test_backup_exclude_and_hook_exclude_lists(self):
+        """exclude is always applied; hookExclude only after a successful preHook."""
         block = self._backup_block()
-        names = re.findall(r"^\s+- ([^\s#]+)", block, flags=re.M)
+        exclude = self._list_under(block, "exclude")
+        hook_exclude = self._list_under(block, "hookExclude")
         self.assertEqual(
-            names,
-            [
-                "keys",
-                "tailscale",
-                "tailscale-run",
-                "usage.sqlite",
-                "usage.sqlite-wal",
-                "usage.sqlite-shm",
-                "data/backup/daily",
-            ],
-            "unexpected x-app.backup.exclude: %r\n%s" % (names, block),
+            exclude,
+            ["keys", "tailscale", "tailscale-run", "data/backup/daily"],
+            "unexpected x-app.backup.exclude: %r\n%s" % (exclude, block),
         )
-        # The hook dump itself must stay in the archive (not excluded).
-        self.assertNotIn("data/backup/usage.sqlite", names)
-        self.assertNotIn("backup/usage.sqlite", names)
-        self.assertNotIn("backup", names)
+        self.assertEqual(
+            hook_exclude,
+            ["usage.sqlite", "usage.sqlite-wal", "usage.sqlite-shm"],
+            "unexpected x-app.backup.hookExclude: %r\n%s" % (hook_exclude, block),
+        )
+        combined = exclude + hook_exclude
+        # The hook dump itself must stay in the archive (not in either list).
+        self.assertNotIn("data/backup/usage.sqlite", combined)
+        self.assertNotIn("backup/usage.sqlite", combined)
+        self.assertNotIn("backup", combined)
+        # data/backup/daily is the Engine-supported path (not backup/daily).
+        self.assertNotIn("backup/daily", exclude)
+
+    def test_check_compose_rejects_live_db_in_always_exclude(self):
+        body = COMPOSE.read_text(encoding="utf-8")
+        # Put the live db back under exclude (the pre-hookExclude shape).
+        body = body.replace(
+            """    exclude:
+      - keys
+      - tailscale
+      - tailscale-run
+      # Dated daily copies. #325 rejects globs, so these live under
+      # data/backup/daily/ (write data/backup/daily, not backup/daily:
+      # a slash path is instance-relative and is not auto-prefixed).
+      # The hook dump data/backup/usage.sqlite is in neither list.
+      - data/backup/daily
+    hookExclude:
+      - usage.sqlite
+      - usage.sqlite-wal
+      - usage.sqlite-shm
+""",
+            """    exclude:
+      - keys
+      - tailscale
+      - tailscale-run
+      - usage.sqlite
+      - usage.sqlite-wal
+      - usage.sqlite-shm
+      - data/backup/daily
+""",
+        )
+        with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as fh:
+            fh.write(body)
+            path = fh.name
+        try:
+            result = self._check(path)
+            self.assertNotEqual(result.returncode, 0)
+            combined = result.stderr + result.stdout
+            self.assertIn("hookExclude", combined)
+        finally:
+            Path(path).unlink()
+
+    def test_check_compose_rejects_unprefixed_daily_path(self):
+        body = COMPOSE.read_text(encoding="utf-8").replace(
+            "- data/backup/daily",
+            "- backup/daily",
+        )
+        with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as fh:
+            fh.write(body)
+            path = fh.name
+        try:
+            result = self._check(path)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("data/backup/daily", result.stderr + result.stdout)
+        finally:
+            Path(path).unlink()
 
     def test_backup_declares_hook_method_and_collector_hooks(self):
         """idea#444 compose fields: method hook, fallback stop, hooks on collector."""

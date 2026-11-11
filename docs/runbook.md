@@ -240,20 +240,20 @@ The App declares `x-app.backup.method: hook` so a Backup Disk run can
 snapshot the collector without stopping the compose project (the idea-hub
 sidecar stays up). Field names follow the Engine contract in
 [agent-engine-dev#325](https://github.com/koenswings/agent-engine-dev/pull/325)
-(tip `646e4bf`): `method`, `fallback: stop|fail` (default `stop`),
-`hookTimeout` (default 300), and `preHook`/`postHook` as
-`{service, command, optional user}`. `command` is a string (one argv) or
-a YAML list; there is no `sh -c`. The Engine runs, from the instance
-directory:
+(tip `0ba3737`, [idea#444 comment](https://github.com/koenswings/idea/issues/444#issuecomment-6806470338)):
+`method`, `fallback: stop|fail` (default `stop`), `hookTimeout` (default
+300), `preHook`/`postHook` as `{service, command, optional user}`,
+`exclude`, and `hookExclude`. `command` is a string (one argv) or a YAML
+list; there is no `sh -c`. The Engine runs, from the instance directory:
 
 `timeout --signal=TERM --kill-after=10s <hookTimeout> docker compose exec -T [--user U] -- collector <argv...>`
 
 - `hookTimeout` is 300 seconds. `fallback: stop` is the default: if the
   preHook fails or times out, the Engine falls back to a short stop (that
-  *would* take idea-hub down for the length of `borg create`) and packs
-  the live `usage.sqlite` directly (the live-db excludes are dropped for
-  that run). A postHook failure after a good `borg create` is only a
-  warning; the backup is still Done.
+  *would* take idea-hub down for the length of `borg create`). `exclude`
+  is still applied; `hookExclude` is dropped so the (now stopped) live
+  db is packed as-is. A postHook failure after a good `borg create` is
+  only a warning; the backup is still Done.
 - `preHook` / `postHook` run in the `collector` service as
   `/app/scripts/backup-snapshot.sh` and `/app/scripts/backup-cleanup.sh`
   (on the `./collector` bind, read-only at `/app`). The preHook writes a
@@ -262,23 +262,25 @@ directory:
   `cp`s the live db. A failure exits non-zero. The postHook removes only
   that dump and the hook's temp files; a missing dump is fine. Dated daily
   copies are not deleted.
-- `x-app.backup.exclude` lists `keys`, `tailscale`, `tailscale-run` (secrets
-  and the LocalAPI socket dir), the live `usage.sqlite` plus `-wal`/`-shm`
-  (a mid-write copy must not be what restore applies), and
-  `data/backup/daily` (the dated daily copies). The hook dump
-  `data/backup/usage.sqlite` stays in the archive.
+- `x-app.backup.exclude` is always applied: `keys`, `tailscale`,
+  `tailscale-run`, and `data/backup/daily` (dated daily copies).
+- `x-app.backup.hookExclude` is applied only after a successful preHook:
+  the live `usage.sqlite` plus `-wal`/`-shm` (a mid-write copy must not
+  be what restore applies). On `HOOK_FALLBACK` or method `stop` those
+  three are dropped and the live db is packed. The hook dump
+  `data/backup/usage.sqlite` is in neither list and stays in the archive.
 
 Dated daily copies used to live next to the hook dump as
 `./data/backup/usage-YYYY-MM-DD.sqlite`. `#325` / helper v8
-`parseBackupExcludeList` still rejects globs (`*`, `?`, `[]`), so an
-entry such as `backup/usage-*.sqlite` would fail the backup closed. A
-bare name becomes `data/<name>`; a path that already contains a slash
-is instance-relative and is not auto-prefixed with `data/`. The dated
-files therefore live under `./data/backup/daily/`, excluded as the
-supported path `data/backup/daily`. They are redundant with the hook
-dump on a successful hook run, and on `HOOK_FALLBACK` the Engine packs
-the (now stopped) live db, so they are left out of the archive. On
-start, leftover dated files at the old path are moved into `daily/`.
+`parseBackupExcludeList` rejects globs (`*`, `?`, `[]`), so an entry
+such as `backup/usage-*.sqlite` would fail the backup closed. A bare
+name becomes `data/<name>`; a path that already contains a slash is
+instance-relative and is not auto-prefixed with `data/` (write
+`data/backup/daily`, not `backup/daily`). The dated files therefore live
+under `./data/backup/daily/`, always excluded as that path. They are
+redundant with the hook dump on a successful hook run, and on
+`HOOK_FALLBACK` the live db is packed instead. On start, leftover dated
+files at the old path are moved into `daily/`.
 
 `./data/operators.json` is written with a temp file plus `os.replace`, so
 it is packed as-is. `./data/registry.json` is only read by the collector

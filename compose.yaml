@@ -21,12 +21,15 @@ x-app:
   migrationNote: >
     First release. The collector creates SQLite on first start under ./data.
   snapshotExclude: []
-  # idea#444 hook fields, as parsed by agent-engine-dev#325 (tip 646e4bf):
-  # method hook|stop, fallback stop|fail (default stop), hookTimeout
-  # (default 300), preHook/postHook {service, command, optional user}.
-  # command is a string (one argv) or a YAML list; no sh -c. The Engine
-  # runs: timeout --signal=TERM --kill-after=10s <hookTimeout>
-  #   docker compose exec -T [--user U] -- collector <argv...>
+  # idea#444 hook fields, as parsed by agent-engine-dev#325 (tip 0ba3737)
+  # and idea#444 comment 6806470338: method hook|stop, fallback stop|fail
+  # (default stop), hookTimeout (default 300), preHook/postHook
+  # {service, command, optional user}. command is a string (one argv) or
+  # a YAML list; no sh -c. The Engine runs, from the instance directory:
+  #   timeout --signal=TERM --kill-after=10s <hookTimeout>
+  #     docker compose exec -T [--user U] -- collector <argv...>
+  # exclude is always applied. hookExclude is applied only after a
+  # successful preHook and is dropped on HOOK_FALLBACK or method stop.
   backup:
     method: hook
     hookTimeout: 300
@@ -41,18 +44,15 @@ x-app:
       - keys
       - tailscale
       - tailscale-run
+      # Dated daily copies. #325 rejects globs, so these live under
+      # data/backup/daily/ (write data/backup/daily, not backup/daily:
+      # a slash path is instance-relative and is not auto-prefixed).
+      # The hook dump data/backup/usage.sqlite is in neither list.
+      - data/backup/daily
+    hookExclude:
       - usage.sqlite
       - usage.sqlite-wal
       - usage.sqlite-shm
-      # Dated daily copies. #325 / helper v8 parseBackupExcludeList
-      # rejects globs (* ? []), so backup/usage-*.sqlite would fail the
-      # backup closed. Bare names become data/<name>; a slash path is
-      # instance-relative (not auto-prefixed). The dated files therefore
-      # live under data/backup/daily/, excluded as that path. The hook
-      # dump data/backup/usage.sqlite is not listed and stays in the
-      # archive. On HOOK_FALLBACK the Engine packs the live db directly
-      # (drops the usage.sqlite / -wal / -shm excludes).
-      - data/backup/daily
 
 services:
   tailscale:
