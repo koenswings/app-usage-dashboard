@@ -4,10 +4,14 @@
 # The Engine loads the web image from
 # <diskRoot>/services/ghcr.io_koenswings_usage-dashboard-web:1.0.tar
 # (a sibling of apps/, see docs/packaging.md) instead of running
-# `docker pull` on ghcr. This script stages the App Disk bundle, builds and
-# saves the arm64 web image plus the other compose service tars, then
-# installApp through the Engine's local-disk path (--source, --fresh) so
-# GET /api/v1/health reports the bundled commit (collector/build-info.json).
+# `docker pull` on ghcr. This script stages the App Disk bundle, exports the
+# web tar of the compose pin with `script/publish-web-image.sh --export-tar`
+# (pull the pin, tag repo:tag, save, verify, rename; never a local build, idea#445),
+# saves the other compose service tars, verifies every pinned tar with
+# script/verify-service-tar.sh, then installApp through the Engine's local-disk
+# path (--source, --fresh) so GET /api/v1/health reports the bundled commit
+# (collector/build-info.json). After the Engine load it asserts that both
+# repo@<pin> and repo:tag resolve to the pin.
 #
 # Usage (on a claimed idea03 or idea04, as pi):
 #   script/e2e-tar-fallback.sh [--keep] [--ingest-history <dir>]
@@ -42,7 +46,14 @@ WRITE_BUILD_INFO="$HERE/write-build-info.sh"
 APP_NAME=usage-dashboard
 APP_VERSION=1.0
 APP_ID="${APP_NAME}-${APP_VERSION}"
-WEB_IMAGE=ghcr.io/koenswings/usage-dashboard-web:1.0
+PUBLISH="$HERE/publish-web-image.sh"
+VERIFY="$HERE/verify-service-tar.sh"
+# Web image: the compose pin (repo:tag@sha256:...), its saveName and parts.
+WEB_REF=""
+WEB_IMAGE=""
+WEB_REPO=""
+WEB_DIGEST=""
+WEB_LOAD_FORCED=0
 INSTANCE_NAME=usage-dashboard-tar-e2e
 ENGINE_ROOT=${ENGINE_ROOT:-/home/pi/idea/agents/agent-engine-dev}
 QUARANTINE_ROOT=${QUARANTINE_ROOT:-/home/pi/kid-quarantine}
@@ -97,6 +108,17 @@ while [ $# -gt 0 ]; do
 done
 
 [ -f "$REPO/compose.yaml" ] || die "compose.yaml not found in $REPO"
+[ -x "$PUBLISH" ] || die "publish-web-image.sh is not executable"
+[ -x "$VERIFY" ] || die "verify-service-tar.sh is not executable"
+
+WEB_REF=$(awk '/^services:/{s=1;next} s&&/^[^ #]/{s=0} s&&/^  web:/{w=1;next} w&&/^  [A-Za-z0-9_-]+:/{w=0} w&&/^    image:/{print $2; exit}' "$REPO/compose.yaml" | tr -d "\"'")
+case "$WEB_REF" in
+  *@sha256:*) ;;
+  *) die "compose web image must be digest-pinned (repo:tag@sha256:...), got '$WEB_REF'; local builds are never shipped as tars (idea#445)" ;;
+esac
+WEB_IMAGE=$(python3 "$HERE/verify_service_tar.py" --print-save-name "$WEB_REF")
+WEB_REPO=${WEB_IMAGE%:*}
+WEB_DIGEST=${WEB_REF##*@}
 [ -x "$WRITE_BUILD_INFO" ] || die "write-build-info.sh is not executable"
 [ -x "$SEND" ] || die "send-engine-command.mjs is not executable"
 
@@ -363,16 +385,12 @@ save_tar() {
   dest="$root/$rel"
   name=$(save_name "$ref")
   assert_no_forbidden_target "$dest"
+  [ "$name" != "$WEB_IMAGE" ] || die "save_tar is not for the web image; use export_web_tar (idea#445)"
   if [ -e "$dest" ]; then
-    if [ "$name" = "$WEB_IMAGE" ]; then
-      log "moving stale $dest aside so this run can write a fresh web tar"
-      mkdir -p "$RUN_DIR/pre-existing-tars"
-      mv "$dest" "$RUN_DIR/pre-existing-tars/$(basename "$dest")"
-    else
-      log "$rel exists, reused"
-      echo "$rel"
-      return
-    fi
+    # Reused; the verify-service-tar.sh pass after staging refuses it if stale.
+    log "$rel exists, reused"
+    echo "$rel"
+    return
   fi
   log "docker save $name -> $rel"
   docker save "$name" > "$dest.partial"
@@ -381,16 +399,72 @@ save_tar() {
   echo "$rel"
 }
 
-build_web_image() {
-  pause_if_hot "before docker build"
-  log "docker build $WEB_IMAGE (linux/arm64, COMMIT=$COMMIT)"
-  docker build --platform linux/arm64 \
-    --build-arg "COMMIT=$COMMIT" \
-    --build-arg "PNPM_VERSION=9.15.9" \
-    -f "$REPO/web/Dockerfile" \
-    -t "$WEB_IMAGE" \
-    "$REPO"
-  pause_if_hot "after docker build"
+# idea#445: the web tar is always the Engine-identical export of the compose pin
+# (publish-web-image.sh --export-tar), verified before it gets its real name.
+export_web_tar() {
+  local root; root=$(disk_root "$1")
+  local rel dest
+  rel=$(tar_rel_of "$WEB_REF")
+  dest="$root/$rel"
+  assert_no_forbidden_target "$dest"
+  if [ -e "$dest" ]; then
+    log "moving existing $dest aside so this run exports a fresh web tar of the pin"
+    mkdir -p "$RUN_DIR/pre-existing-tars"
+    mv "$dest" "$RUN_DIR/pre-existing-tars/$(basename "$dest")"
+  fi
+  pause_if_hot "before web tar export"
+  log "export $WEB_REF -> $rel"
+  "$PUBLISH" --export-tar "$root/services" --pin "$WEB_REF" >&2
+  WROTE_FILES+=("$rel")
+  echo "$rel"
+}
+
+# Ids of every container's image (containerd store: the image's top-level digest).
+container_image_ids() {
+  local cid
+  for cid in $(docker ps -aq 2>/dev/null || true); do
+    docker inspect --format '{{.Image}}' "$cid" 2>/dev/null || true
+  done
+}
+
+# Remove the web image names (not content in use) so installApp has to load the tar.
+# If a container (e.g. the live hub) uses the pinned image, leave it: the load is then
+# not forced, and the post-install assertions still prove repo:tag -> pin.
+unname_web_image() {
+  if container_image_ids | grep -Fxq "$WEB_DIGEST"; then
+    log "WARN: a container uses $WEB_DIGEST; not removing $WEB_IMAGE / $WEB_REPO@$WEB_DIGEST (load not forced)"
+    WEB_LOAD_FORCED=0
+    return 0
+  fi
+  local n
+  for n in "$WEB_IMAGE" "$WEB_REPO@$WEB_DIGEST"; do
+    if image_present "$n"; then
+      log "docker image rm $n (name only; no -f)"
+      docker image rm "$n" >/dev/null || log "WARN: could not remove $n"
+    fi
+  done
+  if image_present "$WEB_IMAGE" || image_present "$WEB_REPO@$WEB_DIGEST"; then
+    log "WARN: the pinned web image still resolves locally; load not forced"
+    WEB_LOAD_FORCED=0
+  else
+    echo "PASS: $WEB_IMAGE and $WEB_REPO@$WEB_DIGEST are absent before installApp"
+    WEB_LOAD_FORCED=1
+  fi
+}
+
+# After the Engine load: repo@pin must exist and repo:tag must resolve to the same image
+# carrying the pin in RepoDigests (the idea#322 / idea#445 Engine rule).
+assert_web_pin_resolves() {
+  local id_pin id_tag rd
+  id_pin=$(docker image inspect "$WEB_REPO@$WEB_DIGEST" --format '{{.Id}}' 2>/dev/null) \
+    || die "$WEB_REPO@$WEB_DIGEST does not exist after installApp"
+  id_tag=$(docker image inspect "$WEB_IMAGE" --format '{{.Id}}' 2>/dev/null) \
+    || die "$WEB_IMAGE does not exist after installApp"
+  [ "$id_tag" = "$id_pin" ] || die "$WEB_IMAGE resolves to $id_tag, but $WEB_REPO@$WEB_DIGEST is $id_pin"
+  rd=$(docker image inspect "$WEB_IMAGE" --format '{{json .RepoDigests}}')
+  printf '%s' "$rd" | grep -Fq "$WEB_REPO@$WEB_DIGEST" \
+    || die "$WEB_IMAGE RepoDigests $rd do not include $WEB_REPO@$WEB_DIGEST"
+  echo "PASS: $WEB_REPO@$WEB_DIGEST exists and $WEB_IMAGE resolves to it (id $id_tag; forced load=$WEB_LOAD_FORCED)"
 }
 
 # --- Engine helpers -------------------------------------------------------
@@ -640,10 +714,9 @@ move_written() {
 }
 
 remove_test_images() {
-  if image_present "$WEB_IMAGE"; then
-    log "docker image rm $WEB_IMAGE"
-    docker image rm "$WEB_IMAGE" || log "WARN: could not remove $WEB_IMAGE"
-  fi
+  # idea#445: never untag the pinned web image at teardown; the tag must stay on
+  # the pin (the live hub and the Engine's start check rely on it).
+  log "leaving $WEB_IMAGE in place (resolves to $(docker image inspect "$WEB_IMAGE" --format '{{.Id}}' 2>/dev/null || echo absent))"
 }
 
 teardown() {
@@ -1025,15 +1098,21 @@ print("PASS: staged collector/build-info.json version=1.0 commit=" + expect)
 PY
   cat > "$RUN_DIR/planned-commands.txt" <<EOF
 # Planned Engine / Docker steps (not executed in --dry-run)
-docker build --platform linux/arm64 --build-arg COMMIT=$COMMIT -f web/Dockerfile -t $WEB_IMAGE .
-docker save $WEB_IMAGE > services/ghcr.io_koenswings_usage-dashboard-web:1.0.tar
+# Web tar = the compose pin, exported exactly as the Engine does (idea#445); never a local build:
+script/publish-web-image.sh --export-tar services --pin $WEB_REF
+#   = docker image pull --platform linux/arm64 $WEB_REF
+#     docker image tag $WEB_REF $WEB_IMAGE
+#     docker save $WEB_IMAGE > services/$(basename "$(tar_rel_of "$WEB_REF")").partial
+#     script/verify-service-tar.sh --tar <.partial> --image $WEB_REF ; mv .partial -> .tar
 # plus official compose service tars:
 #   services/python:3.12-slim-bookworm.tar
 #   services/tailscale_tailscale:v1.88.3.tar
 # nginx:1.28-alpine is the web image *build* base, not a compose service;
 # Engine does not load a nginx tar once the web service tar exists.
-docker image rm $WEB_IMAGE   # so installApp must load the tar, not reuse the build
+script/verify-service-tar.sh compose.yaml services   # every pinned tar matches its pin
+docker image rm $WEB_IMAGE $WEB_REPO@$WEB_DIGEST   # names only, skipped if a container uses the pin
 installApp $APP_ID <systemDiskId> --source <systemDiskId> --fresh --name $INSTANCE_NAME
+# assert: $WEB_REPO@$WEB_DIGEST exists and $WEB_IMAGE resolves to it (Id + RepoDigests)
 # wait for health, GET /, GET /assets/x.js
 stopInstance <instanceId> <systemDiskId>
 removeInstance <instanceId>
@@ -1099,8 +1178,7 @@ run_live() {
     [ -n "$img" ] || continue
     case "$(save_name "$img")" in
       "$WEB_IMAGE")
-        build_web_image
-        save_tar "" "$img" >/dev/null
+        export_web_tar "" >/dev/null
         rel=$(tar_rel_of "$img")
         tars+=("$rel")
         ;;
@@ -1113,17 +1191,11 @@ run_live() {
     esac
   done < <(compose_images)
   write_sums "" "${tars[@]}"
+  "$VERIFY" "$REPO/compose.yaml" /services || die "a service tar in /services does not match its compose pin (idea#445)"
 
-  # The web image must not already be in the local docker store when
-  # installApp starts, otherwise a passing inspect would not prove the tar load.
-  if image_present "$WEB_IMAGE"; then
-    log "removing local $WEB_IMAGE after docker save so Engine must load the tar"
-    docker image rm "$WEB_IMAGE"
-  fi
-  if image_present "$WEB_IMAGE"; then
-    die "$WEB_IMAGE is still present after docker image rm"
-  fi
-  echo "PASS: $WEB_IMAGE is absent before installApp"
+  # The web image names should not be in the local docker store when installApp
+  # starts, so the post-install check proves the tar load (skipped if in use).
+  unname_web_image
   web_tar="/$(tar_rel_of "$WEB_IMAGE")"
   [ -f "$web_tar" ] || die "missing $web_tar"
 
@@ -1143,11 +1215,7 @@ run_live() {
 
   copy_new_logs "$RUN_DIR/logs"
   assert_no_web_pull "$RUN_DIR/logs"
-  if image_present "$WEB_IMAGE"; then
-    echo "PASS: $WEB_IMAGE is present after installApp (loaded from tar, not pulled)"
-  else
-    die "$WEB_IMAGE is still absent after installApp; tar load did not happen"
-  fi
+  assert_web_pin_resolves
 
   local health
   health=$(wait_for_health "$INSTANCE_PORT" 240)

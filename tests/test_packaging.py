@@ -205,6 +205,90 @@ services:
         self.assertIsNotNone(root, text)
         self.assertIn("try_files $uri /index.html;", root.group(0))
 
+    # --- idea#445 -----------------------------------------------------------
+
+    def _pin(self, *args):
+        digest = "b" * 64
+        tmpdir = Path(tempfile.mkdtemp())
+        dest = tmpdir / "compose.yaml"
+        dest.write_text(COMPOSE.read_text(encoding="utf-8"), encoding="utf-8")
+        result = subprocess.run(
+            ["bash", str(REPO / "script" / "pin-web-digest.sh"), "--compose", str(dest),
+             "--digest", "sha256:" + digest, *args],
+            capture_output=True, text=True, cwd=str(REPO),
+        )
+        return result, digest, tmpdir, dest
+
+    def test_pin_web_digest_prints_pin_change_runbook(self):
+        result, digest, tmpdir, dest = self._pin()
+        try:
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            out = result.stdout
+            self.assertIn("Pin-change runbook (idea#445", out)
+            steps = [
+                "mv <services>/ghcr.io_koenswings_usage-dashboard-web:1.0.tar /home/pi/kid-quarantine/",
+                "script/publish-web-image.sh --export-tar <services> --pin ghcr.io/koenswings/usage-dashboard-web:1.0@sha256:" + digest,
+                "script/verify-service-tar.sh compose.yaml <services>",
+                "docker tag ghcr.io/koenswings/usage-dashboard-web@sha256:%s ghcr.io/koenswings/usage-dashboard-web:1.0" % digest,
+                "Engine-driven start",
+            ]
+            positions = [out.index(step) for step in steps]
+            self.assertEqual(positions, sorted(positions), out)
+        finally:
+            dest.unlink()
+            tmpdir.rmdir()
+
+    def test_pin_web_digest_check_only_also_prints_runbook(self):
+        result = subprocess.run(
+            ["bash", str(REPO / "script" / "pin-web-digest.sh"), "--check-only", "--digest", "sha256:" + "c" * 64],
+            capture_output=True, text=True, cwd=str(REPO),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("Pin-change runbook", result.stdout)
+
+    def test_pin_web_digest_services_dir_runs_verify(self):
+        with tempfile.TemporaryDirectory() as sdir:
+            result, digest, tmpdir, dest = self._pin("--services-dir", sdir)
+            try:
+                # No tar there yet: the verify step must fail and say why.
+                self.assertEqual(result.returncode, 1, result.stderr + result.stdout)
+                self.assertIn("tar not found", result.stdout)
+                self.assertIn("ghcr.io_koenswings_usage-dashboard-web:1.0.tar", result.stdout)
+            finally:
+                dest.unlink()
+                tmpdir.rmdir()
+
+    def test_no_script_tags_a_local_build_with_a_published_name(self):
+        """Local builds are :local-<sha> only; published tags appear only on the --push path."""
+        pub = (REPO / "script" / "publish-web-image.sh").read_text(encoding="utf-8")
+        self.assertIn('"${LOCAL_REPO}:local-${short}"', pub)
+        push_branch = pub[pub.index('if [ "$PUSH" = 1 ]; then\n    echo "image:'):pub.index("  else\n    # Local test build")]
+        self.assertIn('--tag "$IMAGE"', push_branch)
+        self.assertIn("--push", push_branch)
+        self.assertEqual(pub.count('--tag "$IMAGE"'), 1)
+        e2e = (REPO / "script" / "e2e-tar-fallback.sh").read_text(encoding="utf-8")
+        self.assertNotIn("docker build", e2e)
+        self.assertNotIn("buildx build", e2e)
+        docs = (REPO / "docs" / "packaging.md").read_text(encoding="utf-8")
+        self.assertNotIn("-t ghcr.io/koenswings/usage-dashboard-web", docs)
+        self.assertIn(":local-<shortsha>", docs)
+
+    def test_packaging_docs_cover_idea445(self):
+        docs = (REPO / "docs" / "packaging.md").read_text(encoding="utf-8")
+        for needle in (
+            "## Pin-change runbook",
+            "script/verify-service-tar.sh",
+            "--export-tar",
+            "--platform-digest",
+            "layout=index",
+            "layout=manifest",
+        ):
+            self.assertIn(needle, docs)
+
+    def test_source_stays_out_of_docs_and_docs_out_of_script(self):
+        self.assertEqual(sorted(p.suffix for p in (REPO / "docs").iterdir()), [".md"] * len(list((REPO / "docs").iterdir())))
+        self.assertEqual([p.name for p in (REPO / "script").iterdir() if p.suffix == ".md"], [])
+
 
 if __name__ == "__main__":
     unittest.main()

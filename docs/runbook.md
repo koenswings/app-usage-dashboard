@@ -21,14 +21,23 @@ fallback (measured 25,836,544 bytes / 24.6 MiB) is kept for offline App
 Disks. How `/health` gets `commit` without an instance `.env` hack is in
 `docs/packaging.md`.
 
-Build (and only with `--push`, publish) with `script/publish-web-image.sh`.
-That tags both `:1.0` and `:1.0-<shortsha>`. After a push, make the
+Publish with `script/publish-web-image.sh --push`, which tags both `:1.0` and
+`:1.0-<shortsha>`. Without `--push` it only makes a local test build tagged
+`usage-dashboard-web:local-<shortsha>`, never a published tag. After a push, make the
 package public, confirm an anonymous `docker manifest inspect` of
 `ghcr.io/koenswings/usage-dashboard-web:1.0` lists `linux` / `arm64`,
 then run `script/pin-web-digest.sh` and
 `script/check-compose.mjs --release compose.yaml`.
 `compose.web-ghcr.example.yaml` shows the intended `web:` service
 (`repo:tag@sha256:digest`, no `build:` block).
+
+**When the pin changes** (idea#445), every disk that already holds the App
+still has the old tar under the same name
+(`services/ghcr.io_koenswings_usage-dashboard-web:1.0.tar`). Follow the
+pin-change runbook in `docs/packaging.md`, which `pin-web-digest.sh` prints:
+quarantine the old tar, run `publish-web-image.sh --export-tar`, run
+`verify-service-tar.sh`, `docker tag repo@pin repo:tag`, then do one
+Engine-driven start.
 
 The tar-fallback e2e test (`script/e2e-tar-fallback.sh`) and the host-side
 export ingest (`script/ingest-usage-export.py`) are documented in
