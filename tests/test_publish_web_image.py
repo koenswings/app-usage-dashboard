@@ -4,6 +4,7 @@ The stub records every docker call, writes buildx metadata, and answers
 `docker save` with a fixture tar, so no Docker daemon or registry is used.
 """
 import os
+import re
 import stat
 import subprocess
 import sys
@@ -32,8 +33,11 @@ if [ "$1" = save ]; then cat "$FAKE_TAR"; exit 0; fi
 echo "stub docker: unexpected $*" >&2; exit 9
 """
 
-NAME = WEB + ":1.0"
-TARNAME = "ghcr.io_koenswings_usage-dashboard-web:1.0.tar"
+# --push tags :<x-app.version>, so derive it from compose.yaml (1.1 keeps
+# the published :1.0 web pin; a 1.1 republish would push :1.1).
+VERSION = re.search(r'(?m)^  version: "([^"]+)"$', (REPO / "compose.yaml").read_text(encoding="utf-8")).group(1)
+NAME = WEB + ":" + VERSION
+TARNAME = "ghcr.io_koenswings_usage-dashboard-web:%s.tar" % VERSION
 
 
 class PublishExportTests(unittest.TestCase):

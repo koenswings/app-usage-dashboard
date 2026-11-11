@@ -57,6 +57,29 @@ The web image also accepts `--build-arg COMMIT=<full sha>` and writes
 `/etc/idea-usage/build-info.json` inside the nginx image. That identifies
 the published web image; the collector does not read it.
 
+## Release 1.1 (idea#443)
+
+1.1 is the first release with `x-app.backup.method: hook` and the idea#446
+`x-app.backup.verify` lists. The web image did not change, so 1.1 keeps the
+published pin `ghcr.io/koenswings/usage-dashboard-web:1.0@sha256:9b5501f0…`
+(no republish). Its tar name stays `ghcr.io_koenswings_usage-dashboard-web:1.0.tar`,
+so a disk that already holds a `MATCH` tar for that pin needs no new web tar.
+A later web change would publish `:<x-app.version>` and follow the pin-change
+runbook below.
+
+`verify.present` / `verify.absent` must hold for a hook archive **and** a
+`HOOK_FALLBACK` short-stop archive, because an archive does not record which
+one it was (Steve, idea#446). A fallback archive packs the live
+`data/usage.sqlite` and has no dump; a hook archive has the dump
+`data/backup/usage.sqlite` and no live db. So neither is listed.
+`check-compose.mjs` refuses either in `present` or `absent`, a bare name in
+`present` (a bare name means `data/<name>`, so `compose.yaml` would check
+`data/compose.yaml`), and with `--release` requires the block when the
+method is `hook`.
+
+Bundle: `build-app-bundle.sh --ref 1.1` (agent-app-dev) from a checkout of
+the `1.1` tag. It only bundles from a `<major>.<minor>` tag at HEAD.
+
 ## Publish to ghcr (U-10 approved)
 
 Koen approved publishing on 11 Nov 2026 (Europe/Brussels). The image
