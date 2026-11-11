@@ -4,7 +4,7 @@ Contract for Pixel's UI (idea#415) against Kid's `web` service in `app-usage-das
 
 `{ state: 'on' | 'off' | 'gapUnknown' | 'collectorGap', start, end, lengthKnown }`
 
-`lastPulled` is returned on every kit and every school card. Help events are the only write, and only an operator (Koen or Marco) may create one.
+`lastPulled` is returned on every kit and every school card. Writes are `POST /api/v1/schools/:deploymentId/help-events` (an operator records that help was offered) and the proposed `PUT /api/v1/settings/thresholds` (operator session; pending collector).
 
 TypeScript types live in `src/api/types.ts`.
 
@@ -58,6 +58,8 @@ Every non-2xx response:
 
 `details` is optional. `401 unauthorized` when a protected path is called without a cookie (not on `GET /api/v1/session` or `GET /api/v1/health`). `403 forbidden` if a non-operator somehow authenticates and hits `POST .../help-events`.
 
+The proposed `PUT /api/v1/settings/thresholds` is the exception: a validation failure is `400` with `{ "error": "<sentence>", "field": "<key>" }`.
+
 ## Endpoints
 
 Week paths use `weekStart`: the Monday of the school week as `YYYY-MM-DD`. A non-Monday value is `400 validation`. School weeks displayed in the UI are Monday–Friday; Saturday and Sunday presence still appear in the segment list when present.
@@ -75,7 +77,8 @@ Week paths use `weekStart`: the Monday of the school week as `YYYY-MM-DD`. A non
 
 `MetaResponse` fields:
 
-- `thresholdsConfigured` — `false` until Koen sets cut-offs (idea#375). The API still returns raw scorecard **inputs**, never a grade
+- `thresholdsConfigured` — legacy flag. The UI now always has U-7 defaults (idea#375, approved 11 Nov 09:42 Europe/Brussels) and no longer waits on this to grade a line. Kept so older collectors still parse. The API still returns raw scorecard **inputs**, never a grade
+- `thresholds` — optional effective U-7 cut-offs (proposed, pending collector). If omitted, the UI uses `GET /api/v1/settings/thresholds` or the built-in defaults in `src/config/thresholds.ts`
 - `staleAfterHours` — a card whose `lastPulled` is older than this has `stale: true` and `dataFrom: "<YYYY-MM-DD>"`. Server value wins. If meta omits it, the UI uses `48` from `src/config/display.ts`
 - `hourlyChartMinWeeklyViews` — the UI hides Wikipedia views-by-hour when that instance's weekly `pageViews` is below this number. Server value wins. If meta omits it, the UI uses `20` from `src/config/display.ts`
 - `headerTimeZone` — typically `Europe/Brussels`
@@ -98,7 +101,7 @@ Contains one `SchoolCard` per kit (`engine` + `deploymentId`): scorecard **input
 
 `helpSuggestions` is an optional, **server-owned** list of banner items (kits that look idle or dark). Each `message` is already phrased as "offer help". The UI renders these verbatim and does not invent cut-offs or retractions. Empty when the collector has nothing to flag. The collector's help rule ignores on-time outside 07:00–16:00 kit-local, so a kit that was only on outside school hours is not flagged.
 
-When `thresholdsConfigured` is `false`, the UI shows the pill and every data-bearing scorecard line as **Thresholds not set**. A card with no pulled usage data shows **No data** (never the word "Grey"). A card whose `monitoringEnabled` is `false` shows a **Monitoring off** pill and the sentence "Usage monitoring is switched off on this kit." in place of the scorecard lines. A monitoring-off kit is never flagged as stale.
+The UI grades each scorecard line against the effective U-7 thresholds (see below). A card with no pulled usage data shows **No data** (never the word "Grey"). Grey lines (no data, or not measured yet) never count as amber: a card is **Help** only when at least one line is amber, **OK** when at least one line is on track and none is amber, and **No data** when every line is grey. A card whose `monitoringEnabled` is `false` shows a **Monitoring off** pill and the sentence "Usage monitoring is switched off on this kit." in place of the scorecard lines. A monitoring-off kit is never flagged as stale.
 
 ### School week (page 2)
 
@@ -184,6 +187,33 @@ Every discovered container, including extra (Engine-unlisted) copies. Fields: th
 
 The App never invents a help event. `HelpEventsResponse.weeklyTrend` is an array of `{ weekStart, scorecard }` so the timeline can show raw counts before and after an offered-help date. Wording on the dashboard is always "offer help", never "retract".
 
+The Help page also shows the effective `helpAfterAmberWeeks` / `unusedAfterHelpWeeks` as plain-language rules. It does not compute the consecutive-amber streak or unused status client-side; the collector does not yet return those. Any `helpSuggestions` the collector does send still appear on the fleet overview.
+
+### Settings — U-7 thresholds (proposed, pending collector)
+
+Koen approved starting thresholds on idea#375 U-7 (11 Nov 09:42 Europe/Brussels). They are defaults the operator can change, not hard-coded grades. This endpoint and the optional `thresholds` field on `/meta` are **proposed, pending collector** (Kid, app-usage-dashboard#2). The mock adapter (`VITE_MOCK=1`) implements them so the editable Settings path can be tested. If the collector answers `404` or omits the endpoint, the UI uses the built-in defaults and shows Settings read-only, with a note that changing them needs the collector update.
+
+| Method | Path | Body | Response |
+|---|---|---|---|
+| `GET` | `/api/v1/settings/thresholds` | — | `{ thresholds, defaults, updatedAt, updatedBy }` |
+| `PUT` | `/api/v1/settings/thresholds` | a partial `thresholds` object, or `{ "reset": true }` | the same shape as GET |
+
+`updatedAt` and `updatedBy` are `null` until the first successful PUT. `PUT` requires an operator session. A validation failure is `400` with `{ "error": "<sentence>", "field": "<key>" }` — not the usual `{ error: { code, message } }` wrapper.
+
+Keys and built-in defaults (Set up is a yes/no check and has no number):
+
+| Key | Default | Meaning |
+|---|---|---|
+| `availableMinSchoolDays` | `3` | Kit on in school hours on at least this many school days in the week |
+| `teachingCycleMinItems` | `1` | At least this many lessons or quizzes made visible or started, followed by learner sessions on assigned content |
+| `learnerSessionShareMin` | `0.5` | Learner share of Kolibri sessions versus coaches and admins (0–1; shown as a percentage in Settings). Guests are excluded |
+| `nextcloudMinActions` | `1` | At least this many shares, co-edits or File drop uploads |
+| `wikipediaMinViews` | `10` | At least this many article views on the school's own Wikipedia (not Demo) |
+| `helpAfterAmberWeeks` | `3` | Offer help after this many consecutive school weeks with any line amber. Grey never counts |
+| `unusedAfterHelpWeeks` | `4` | The school counts as unused if it is still amber with no improvement this many school weeks after help |
+
+Effective values: `/meta.thresholds` if present, else `GET /api/v1/settings/thresholds`, else these defaults.
+
 ## Scorecard inputs
 
 The six lines from §4. The API returns the measurements, not a colour or a pass/fail:
@@ -195,9 +225,18 @@ The six lines from §4. The API returns the measurements, not a colour or a pass
 5. **Nextcloud** — `worksheetShares`, `editShares`, `fileDropLinks`, `fileDropUploads`, `schoolFilesShares`, `officeOpens`, `officeDistinctDocuments` (sum across the school’s own Nextcloud instances; document ids are salted per instance, so the sum is correct), `officeRead`, `officeEdit`, `officeEstimatedMinutes`
 6. **Wikipedia** — `pageViewsOwn`, `sessionsOwn`, `distinctArticlesOwn` on the school's own instance (Demo excluded). `distinctArticlesOwn` is the max of daily `distinctArticles`, not a week-wide distinct total.
 
-`null` means no data for that input (kit not pulled, monitoring off, or that app produced no summary). Null is shown as **No data**, never as a failing grade.
+`null` means no data for that input (kit not pulled, monitoring off, or that app produced no summary). Null is shown as **No data**, never as a failing grade (never the word "Grey").
 
-Threshold comparison, if it is ever enabled, lives in one UI module (`src/config/thresholds.ts`) and reads `thresholdsConfigured` from `/api/v1/meta`. Until Koen sets values, that module does not invent cut-offs.
+Threshold comparison lives only in `src/config/thresholds.ts`. The UI maps each U-7 line as follows:
+
+1. **Available** — `schoolDaysOn` against `availableMinSchoolDays`
+2. **Set up** — yes if `teachers >= 1`, `classes >= 1`, `learnersEnrolled >= 1`, `nextcloudTeacherBeyondSeed >= 1` and `nextcloudLearnerBeyondSeed >= 1`. No numeric threshold
+3. **Teaching cycle** — (`lessonsVisible` + `quizzesStarted`) against `teachingCycleMinItems`, and `learnerSessionsOnAssigned >= 1`
+4. **Learners operate** — `learnerSessions / (learnerSessions + coachSessions + adminSessions)` against `learnerSessionShareMin`. Minutes and guests are not used
+5. **Nextcloud** — `worksheetShares + schoolFilesShares + editShares + fileDropUploads` against `nextcloudMinActions`. Scorecard inputs have total `officeOpens` but not opens by teacher or learner (`office.byGroup` lives only on the Nextcloud instance payload). Those opens are therefore not added. If workflow actions are below the cut-off and `officeOpens > 0`, the line is **Not measured yet**
+6. **Wikipedia** — `pageViewsOwn` against `wikipediaMinViews` (Demo excluded)
+
+Integers on the settings form must be `>= 0`. The session share is edited as a percentage (0–100) and stored as 0–1.
 
 ## Invented fields (not named in §7.6)
 
@@ -211,6 +250,7 @@ Threshold comparison, if it is ever enabled, lives in one UI module (`src/config
 | `monitoringEnabled`, `hasUsageData` | Distinguish "monitoring off" / "never pulled" from a zero week |
 | `KitTimezone` (`timeZone`, `utcOffset`, `label`) | `timeZone` from the idea registry (optional IANA); `utcOffset` is the offset at Monday 00:00 of the requested week from that zone, falling back to the latest sample, then `+00:00` |
 | `headerTimeZone`, `hourlyChartMinWeeklyViews`, `sampleData` | Header clock, chart-hiding threshold, mock/sample banner |
+| `thresholds` on `/meta`, `GET`/`PUT /api/v1/settings/thresholds` | Proposed U-7 cut-offs (pending collector). `400` body is `{ error, field }` |
 | `note` on a school card | Subtitle ("own apps + Demo", "Not installed yet") |
 | `headlines` | Fleet-card census strip (classes / learners / teachers / Kolibri minutes) |
 | `helpSuggestions[]` | Server-owned fleet banner; UI does not invent idle/dark cut-offs |
@@ -246,6 +286,6 @@ The HTTP week objects are aggregates of ok day-files:
 ## What the UI will not call
 
 - No direct SQLite
-- No writes other than `POST /api/v1/schools/{deploymentId}/help-events`
+- No writes other than `POST /api/v1/schools/{deploymentId}/help-events` and the proposed `PUT /api/v1/settings/thresholds`
 - No kit export verbs (`since`, `archive-and-clear`) — those are collector / helper v8
 - idea#417 (Console D2 Usage panel) is out of scope

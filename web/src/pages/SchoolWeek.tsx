@@ -1,5 +1,6 @@
 import { For, Show } from 'solid-js';
-import type { SchoolWeekResponse } from '../api/types';
+import type { SchoolWeekResponse, ScorecardThresholds } from '../api/types';
+import { DEFAULT_THRESHOLDS } from '../config/thresholds';
 import { PresenceStrip } from '../components/shared/PresenceStrip';
 import { ScorecardCard } from '../components/shared/ScorecardCard';
 import { ClockWeekWarning } from '../components/InstanceMeta';
@@ -11,11 +12,19 @@ import { buildHeadlines, buildPill, buildScorecardLines } from '../lib/scorecard
 interface SchoolWeekProps {
   data: SchoolWeekResponse;
   headerTimeZone: string;
+  thresholds?: ScorecardThresholds;
 }
 
 export function SchoolWeek(props: SchoolWeekProps) {
   const census = () => props.data.census;
   const score = () => props.data.scorecard;
+  const thresholds = () => props.thresholds ?? DEFAULT_THRESHOLDS;
+  const scorecardLines = () =>
+    isMonitoringOff(props.data.monitoringEnabled, undefined)
+      ? []
+      : buildScorecardLines(props.data.scorecard, thresholds());
+  const scorecardPill = () =>
+    buildPill(props.data.hasUsageData, scorecardLines(), props.data.monitoringEnabled);
   const kpis = () => [
     {
       id: 'classes',
@@ -109,9 +118,9 @@ export function SchoolWeek(props: SchoolWeekProps) {
             school={props.data.school}
             engine={props.data.engine}
             note="Scorecard inputs this week"
-            pill={buildPill(props.data.hasUsageData, props.data.thresholdsConfigured, props.data.monitoringEnabled).pill}
-            pillLabel={buildPill(props.data.hasUsageData, props.data.thresholdsConfigured, props.data.monitoringEnabled).pillLabel}
-            lines={isMonitoringOff(props.data.monitoringEnabled, undefined) ? [] : buildScorecardLines(props.data.scorecard, props.data.thresholdsConfigured)}
+            pill={scorecardPill().pill}
+            pillLabel={scorecardPill().pillLabel}
+            lines={scorecardLines()}
             headlines={isMonitoringOff(props.data.monitoringEnabled, undefined) ? [] : buildHeadlines({
               classes: census().classes,
               learnersRegistered: census().learnersRegistered,

@@ -179,6 +179,7 @@ h2 { font-size: 15px; margin: 22px 0 10px; color: var(--navy); }
 .scorecard-line__icon--onTrack { background: var(--good); }
 .scorecard-line__icon--needsHelp { background: #d97706; }
 .scorecard-line__icon--noData,
+.scorecard-line__icon--notMeasured,
 .scorecard-line__icon--thresholdsNotSet { background: #94a3b8; }
 .scorecard-line__bar {
   height: 6px; background: #f1f5f9; border-radius: 99px; overflow: hidden;
@@ -370,6 +371,44 @@ td { padding: 7px 8px; border-bottom: 1px solid #f1f5f9; }
   border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; min-width: 180px;
 }
 
+.help-rules {
+  max-width: 72ch;
+  color: var(--ink);
+  background: #f8fafc;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.settings-form { display: flex; flex-direction: column; gap: 14px; }
+.settings-setup {
+  background: #f8fafc;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+.settings-setup p { margin: 6px 0 0; color: var(--muted); font-size: 13px; line-height: 1.45; }
+.settings-field {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.settings-field__copy { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.settings-field__label { font-weight: 700; color: var(--navy); }
+.settings-field__meaning { color: var(--muted); font-size: 12px; font-weight: 400; line-height: 1.4; }
+.settings-field__default { color: var(--muted); font-size: 11px; font-weight: 600; }
+.settings-field__control { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+.settings-field input { width: 120px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; }
+.settings-field input:disabled { background: #f1f5f9; color: var(--ink); }
+.settings-field__unit { color: var(--muted); font-weight: 600; }
+.settings-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.settings-saved { color: var(--good); font-size: 13px; margin: 0; }
+
 .site-footer {
   background: var(--navy);
   color: #94a3b8;
@@ -388,6 +427,7 @@ td { padding: 7px 8px; border-bottom: 1px solid #f1f5f9; }
   .schools, .grid3, .grid4, .grid2 { grid-template-columns: 1fr; }
   .scorecard-line { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .scorecard-line__word { grid-column: 1 / -1; text-align: left; }
+  .settings-field__control, .settings-field input { width: 100%; }
   .wrap, .nav, .help-banner, .sample-note, .site-header, .site-footer { padding-left: 16px; padding-right: 16px; }
   .help-banner, .sample-note { margin-left: 16px; margin-right: 16px; }
 }

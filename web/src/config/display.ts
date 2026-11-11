@@ -3,8 +3,8 @@
  * Server values win; these defaults apply when meta omits a field
  * (Steve, idea#415: staleAfterHours = 48, hourly-chart minimum = 20).
  *
- * Scorecard grade cut-offs are separate and stay unset until idea#375.
- * They live only in `thresholds.ts`.
+ * Scorecard grade cut-offs (U-7, idea#375) live only in `thresholds.ts`
+ * as editable defaults.
  */
 
 export const DEFAULT_STALE_AFTER_HOURS = 48;

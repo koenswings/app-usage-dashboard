@@ -7,7 +7,8 @@ export type PageName =
   | 'wikipedia'
   | 'help'
   | 'uplink'
-  | 'instances';
+  | 'instances'
+  | 'settings';
 
 export interface Route {
   name: PageName;
@@ -25,6 +26,7 @@ export function parseHash(hash: string): Route {
   const parts = path.split('/').filter(Boolean);
 
   if (parts[0] === 'login') return { name: 'login' };
+  if (parts[0] === 'settings') return { name: 'settings', week };
   if (parts[0] === 'schools' && parts[1]) {
     const deploymentId = parts[1];
     const page = parts[2];
@@ -42,6 +44,7 @@ export function parseHash(hash: string): Route {
 export function toHash(route: Route): string {
   if (route.name === 'login') return '#/login';
   const q = route.week ? `?week=${route.week}` : '';
+  if (route.name === 'settings') return `#/settings${q}`;
   if (route.name === 'overview') return `#/${q}`;
   const id = route.deploymentId ?? '';
   const suffix =

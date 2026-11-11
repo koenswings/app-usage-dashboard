@@ -1,5 +1,17 @@
 import { API_SCHEMA, weekClockTrusted } from '../api/types';
-import type { CreateHelpEventRequest, HelpEvent, HelpEventsResponse } from '../api/types';
+import type {
+  CreateHelpEventRequest,
+  HelpEvent,
+  HelpEventsResponse,
+  PutThresholdsRequest,
+  ScorecardThresholds,
+} from '../api/types';
+import {
+  DEFAULT_THRESHOLDS,
+  cloneThresholds,
+  mergeThresholds,
+  validateThresholdPatch,
+} from '../config/thresholds';
 import { fridayOf, isMonday } from '../lib/week';
 import {
   DEP_CHIGONDA,
@@ -35,6 +47,19 @@ const MOCK_USER = 'admin';
 const MOCK_PASSWORD = 'mock-operator';
 
 const helpStore = new Map<string, HelpEvent[]>();
+
+let currentThresholds: ScorecardThresholds = cloneThresholds(DEFAULT_THRESHOLDS);
+let thresholdsUpdatedAt: string | null = null;
+let thresholdsUpdatedBy: string | null = null;
+
+function thresholdsPayload() {
+  return {
+    thresholds: cloneThresholds(currentThresholds),
+    defaults: cloneThresholds(DEFAULT_THRESHOLDS),
+    updatedAt: thresholdsUpdatedAt,
+    updatedBy: thresholdsUpdatedBy,
+  };
+}
 
 function json(data: unknown, status = 200, headers?: Record<string, string>): Response {
   return new Response(JSON.stringify(data), {
@@ -157,7 +182,39 @@ export function mockFetch(input: string, init?: RequestInit): Promise<Response> 
   if (auth instanceof Response) return Promise.resolve(auth);
 
   if (path === '/api/v1/meta' && method === 'GET') {
-    return Promise.resolve(json(meta));
+    return Promise.resolve(json({
+      ...meta,
+      thresholdsConfigured: true,
+      thresholds: cloneThresholds(currentThresholds),
+    }));
+  }
+
+  if (path === '/api/v1/settings/thresholds' && method === 'GET') {
+    return Promise.resolve(json(thresholdsPayload()));
+  }
+
+  if (path === '/api/v1/settings/thresholds' && method === 'PUT') {
+    const body = parseBody<PutThresholdsRequest>(init);
+    if (!body) {
+      return Promise.resolve(json({ error: 'Request body is required.', field: 'thresholds' }, 400));
+    }
+    if (body.reset) {
+      currentThresholds = cloneThresholds(DEFAULT_THRESHOLDS);
+      thresholdsUpdatedAt = '2026-11-11T09:42:00+01:00';
+      thresholdsUpdatedBy = auth.username;
+      return Promise.resolve(json(thresholdsPayload()));
+    }
+    if (!body.thresholds || typeof body.thresholds !== 'object') {
+      return Promise.resolve(json({ error: 'thresholds is required unless reset is true.', field: 'thresholds' }, 400));
+    }
+    const failure = validateThresholdPatch(body.thresholds);
+    if (failure) {
+      return Promise.resolve(json(failure, 400));
+    }
+    currentThresholds = mergeThresholds(currentThresholds, body.thresholds);
+    thresholdsUpdatedAt = '2026-11-11T09:42:00+01:00';
+    thresholdsUpdatedBy = auth.username;
+    return Promise.resolve(json(thresholdsPayload()));
   }
 
   if (path === '/api/v1/kits' && method === 'GET') {
@@ -204,7 +261,7 @@ export function mockFetch(input: string, init?: RequestInit): Promise<Response> 
       dataFrom: card.dataFrom,
       hasUsageData: card.hasUsageData,
       monitoringEnabled: deploymentId !== 'dep-kind-panda',
-      thresholdsConfigured: false,
+      thresholdsConfigured: true,
       sampleData: true,
       clockTrusted: clockTrustedFor(deploymentId, weekStart),
       timezone: HARARE,
@@ -324,4 +381,10 @@ export function mockFetch(input: string, init?: RequestInit): Promise<Response> 
 
 export function resetMockHelpEvents(): void {
   helpStore.clear();
+}
+
+export function resetMockThresholds(): void {
+  currentThresholds = cloneThresholds(DEFAULT_THRESHOLDS);
+  thresholdsUpdatedAt = null;
+  thresholdsUpdatedBy = null;
 }

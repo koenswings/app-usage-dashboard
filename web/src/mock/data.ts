@@ -17,6 +17,7 @@ import type {
   UplinkTransition,
 } from '../api/types';
 import { API_SCHEMA, DAY_SCHEMA } from '../api/types';
+import { DEFAULT_THRESHOLDS } from '../config/thresholds';
 import { fridayOf, formatWeekLabel } from '../lib/week';
 
 export const SAMPLE_WEEK = '2026-11-02';
@@ -34,7 +35,8 @@ export const HARARE: KitTimezone = {
 export const meta: MetaResponse = {
   schema: API_SCHEMA,
   daySchema: DAY_SCHEMA,
-  thresholdsConfigured: false,
+  thresholdsConfigured: true,
+  thresholds: DEFAULT_THRESHOLDS,
   staleAfterHours: 48,
   hourlyChartMinWeeklyViews: 20,
   headerTimeZone: 'Europe/Brussels',
@@ -395,7 +397,7 @@ export function overviewFor(weekStart: string): OverviewResponse {
     weekStart,
     weekEnd,
     weekLabel: formatWeekLabel(weekStart, weekEnd),
-    thresholdsConfigured: false,
+    thresholdsConfigured: true,
     sampleData: true,
     staleAfterHours: meta.staleAfterHours,
     cards,

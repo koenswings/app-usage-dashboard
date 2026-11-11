@@ -2,7 +2,8 @@
  * HTTP API contract for the programme dashboard (idea#415).
  *
  * Read-only GET /api/v1/... except POST /api/v1/schools/:deploymentId/help-events
- * (operator-only; Koen or Marco records that help was offered).
+ * (operator-only; Koen or Marco records that help was offered) and the proposed
+ * PUT /api/v1/settings/thresholds (operator session; pending collector, idea#375 U-7).
  *
  * Derived from the merged proposal (idea PR #410):
  *   §7.5 SQLite tables, §7.6 day-summary schema, §4 scorecard inputs,
@@ -12,10 +13,11 @@
  *   { state: 'on' | 'off' | 'gapUnknown' | 'collectorGap', start, end, lengthKnown }
  * lastPulled is returned on every kit / school card.
  *
- * Scorecard thresholds are a Koen item (idea#375) and are not set yet.
- * The API returns raw counts; it never invents cut-offs. When
- * thresholdsConfigured is false the UI shows "Thresholds not set"
- * rather than Help / OK grades.
+ * Scorecard thresholds: Koen approved starting defaults on idea#375 U-7
+ * (11 Nov 09:42 Europe/Brussels). The API still returns raw counts, never a
+ * grade. The UI compares those counts to effective thresholds (defaults, or
+ * values from /meta.thresholds / GET /api/v1/settings/thresholds). Grey
+ * (no data / not measured) never counts as amber.
  *
  * Schema version: idea-usage-api/1 (this HTTP API).
  * Day-file version: idea-usage-day/1 (§7.6).
@@ -132,8 +134,17 @@ export interface HealthResponse {
 export interface MetaResponse {
   schema: ApiSchema;
   daySchema: DaySchema;
-  /** False until Koen sets scorecard cut-offs (idea#375). */
+  /**
+   * Legacy flag. The UI now always has U-7 defaults (idea#375) and no longer
+   * waits on this to grade a line. Kept so older collectors still parse.
+   */
   thresholdsConfigured: boolean;
+  /**
+   * Effective U-7 thresholds when the collector sends them (proposed,
+   * pending collector). If omitted, the UI uses GET /settings/thresholds
+   * or the built-in defaults in src/config/thresholds.ts.
+   */
+  thresholds?: ScorecardThresholds;
   /** A card whose lastPulled is older than this is marked "data from <date>". */
   staleAfterHours: number;
   /**
@@ -181,6 +192,49 @@ export interface WeeksResponse {
   todayWeekStart: WeekStart;
   /** True when at least one stored week exists. */
   currentWeekHasData: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// U-7 scorecard thresholds (proposed settings endpoint, pending collector)
+// ---------------------------------------------------------------------------
+
+/**
+ * Numeric U-7 cut-offs. Set up is a yes/no check and has no number.
+ * `learnerSessionShareMin` is a 0–1 share (shown as a percentage in Settings).
+ */
+export interface ScorecardThresholds {
+  availableMinSchoolDays: number;
+  teachingCycleMinItems: number;
+  learnerSessionShareMin: number;
+  nextcloudMinActions: number;
+  wikipediaMinViews: number;
+  helpAfterAmberWeeks: number;
+  unusedAfterHelpWeeks: number;
+}
+
+/**
+ * GET /api/v1/settings/thresholds and PUT /api/v1/settings/thresholds
+ * (proposed, pending collector).
+ */
+export interface ThresholdsSettingsResponse {
+  thresholds: ScorecardThresholds;
+  defaults: ScorecardThresholds;
+  updatedAt: IsoDateTime | null;
+  updatedBy: string | null;
+}
+
+/** PUT body: a partial `thresholds` object, or `{ reset: true }` to restore defaults. */
+export type PutThresholdsRequest =
+  | { reset: true; thresholds?: never }
+  | { reset?: false; thresholds: Partial<ScorecardThresholds> };
+
+/**
+ * 400 body for the proposed settings endpoint. This is `{ error, field }`,
+ * not the usual `{ error: { code, message } }` wrapper.
+ */
+export interface ThresholdsSettingsError {
+  error: string;
+  field: string;
 }
 
 // ---------------------------------------------------------------------------

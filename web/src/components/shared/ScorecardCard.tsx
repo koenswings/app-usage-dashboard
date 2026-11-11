@@ -1,7 +1,7 @@
 import { For, Show, type JSX } from 'solid-js';
 
-export type ScorecardTone = 'onTrack' | 'needsHelp' | 'noData' | 'thresholdsNotSet';
-export type ScorecardPill = 'ok' | 'help' | 'noData' | 'thresholdsNotSet' | 'monitoringOff';
+export type ScorecardTone = 'onTrack' | 'needsHelp' | 'noData' | 'notMeasured';
+export type ScorecardPill = 'ok' | 'help' | 'noData' | 'monitoringOff';
 
 export interface ScorecardLineView {
   id: string;

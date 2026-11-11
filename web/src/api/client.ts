@@ -14,8 +14,11 @@ import type {
   NextcloudWeekResponse,
   OverviewResponse,
   PresenceResponse,
+  PutThresholdsRequest,
   SchoolWeekResponse,
   SessionResponse,
+  ThresholdsSettingsError,
+  ThresholdsSettingsResponse,
   UplinkResponse,
   WeeksResponse,
 } from './types';
@@ -23,12 +26,14 @@ import type {
 export class ApiError extends Error {
   readonly status: number;
   readonly body: ErrorBody | undefined;
+  readonly field: string | undefined;
 
-  constructor(status: number, body?: ErrorBody) {
-    super(body?.error.message ?? `HTTP ${status}`);
+  constructor(status: number, body?: ErrorBody, message?: string, field?: string) {
+    super(message ?? body?.error.message ?? `HTTP ${status}`);
     this.name = 'ApiError';
     this.status = status;
     this.body = body;
+    this.field = field;
   }
 }
 
@@ -51,15 +56,24 @@ function defaultFetch(input: string, init?: RequestInit): Promise<Response> {
   return fetch(`${base}${input}`, options);
 }
 
+function isSettingsError(value: unknown): value is ThresholdsSettingsError {
+  if (!value || typeof value !== 'object') return false;
+  const record = value as { error?: unknown; field?: unknown };
+  return typeof record.error === 'string' && typeof record.field === 'string';
+}
+
 async function readJson<T>(res: Response): Promise<T> {
   if (!res.ok) {
-    let body: ErrorBody | undefined;
+    let raw: unknown;
     try {
-      body = (await res.json()) as ErrorBody;
+      raw = await res.json();
     } catch {
-      body = undefined;
+      raw = undefined;
     }
-    throw new ApiError(res.status, body);
+    if (isSettingsError(raw)) {
+      throw new ApiError(res.status, undefined, raw.error, raw.field);
+    }
+    throw new ApiError(res.status, raw as ErrorBody | undefined);
   }
   return (await res.json()) as T;
 }
@@ -157,6 +171,21 @@ export function createApiClient(fetcher: FetchLike = defaultFetch) {
       return readJson<HelpEvent>(
         await fetcher(`/api/v1/schools/${deploymentId}/help-events`, {
           method: 'POST',
+          body: JSON.stringify(body),
+        }),
+      );
+    },
+
+    async getThresholds(): Promise<ThresholdsSettingsResponse> {
+      return readJson<ThresholdsSettingsResponse>(
+        await fetcher('/api/v1/settings/thresholds', { method: 'GET' }),
+      );
+    },
+
+    async putThresholds(body: PutThresholdsRequest): Promise<ThresholdsSettingsResponse> {
+      return readJson<ThresholdsSettingsResponse>(
+        await fetcher('/api/v1/settings/thresholds', {
+          method: 'PUT',
           body: JSON.stringify(body),
         }),
       );
