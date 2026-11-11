@@ -1,0 +1,8 @@
+.git
+screens
+tests
+docs
+collector
+**/node_modules
+**/dist
+**/.pnpm-store

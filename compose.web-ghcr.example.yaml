@@ -1,0 +1,47 @@
+# VARIANT: replace the `web:` service in compose.yaml after the image is
+# published to ghcr (idea#375 U-10, approved 11 Nov 2026). Do not ship this
+# file until DIGEST_PLACEHOLDER is replaced. Prefer script/pin-web-digest.sh,
+# which inspects the published :1.0 tag and writes compose.yaml directly.
+#
+#   DIGEST_PLACEHOLDER    sha256 hex from publish-web-image.sh "digest:"
+#                         or inspect of ghcr.io/koenswings/usage-dashboard-web:1.0
+#
+# image uses repo:tag@sha256:digest because Engine idea#322 saveName()
+# rejects a digest-only pin (no tag): the saved image must keep a name
+# after `docker image load`. A line such as
+#   image: ghcr.io/koenswings/usage-dashboard-web@sha256:<DIGEST>
+# would throw. Compose pins the stable :1.0 tag (the per-commit
+# :1.0-<shortsha> tag is also pushed, but is not the compose pin).
+#
+# Drop `build:` and `pull_policy: never` as shown. Other services keep
+# `pull_policy: never` (they are official digest-pinned images loaded
+# from App Disk tars). For an offline App Disk start, web can take
+# `pull_policy: never` again once the matching services/ tar is present
+# (Engine existing-tar path; see docs/packaging.md). The tar fallback is
+# kept for offline installs.
+#
+# script/check-compose.mjs --release fails while DIGEST_PLACEHOLDER,
+# SHORTSHA, or <DIGEST> remains.
+
+services:
+  web:
+    image: ghcr.io/koenswings/usage-dashboard-web:1.0@sha256:DIGEST_PLACEHOLDER
+    labels:
+      x-app-version: "1.0"
+    restart: unless-stopped
+    depends_on:
+      - collector
+    ports:
+      - ${port}:8080
+    environment:
+      - IDEA_WEB_PORT=${port}
+    volumes:
+      - ./web/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./web/entrypoint.sh:/entrypoint.sh:ro
+    entrypoint: ["/bin/sh", "/entrypoint.sh"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS -m 4 http://127.0.0.1:8080/api/v1/health | grep -q '\"ok\"'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 120s

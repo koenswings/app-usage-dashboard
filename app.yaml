@@ -1,0 +1,39 @@
+app: usage-dashboard
+idea_app_version: "1.0"
+
+compatibility:
+  engine_min: "0.9.0"
+  engine_tested: "unknown"
+
+services:
+  - name: tailscale
+    build: official
+    upstream: tailscale/tailscale
+    upstream_tag: "v1.88.3"
+    image: tailscale/tailscale
+    current_version: "v1.88.3"
+    notes: >
+      Userspace sidecar tagged tag:idea-hub. Official multi-arch image.
+      Do not publish a retag until a field image is needed.
+    monitors:
+      - kind: dockerhub
+        repo: tailscale/tailscale
+        tag_pattern: "^v\\d+\\.\\d+\\.\\d+$"
+
+  - name: collector
+    build: official
+    upstream: python
+    upstream_tag: "3.12-slim-bookworm"
+    image: python
+    current_version: "3.12-slim-bookworm"
+    notes: >
+      Official python image. collector/entrypoint.sh installs openssh-client on
+      first start (idea has internet). A Dockerfile is included for a later baked image.
+
+  - name: web
+    build: official
+    upstream: nginx
+    upstream_tag: "1.28-alpine"
+    image: nginx
+    current_version: "1.28-alpine"
+    notes: Official multi-arch nginx serving Pixel's UI (or the placeholder) and proxying /api/.
