@@ -43,20 +43,37 @@ script/e2e-tar-fallback.sh --keep --ingest-history
 quarantined usage tree (read-only of the original) plus a live
 `since 2026-10-01` export, without writing `/var/lib/idea/usage`.
 
+## idea-hub identity
+
+The App owns the idea-hub Tailscale identity (`idea-hub`, `tag:idea-hub`).
+Hostname is `idea-hub`. Compose already sets
+`TS_EXTRA_ARGS=--advertise-tags=tag:idea-hub`. The live node key lives only
+in the App's `./data/tailscale`.
+
+To hand the identity to this App (or later to another host), **move** that
+state directory — never copy it. Whichever container last starts with a
+given copy owns the live node key; any leftover copy then goes stale
+(`NeedsLogin` / `nodeKeyExpired`). Only one idea-hub container may ever
+exist. Do not run a standalone `idea-hub-sidecar` at the same time as this
+App's sidecar: the standalone sidecar is retired.
+
+When moving existing state, leave `TS_AUTHKEY` empty and do not open a
+login URL. If sidecar state is lost, Koen re-registers the node and sets
+its previous 100.x IPv4 in the Tailscale admin console so the kits'
+`from=` lines keep working (idea#375).
+
 ## Secrets
 
 | Path | What | Backup |
 |---|---|---|
 | `./data/keys/pull_key` | usage-pull private key, mode 0600 | idea's encrypted Borg only (`x-app.backup.exclude: keys`) |
 | `./data/tailscale/` | sidecar Tailscale state | idea's encrypted Borg only (`exclude: tailscale`) |
-| instance `.env` `TS_AUTHKEY` | tagged, non-ephemeral auth key for `tag:idea-hub` | Engine instance env (not this repo) |
+| instance `.env` `TS_AUTHKEY` | optional first-time auth key; leave empty when moving existing idea-hub state | Engine instance env (not this repo) |
 | `./data/operators.json` | salted PBKDF2 hashes for `koen` and `marco` (mode 0640) | instance data (hashes only) |
 | `IDEA_USAGE_KOEN_PASSWORD` | first-run seed for Koen's login (compose default `koen911!`) | instance env |
 | `IDEA_USAGE_MARCO_PASSWORD` | first-run seed for Marco's login (compose default `marco911!`) | instance env |
 
 Operator login is documented in `docs/accounts.md`. Atlas installs the matching public key on each kit as helper v7 (`/etc/ssh/idea_usage_keys/pi`), pinned `from=` the sidecar's own Tailscale IPv4, forced command `/usr/local/sbin/idea-usage-export`. Never paste a key into chat or git.
-
-If sidecar state is lost, Koen re-registers the node and sets its previous 100.x IPv4 in the Tailscale admin console so the kits' `from=` lines keep working (idea#375).
 
 ## Registry
 
@@ -82,13 +99,13 @@ If sidecar state is lost, Koen re-registers the node and sets its previous 100.x
 ## Restore
 
 1. Restore `./data/usage.sqlite` from a `VACUUM INTO` snapshot under `./data/backup/` or from idea's Borg copy of App data.
-2. Restore `./data/keys/pull_key` and `./data/tailscale/` only from idea's encrypted Borg.
+2. Restore `./data/keys/pull_key` only from idea's encrypted Borg. **Move** (never copy) `./data/tailscale/` into place so only one live node-key copy exists.
 3. Restart the App. The collector opens SQLite in WAL mode and keeps serving the last stored data if Tailscale is down.
 
 ## Known limits
 
 When a monitored kit Engine is used as the test host (as on idea03 for idea#416), the collector cannot pull from its own host. The helper v7 key has the restriction `from=100.64.0.0/10`, and the container's source address is on the Docker bridge (`172.x`), so for the proof the host's data was loaded with a host-side plain-SSH pull.
 
-This is deliberately not fixed. In production the dashboard runs on idea, which is not a monitored kit: it isn't tagged `tag:idea` and has no idea-usage export. Widening `from=` would weaken the key restriction for no production gain. The real path is the Tailscale sidecar with the `tag:idea-hub` key (pending).
+This is deliberately not fixed. In production the dashboard runs on idea, which is not a monitored kit: it isn't tagged `tag:idea` and has no idea-usage export. Widening `from=` would weaken the key restriction for no production gain. The App owns the idea-hub sidecar (`tag:idea-hub`); kits pin `from=` to that node's Tailscale IPv4.
 
 The dashboard must not be installed on a monitored kit Engine.

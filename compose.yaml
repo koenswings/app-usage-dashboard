@@ -2,9 +2,11 @@ x-app:
   name: usage-dashboard
   title: Field usage dashboard
   description: >
-    Programme field-usage dashboard for idea. Records uplink history through a
-    Tailscale userspace sidecar and pulls kit usage summaries into SQLite.
-    Install only on idea (system disk, via installApp), never on a school kit.
+    Programme field-usage dashboard for idea. Owns the idea-hub Tailscale
+    identity (idea-hub, tag:idea-hub) via a userspace sidecar and pulls kit
+    usage summaries into SQLite. Install only on idea (system disk, via
+    installApp), never on a school kit. Only one idea-hub container may
+    ever exist; move sidecar state, never copy it.
   url: https://github.com/koenswings/app-usage-dashboard
   category: admin
   icon: icon.png
@@ -27,6 +29,13 @@ x-app:
 services:
   tailscale:
     # Official multi-arch index digest (idea#322). linux/arm64 verified 2026-11-11.
+    # This service owns the idea-hub Tailscale identity (hostname idea-hub,
+    # tag:idea-hub). State lives only in ./data/tailscale. Move that directory
+    # when handing the identity between containers — never copy it. Whichever
+    # container runs last owns the live node key; a leftover copy goes stale
+    # (NeedsLogin / nodeKeyExpired). Only one idea-hub container may ever exist.
+    # TS_EXTRA_ARGS already advertises tag:idea-hub. Leave TS_AUTHKEY empty
+    # when reusing existing state; do not re-auth.
     image: tailscale/tailscale:v1.88.3@sha256:b2a19f6b6402adc26a2aa8cb90da66afe3061e718ac67ed3f21ec3d4b366439f
     labels:
       x-app-version: "1.0"
