@@ -150,6 +150,12 @@ class AggregateTests(unittest.TestCase):
                 "workflows": {
                     "worksheetShares": 1, "editShares": 1,
                     "fileDropLinks": 1, "fileDropUploads": 3, "schoolFilesShares": 0,
+                    "byGroup": {
+                        "worksheetShares": {"admin": 0, "teacher": 1, "learner": 0},
+                        "editShares": {"admin": 0, "teacher": 1, "learner": 0},
+                        "fileDropUploads": {"admin": 0, "teacher": 2, "learner": 1},
+                        "schoolFilesShares": {"admin": 0, "teacher": 0, "learner": 0},
+                    },
                 },
             }),
             row("2026-11-10", "nc-a", "nextcloud", {
@@ -175,6 +181,12 @@ class AggregateTests(unittest.TestCase):
                 "workflows": {
                     "worksheetShares": 0, "editShares": 0,
                     "fileDropLinks": 0, "fileDropUploads": 1, "schoolFilesShares": 1,
+                    "byGroup": {
+                        "worksheetShares": {"admin": 0, "teacher": 0, "learner": 0},
+                        "editShares": {"admin": 0, "teacher": 0, "learner": 0},
+                        "fileDropUploads": {"admin": 0, "teacher": 1, "learner": 0},
+                        "schoolFilesShares": {"admin": 0, "teacher": 1, "learner": 0},
+                    },
                 },
             }),
         ]
@@ -199,11 +211,19 @@ class AggregateTests(unittest.TestCase):
         self.assertEqual(week["appsOpened"]["files"], 12)
         self.assertEqual(week["workflows"]["fileDropUploads"], 4)
         self.assertEqual(week["workflows"]["schoolFilesShares"], 1)
+        self.assertEqual(week["workflows"]["byGroup"]["fileDropUploads"]["teacher"], 3)
+        self.assertEqual(week["workflows"]["byGroup"]["fileDropUploads"]["learner"], 1)
+        self.assertEqual(week["workflows"]["byGroup"]["worksheetShares"]["teacher"], 1)
         self.assertNotIn("fileDrops", week["workflows"])
         card = scorecard_from_weeks([], [week], [], [], "2026-11-09")
         self.assertEqual(card["setup"]["nextcloudTeacherBeyondSeed"], 2)
         self.assertEqual(card["setup"]["nextcloudLearnerBeyondSeed"], 3)
         self.assertEqual(card["nextcloud"]["fileDropUploads"], 4)
+        self.assertEqual(card["nextcloud"]["fileDropUploadsTeacherLearner"], 4)
+        self.assertEqual(card["nextcloud"]["fileDropUploadsAdmin"], 0)
+        self.assertEqual(card["nextcloud"]["worksheetSharesTeacherLearner"], 1)
+        self.assertEqual(card["nextcloud"]["editSharesTeacherLearner"], 1)
+        self.assertEqual(card["nextcloud"]["schoolFilesSharesTeacherLearner"], 1)
         self.assertEqual(card["nextcloud"]["fileDropLinks"], 1)
         self.assertEqual(card["nextcloud"]["officeOpens"], 7)
         self.assertEqual(card["nextcloud"]["officeOpensTeacherLearner"], 7)
@@ -266,6 +286,80 @@ class AggregateTests(unittest.TestCase):
         self.assertEqual(card["nextcloud"]["officeOpens"], 6)
         self.assertIsNone(card["nextcloud"]["officeOpensTeacherLearner"])
         self.assertIsNone(card["nextcloud"]["officeOpensAdmin"])
+        self.assertEqual(nextcloud_actions(card), 0)
+        self.assertEqual(line_tones(card)["nextcloud"], AMBER)
+
+    def test_workflow_split_excludes_admin_and_nulls_missing_by_group(self):
+        from src.thresholds import AMBER, GREEN, line_tones, nextcloud_actions
+
+        def nc_row(day, workflows, office=None):
+            return row(day, "nc-a", "nextcloud", {
+                "name": "Nextcloud",
+                "setup": {
+                    "admin": {"total": 1, "beyondSeed": 0},
+                    "teacher": {"total": 1, "beyondSeed": 1},
+                    "learner": {"total": 1, "beyondSeed": 1},
+                    "otherGroups": {},
+                },
+                "office": office or {
+                    "opens": 0, "distinctDocuments": 0, "read": 0, "edit": 0,
+                    "byGroup": {"admin": 0, "teacher": 0, "learner": 0},
+                    "mime": {"text": 0, "sheet": 0, "slides": 0},
+                },
+                "workflows": workflows,
+            })
+
+        split = nextcloud_week([nc_row("2026-11-09", {
+            "worksheetShares": 5, "editShares": 2,
+            "fileDropLinks": 9, "fileDropUploads": 4, "schoolFilesShares": 1,
+            "byGroup": {
+                "worksheetShares": {"admin": 4, "teacher": 1, "learner": 0},
+                "editShares": {"admin": 2, "teacher": 0, "learner": 0},
+                "fileDropUploads": {"admin": 3, "teacher": 0, "learner": 1},
+                "schoolFilesShares": {"admin": 0, "teacher": 1, "learner": 0},
+            },
+        })])
+        card = scorecard_from_weeks([], [split], [], [], "2026-11-09")
+        self.assertEqual(card["nextcloud"]["worksheetShares"], 5)
+        self.assertEqual(card["nextcloud"]["worksheetSharesTeacherLearner"], 1)
+        self.assertEqual(card["nextcloud"]["worksheetSharesAdmin"], 4)
+        self.assertEqual(card["nextcloud"]["editSharesTeacherLearner"], 0)
+        self.assertEqual(card["nextcloud"]["editSharesAdmin"], 2)
+        self.assertEqual(card["nextcloud"]["fileDropUploadsTeacherLearner"], 1)
+        self.assertEqual(card["nextcloud"]["fileDropUploadsAdmin"], 3)
+        self.assertEqual(card["nextcloud"]["schoolFilesSharesTeacherLearner"], 1)
+        self.assertEqual(card["nextcloud"]["schoolFilesSharesAdmin"], 0)
+        # fileDropLinks do not count; teacher+learner parts are 1+0+1+1 = 3
+        self.assertEqual(nextcloud_actions(card), 3)
+        self.assertEqual(line_tones(card)["nextcloud"], GREEN)
+
+        admin_only = nextcloud_week([nc_row("2026-11-09", {
+            "worksheetShares": 5, "editShares": 0,
+            "fileDropLinks": 0, "fileDropUploads": 0, "schoolFilesShares": 0,
+            "byGroup": {
+                "worksheetShares": {"admin": 5, "teacher": 0, "learner": 0},
+                "editShares": {"admin": 0, "teacher": 0, "learner": 0},
+                "fileDropUploads": {"admin": 0, "teacher": 0, "learner": 0},
+                "schoolFilesShares": {"admin": 0, "teacher": 0, "learner": 0},
+            },
+        })])
+        card = scorecard_from_weeks([], [admin_only], [], [], "2026-11-09")
+        self.assertEqual(card["nextcloud"]["worksheetSharesTeacherLearner"], 0)
+        self.assertEqual(card["nextcloud"]["worksheetSharesAdmin"], 5)
+        self.assertEqual(nextcloud_actions(card), 0)
+        self.assertEqual(line_tones(card)["nextcloud"], AMBER)
+
+        old = nextcloud_week([nc_row("2026-11-09", {
+            "worksheetShares": 5, "editShares": 1,
+            "fileDropLinks": 0, "fileDropUploads": 3, "schoolFilesShares": 1,
+        })])
+        card = scorecard_from_weeks([], [old], [], [], "2026-11-09")
+        self.assertEqual(card["nextcloud"]["worksheetShares"], 5)
+        self.assertIsNone(card["nextcloud"]["worksheetSharesTeacherLearner"])
+        self.assertIsNone(card["nextcloud"]["worksheetSharesAdmin"])
+        self.assertIsNone(card["nextcloud"]["editSharesTeacherLearner"])
+        self.assertIsNone(card["nextcloud"]["fileDropUploadsTeacherLearner"])
+        self.assertIsNone(card["nextcloud"]["schoolFilesSharesTeacherLearner"])
         self.assertEqual(nextcloud_actions(card), 0)
         self.assertEqual(line_tones(card)["nextcloud"], AMBER)
 

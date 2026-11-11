@@ -107,6 +107,12 @@ def export_for(engine="happy-zebra"):
         "workflows": {
             "worksheetShares": 1, "editShares": 0,
             "fileDropLinks": 0, "fileDropUploads": 2, "schoolFilesShares": 0,
+            "byGroup": {
+                "worksheetShares": {"admin": 0, "teacher": 1, "learner": 0},
+                "editShares": {"admin": 0, "teacher": 0, "learner": 0},
+                "fileDropUploads": {"admin": 0, "teacher": 1, "learner": 1},
+                "schoolFilesShares": {"admin": 0, "teacher": 0, "learner": 0},
+            },
         },
     }
     stub = {
@@ -279,6 +285,10 @@ class ApiTests(unittest.TestCase):
         self.assertTrue(meta["currentWeekHasData"])
         self.assertEqual(card["scorecard"]["setup"]["classes"], 2)
         self.assertEqual(card["scorecard"]["nextcloud"]["fileDropUploads"], 2)
+        self.assertEqual(card["scorecard"]["nextcloud"]["fileDropUploadsTeacherLearner"], 2)
+        self.assertEqual(card["scorecard"]["nextcloud"]["fileDropUploadsAdmin"], 0)
+        self.assertEqual(card["scorecard"]["nextcloud"]["worksheetSharesTeacherLearner"], 1)
+        self.assertEqual(card["scorecard"]["nextcloud"]["worksheetSharesAdmin"], 0)
         self.assertEqual(card["scorecard"]["nextcloud"]["fileDropLinks"], 0)
         self.assertEqual(card["scorecard"]["nextcloud"]["officeOpens"], 3)
         self.assertEqual(card["scorecard"]["nextcloud"]["officeOpensTeacherLearner"], 3)

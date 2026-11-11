@@ -211,6 +211,17 @@ class ToneTests(unittest.TestCase):
         card["nextcloud"]["officeOpensTeacherLearner"] = 1
         self.assertEqual(line_tones(card)["nextcloud"], GREEN)
 
+    def test_nextcloud_ignores_admin_and_unsplit_workflow_actions(self):
+        card = amber_scorecard()
+        card["nextcloud"]["worksheetShares"] = 8
+        card["nextcloud"]["worksheetSharesAdmin"] = 8
+        card["nextcloud"]["worksheetSharesTeacherLearner"] = 0
+        self.assertEqual(line_tones(card)["nextcloud"], AMBER)
+        card["nextcloud"]["worksheetSharesTeacherLearner"] = None
+        self.assertEqual(line_tones(card)["nextcloud"], AMBER)
+        card["nextcloud"]["worksheetSharesTeacherLearner"] = 1
+        self.assertEqual(line_tones(card)["nextcloud"], GREEN)
+
     def test_setup_is_yes_no(self):
         card = empty_scorecard()
         self.assertEqual(line_tones(card)["setup"], GREY)

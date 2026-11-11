@@ -10,9 +10,17 @@ The collector on `kid/i414-collector` serves `web/API.md` and `web/src/api/types
 
 `b4fa49b` dropped `documentsCreatedOrEditedTeachers` / `documentsCreatedOrEditedLearners`. The collector still does not invent a created-versus-edited-by-role reduction. It serves the `office*` counters on `ScorecardNextcloudInputs` (`officeOpens`, `officeDistinctDocuments`, `officeRead`, `officeEdit`, `officeEstimatedMinutes`) from the stored office object.
 
-Steve's U-7 line 5 decision: Office opens that count are by a teacher or learner, not an admin. The scorecard now also sends `officeOpensTeacherLearner` (`office.byGroup.teacher` + `office.byGroup.learner`) and `officeOpensAdmin` (`office.byGroup.admin`), keeping total `officeOpens`. Old day files with no `byGroup` (while `opens` > 0) send `null` for both split fields, not `0`. `nextcloudMinActions` uses `officeOpensTeacherLearner` only; a null split contributes 0, so unattributed or admin-only opens do not meet the threshold.
+Steve's U-7 line 5 decision: Nextcloud actions that count are by a teacher or learner, not an admin. The scorecard sends these collector-side splits, keeping the flat totals:
 
-Please add `officeOpensTeacherLearner` and `officeOpensAdmin` to `ScorecardNextcloudInputs` on the Console PR (`web/API.md` and `web/src/api/types.ts` are yours). Workflows — `worksheetShares`, `editShares`, `fileDropLinks`, `fileDropUploads`, `schoolFilesShares` — have no `byGroup` in the Engine day file or the collector, so they stay unsplit totals. I did not change them.
+- `officeOpensTeacherLearner` / `officeOpensAdmin` from `office.byGroup`
+- `worksheetSharesTeacherLearner` / `worksheetSharesAdmin` from `workflows.byGroup.worksheetShares`
+- `editSharesTeacherLearner` / `editSharesAdmin` from `workflows.byGroup.editShares`
+- `fileDropUploadsTeacherLearner` / `fileDropUploadsAdmin` from `workflows.byGroup.fileDropUploads`
+- `schoolFilesSharesTeacherLearner` / `schoolFilesSharesAdmin` from `workflows.byGroup.schoolFilesShares`
+
+Old day files with no matching `byGroup` (while the flat total is > 0) send `null` for both split fields, not `0`. `nextcloudMinActions` uses only the `*TeacherLearner` fields (plus `officeOpensTeacherLearner`); a null split contributes 0, so unattributed or admin-only actions do not meet the threshold. `fileDropLinks` stays an unsplit total and is not part of the sum.
+
+Please add the eight workflow split fields and the two office split fields to `ScorecardNextcloudInputs` on the Console PR (`web/API.md` and `web/src/api/types.ts` are yours). Grade line 5 on the `*TeacherLearner` values only.
 
 ## `GET /api/v1/health` is public
 

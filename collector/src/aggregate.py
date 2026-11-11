@@ -103,10 +103,18 @@ def empty_scorecard() -> dict[str, Any]:
         },
         "nextcloud": {
             "worksheetShares": None,
+            "worksheetSharesTeacherLearner": None,
+            "worksheetSharesAdmin": None,
             "editShares": None,
+            "editSharesTeacherLearner": None,
+            "editSharesAdmin": None,
             "fileDropLinks": None,
             "fileDropUploads": None,
+            "fileDropUploadsTeacherLearner": None,
+            "fileDropUploadsAdmin": None,
             "schoolFilesShares": None,
+            "schoolFilesSharesTeacherLearner": None,
+            "schoolFilesSharesAdmin": None,
             "officeOpens": None,
             "officeOpensTeacherLearner": None,
             "officeOpensAdmin": None,
@@ -450,6 +458,38 @@ def _by_group(office: dict[str, Any], role: str) -> int:
     return int(by_group.get(plural.get(role, role)) or 0)
 
 
+WORKFLOW_TOTAL_KEYS = (
+    "worksheetShares", "editShares", "fileDropLinks", "fileDropUploads", "schoolFilesShares",
+)
+WORKFLOW_SPLIT_KEYS = (
+    "worksheetShares", "editShares", "fileDropUploads", "schoolFilesShares",
+)
+
+
+def workflow_metric_split(workflows: dict[str, Any] | None, key: str) -> tuple[int | None, int | None]:
+    """Teacher+learner and admin counts for one workflow metric.
+
+    Same null rule as office_open_split: a missing or all-zero
+    ``workflows.byGroup.<key>`` while the flat total is greater than 0
+    is an unknown split. Both values are then None.
+    """
+    if not workflows:
+        return None, None
+    total = int(workflows.get(key) or 0)
+    container = workflows.get("byGroup")
+    by = container.get(key) if isinstance(container, dict) else None
+    if not isinstance(by, dict):
+        if total > 0:
+            return None, None
+        return 0, 0
+    teacher = _by_group({"byGroup": by}, "teacher")
+    learner = _by_group({"byGroup": by}, "learner")
+    admin = _by_group({"byGroup": by}, "admin")
+    if teacher + learner + admin == 0 and total > 0:
+        return None, None
+    return teacher + learner, admin
+
+
 def office_open_split(office: dict[str, Any] | None) -> tuple[int | None, int | None]:
     """Teacher+learner opens and admin opens, from office.byGroup.
 
@@ -495,10 +535,8 @@ def nextcloud_week(rows: list[Any]) -> dict[str, Any]:
         "mime": {"text": 0, "sheet": 0, "slides": 0},
     }
     apps: dict[str, int] = {}
-    workflows = {
-        "worksheetShares": 0, "editShares": 0,
-        "fileDropLinks": 0, "fileDropUploads": 0, "schoolFilesShares": 0,
-    }
+    workflows = {key: 0 for key in WORKFLOW_TOTAL_KEYS}
+    workflows["byGroup"] = {key: {"admin": 0, "teacher": 0, "learner": 0} for key in WORKFLOW_SPLIT_KEYS}
     est_sum = 0
     has_est = False
     for payload in ok_payloads:
@@ -533,11 +571,16 @@ def nextcloud_week(rows: list[Any]) -> dict[str, Any]:
                 if app_id:
                     apps[app_id] = apps.get(app_id, 0) + int(item.get("opens") or 0)
         wf = payload.get("workflows") or {}
-        for key in workflows:
+        for key in WORKFLOW_TOTAL_KEYS:
             workflows[key] += int(wf.get(key) or 0)
         # Older draft used fileDrops as a single field.
         if "fileDrops" in wf and not wf.get("fileDropUploads"):
             workflows["fileDropUploads"] += int(wf.get("fileDrops") or 0)
+        raw_bg = wf.get("byGroup") if isinstance(wf.get("byGroup"), dict) else {}
+        for key in WORKFLOW_SPLIT_KEYS:
+            src = raw_bg.get(key) if isinstance(raw_bg.get(key), dict) else {}
+            for role in ("admin", "teacher", "learner"):
+                workflows["byGroup"][key][role] += _by_group({"byGroup": src}, role)
     for role in logins:
         if not beyond_known[role]:
             logins[role]["beyondSeed"] = None
@@ -718,6 +761,9 @@ def scorecard_from_weeks(
     if own_n:
         teacher_beyond = learner_beyond = None
         worksheet = edit_shares = file_drop_links = file_drop_uploads = school_files = 0
+        split_tl = {key: 0 for key in WORKFLOW_SPLIT_KEYS}
+        split_admin = {key: 0 for key in WORKFLOW_SPLIT_KEYS}
+        has_workflow_split = {key: False for key in WORKFLOW_SPLIT_KEYS}
         office_opens = office_distinct = office_read = office_edit = 0
         office_tl = office_admin = 0
         has_office_split = False
@@ -737,6 +783,12 @@ def scorecard_from_weeks(
             file_drop_links += int(wf.get("fileDropLinks") or 0)
             file_drop_uploads += int(wf.get("fileDropUploads") or wf.get("fileDrops") or 0)
             school_files += int(wf.get("schoolFilesShares") or 0)
+            for key in WORKFLOW_SPLIT_KEYS:
+                teacher_learner, admin_count = workflow_metric_split(wf, key)
+                if teacher_learner is not None:
+                    has_workflow_split[key] = True
+                    split_tl[key] += teacher_learner
+                    split_admin[key] += int(admin_count or 0)
             off = inst.get("office") or {}
             office_opens += int(off.get("opens") or 0)
             teacher_learner, admin_opens = office_open_split(off)
@@ -754,12 +806,29 @@ def scorecard_from_weeks(
                 office_est += int(off["estimatedMinutes"])
         card["setup"]["nextcloudTeacherBeyondSeed"] = teacher_beyond
         card["setup"]["nextcloudLearnerBeyondSeed"] = learner_beyond
+        def _split_fields(key: str) -> tuple[int | None, int | None]:
+            if has_workflow_split[key]:
+                return split_tl[key], split_admin[key]
+            return None, None
+
+        ws_tl, ws_admin = _split_fields("worksheetShares")
+        ed_tl, ed_admin = _split_fields("editShares")
+        fd_tl, fd_admin = _split_fields("fileDropUploads")
+        sf_tl, sf_admin = _split_fields("schoolFilesShares")
         card["nextcloud"].update({
             "worksheetShares": worksheet,
+            "worksheetSharesTeacherLearner": ws_tl,
+            "worksheetSharesAdmin": ws_admin,
             "editShares": edit_shares,
+            "editSharesTeacherLearner": ed_tl,
+            "editSharesAdmin": ed_admin,
             "fileDropLinks": file_drop_links,
             "fileDropUploads": file_drop_uploads,
+            "fileDropUploadsTeacherLearner": fd_tl,
+            "fileDropUploadsAdmin": fd_admin,
             "schoolFilesShares": school_files,
+            "schoolFilesSharesTeacherLearner": sf_tl,
+            "schoolFilesSharesAdmin": sf_admin,
             "officeOpens": office_opens,
             "officeOpensTeacherLearner": office_tl if has_office_split else None,
             "officeOpensAdmin": office_admin if has_office_split else None,

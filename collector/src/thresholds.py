@@ -221,12 +221,13 @@ def learner_session_share(scorecard: dict[str, Any]) -> float | None:
 
 def nextcloud_actions(scorecard: dict[str, Any]) -> int | None:
     nc = scorecard.get("nextcloud") or {}
+    # U-7 line 5: actions by a teacher or learner. Admin actions do not count.
+    # A null split (old day files with no byGroup) contributes 0.
     parts = [
-        nc.get("worksheetShares"),
-        nc.get("editShares"),
-        nc.get("schoolFilesShares"),
-        nc.get("fileDropUploads"),
-        # U-7 line 5: Office opens by a teacher or learner. Admin opens do not count.
+        nc.get("worksheetSharesTeacherLearner"),
+        nc.get("editSharesTeacherLearner"),
+        nc.get("schoolFilesSharesTeacherLearner"),
+        nc.get("fileDropUploadsTeacherLearner"),
         nc.get("officeOpensTeacherLearner"),
     ]
     if all(v is None for v in parts):
