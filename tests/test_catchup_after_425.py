@@ -238,7 +238,11 @@ class CatchupAfter425ApiTests(unittest.TestCase):
                 "note": "idea#425 post-fix inventory",
             }]}, fh)
         db.load_registry(self.conn, registry)
-        os.environ["IDEA_USAGE_ADMIN_PASSWORD"] = "admin911!"
+        os.environ.pop("IDEA_USAGE_ADMIN_PASSWORD", None)
+        os.environ["IDEA_USAGE_KOEN_PASSWORD"] = "koen911!"
+        os.environ["IDEA_USAGE_MARCO_PASSWORD"] = "marco911!"
+        os.environ["IDEA_USAGE_PBKDF2_ITERATIONS"] = "1000"
+        os.environ["IDEA_USAGE_OPERATORS_FILE"] = os.path.join(self.tmp, "operators.json")
         os.environ["IDEA_USAGE_SESSION_SECRET"] = "test-secret"
         self.server = serve(self.conn, "127.0.0.1:0")
         host, port = self.server.server_address
@@ -264,7 +268,7 @@ class CatchupAfter425ApiTests(unittest.TestCase):
             return exc.code, json.loads(exc.read().decode("utf-8"))
 
     def login(self):
-        status, payload = self.call("POST", "/api/v1/session", {"username": "admin", "password": "admin911!"})
+        status, payload = self.call("POST", "/api/v1/session", {"username": "koen", "password": "koen911!"})
         self.assertEqual(status, 200, payload)
         self.assertTrue(payload["authenticated"])
 

@@ -50,9 +50,11 @@ quarantined usage tree (read-only of the original) plus a live
 | `./data/keys/pull_key` | usage-pull private key, mode 0600 | idea's encrypted Borg only (`x-app.backup.exclude: keys`) |
 | `./data/tailscale/` | sidecar Tailscale state | idea's encrypted Borg only (`exclude: tailscale`) |
 | instance `.env` `TS_AUTHKEY` | tagged, non-ephemeral auth key for `tag:idea-hub` | Engine instance env (not this repo) |
-| `IDEA_USAGE_ADMIN_PASSWORD` | operator login (default convention `admin911!` if unset) | instance env |
+| `./data/operators.json` | salted PBKDF2 hashes for `koen` and `marco` (mode 0640) | instance data (hashes only) |
+| `IDEA_USAGE_KOEN_PASSWORD` | first-run seed for Koen's login (compose default `koen911!`) | instance env |
+| `IDEA_USAGE_MARCO_PASSWORD` | first-run seed for Marco's login (compose default `marco911!`) | instance env |
 
-Atlas installs the matching public key on each kit as helper v7 (`/etc/ssh/idea_usage_keys/pi`), pinned `from=` the sidecar's own Tailscale IPv4, forced command `/usr/local/sbin/idea-usage-export`. Never paste a key into chat or git.
+Operator login is documented in `docs/accounts.md`. Atlas installs the matching public key on each kit as helper v7 (`/etc/ssh/idea_usage_keys/pi`), pinned `from=` the sidecar's own Tailscale IPv4, forced command `/usr/local/sbin/idea-usage-export`. Never paste a key into chat or git.
 
 If sidecar state is lost, Koen re-registers the node and sets its previous 100.x IPv4 in the Tailscale admin console so the kits' `from=` lines keep working (idea#375).
 

@@ -871,7 +871,7 @@ import json, sys, urllib.request, http.cookiejar
 from pathlib import Path
 port, jar_path, pass_file = sys.argv[1], sys.argv[2], sys.argv[3]
 password = Path(pass_file).read_text(encoding="utf-8").splitlines()[0]
-body = json.dumps({"username": "admin", "password": password}).encode()
+body = json.dumps({"username": "koen", "password": password}).encode()
 cj = http.cookiejar.MozillaCookieJar(jar_path)
 opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cj))
 req = urllib.request.Request(
@@ -971,10 +971,10 @@ run_history_ingest() {
 import os, sys
 from pathlib import Path
 env_path, dest = Path(sys.argv[1]), Path(sys.argv[2])
-password = "admin911!"
+password = "koen911!"
 if env_path.is_file():
     for line in env_path.read_text(encoding="utf-8").splitlines():
-        if line.startswith("IDEA_USAGE_ADMIN_PASSWORD="):
+        if line.startswith("IDEA_USAGE_KOEN_PASSWORD="):
             value = line.split("=", 1)[1]
             if value:
                 password = value

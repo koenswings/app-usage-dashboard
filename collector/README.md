@@ -10,6 +10,7 @@ Python service. Modules live in `src/`:
 - `pull.py` — restricted SSH `since` / `archive-and-clear --before`
 - `aggregate.py` — week views and scorecard inputs
 - `thresholds.py` — U-7 defaults, validation, SQLite settings, and amber/unused streaks
+- `auth.py` — cookie sessions and the two U-9 operators (`koen`, `marco`), hashed in `./data/operators.json`
 - `api.py` — `/api/v1` (`idea-usage-api/1`)
 - `main.py` — process loop
 

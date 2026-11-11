@@ -190,7 +190,12 @@ class ApiTests(unittest.TestCase):
         self.conn = db.connect(self.db_path)
         registry = os.path.join(self.tmp, "registry.json")
         install_fixture(self.conn, registry)
-        os.environ["IDEA_USAGE_ADMIN_PASSWORD"] = "admin911!"
+        os.environ.pop("IDEA_USAGE_ADMIN_PASSWORD", None)
+        os.environ.pop("IDEA_USAGE_OPERATORS", None)
+        os.environ["IDEA_USAGE_KOEN_PASSWORD"] = "koen911!"
+        os.environ["IDEA_USAGE_MARCO_PASSWORD"] = "marco911!"
+        os.environ["IDEA_USAGE_PBKDF2_ITERATIONS"] = "1000"
+        os.environ["IDEA_USAGE_OPERATORS_FILE"] = os.path.join(self.tmp, "operators.json")
         os.environ["IDEA_USAGE_SESSION_SECRET"] = "test-secret"
         self.server = serve(self.conn, "127.0.0.1:0")
         host, port = self.server.server_address
@@ -216,7 +221,7 @@ class ApiTests(unittest.TestCase):
             return exc.code, json.loads(exc.read().decode("utf-8"))
 
     def login(self):
-        status, payload = self.call("POST", "/api/v1/session", {"username": "admin", "password": "admin911!"})
+        status, payload = self.call("POST", "/api/v1/session", {"username": "koen", "password": "koen911!"})
         self.assertEqual(status, 200, payload)
         self.assertTrue(payload["authenticated"])
 
@@ -240,7 +245,7 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(payload["error"]["code"], "unauthorized")
 
     def test_bad_login(self):
-        status, payload = self.call("POST", "/api/v1/session", {"username": "admin", "password": "nope"})
+        status, payload = self.call("POST", "/api/v1/session", {"username": "koen", "password": "nope"})
         self.assertEqual(status, 401)
         self.assertEqual(payload["error"]["code"], "unauthorized")
 
@@ -542,8 +547,8 @@ class ApiTests(unittest.TestCase):
         now = parse_ts("2026-11-11T01:29:41.850000+01:00")
         path_school = "/api/v1/weeks/%s/schools/dep-nharira" % WEEK
         path_pres = "/api/v1/weeks/%s/schools/dep-nharira/presence" % WEEK
-        status_s, school, _ = handle(self.conn, "GET", path_school, None, "admin", False, now=now)
-        status_p, pres, _ = handle(self.conn, "GET", path_pres, None, "admin", False, now=now)
+        status_s, school, _ = handle(self.conn, "GET", path_school, None, "koen", False, now=now)
+        status_p, pres, _ = handle(self.conn, "GET", path_pres, None, "koen", False, now=now)
         self.assertEqual(status_s, 200, school)
         self.assertEqual(status_p, 200, pres)
         school_gaps = [item for item in school["presence"]["segments"] if item["state"] == "collectorGap"]
@@ -660,7 +665,7 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(payload["thresholds"]["wikipediaMinViews"], 15)
         self.assertEqual(payload["thresholds"]["learnerSessionShareMin"], 0.6)
         self.assertEqual(payload["thresholds"]["availableMinSchoolDays"], 3)
-        self.assertEqual(payload["updatedBy"], "admin")
+        self.assertEqual(payload["updatedBy"], "koen")
         self.assertIsNotNone(payload["updatedAt"])
 
         status, meta = self.call("GET", "/api/v1/meta")
@@ -692,11 +697,58 @@ class ApiTests(unittest.TestCase):
         })
         self.assertEqual(status, 201, created)
         self.assertEqual(created["offeredOn"], "2026-11-10")
-        self.assertEqual(created["createdBy"], "admin")
+        self.assertEqual(created["createdBy"], "koen")
         status, listing = self.call("GET", "/api/v1/schools/dep-nharira/help-events")
         self.assertEqual(status, 200)
         self.assertEqual(len(listing["events"]), 1)
         self.assertTrue(listing["weeklyTrend"])
+
+    def test_admin_cannot_sign_in(self):
+        status, payload = self.call("POST", "/api/v1/session", {"username": "admin", "password": "admin911!"})
+        self.assertEqual(status, 401)
+        self.assertEqual(payload["error"]["code"], "unauthorized")
+
+    def test_marco_can_sign_in(self):
+        status, payload = self.call("POST", "/api/v1/session", {"username": "marco", "password": "marco911!"})
+        self.assertEqual(status, 200, payload)
+        self.assertTrue(payload["authenticated"])
+        self.assertEqual(payload["user"]["username"], "marco")
+        status, session = self.call("GET", "/api/v1/session")
+        self.assertEqual(session["user"]["username"], "marco")
+
+    def test_change_password_and_old_password_stops_working(self):
+        self.login()
+        status, payload = self.call("PUT", "/api/v1/session/password", {
+            "currentPassword": "koen911!",
+            "newPassword": "koen-changed-99",
+        })
+        self.assertEqual(status, 200, payload)
+        self.assertTrue(payload["authenticated"])
+        self.call("DELETE", "/api/v1/session")
+        status, payload = self.call("POST", "/api/v1/session", {"username": "koen", "password": "koen911!"})
+        self.assertEqual(status, 401)
+        status, payload = self.call("POST", "/api/v1/session", {"username": "koen", "password": "koen-changed-99"})
+        self.assertEqual(status, 200, payload)
+        self.assertTrue(payload["authenticated"])
+        status, payload = self.call("PUT", "/api/v1/session/password", {
+            "currentPassword": "wrong-current",
+            "newPassword": "another-long",
+        })
+        self.assertEqual(status, 401)
+        status, payload = self.call("PUT", "/api/v1/session/password", {
+            "currentPassword": "koen-changed-99",
+            "newPassword": "short",
+        })
+        self.assertEqual(status, 400)
+        self.assertEqual(payload["error"]["code"], "validation")
+
+    def test_password_change_requires_session(self):
+        status, payload = self.call("PUT", "/api/v1/session/password", {
+            "currentPassword": "koen911!",
+            "newPassword": "something-long",
+        })
+        self.assertEqual(status, 401)
+
 
 
 if __name__ == "__main__":

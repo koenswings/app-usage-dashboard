@@ -35,7 +35,15 @@ Pixel can add both as optional fields on `HealthResponse` in `web/API.md` and `w
 
 ## `GET /api/v1/session` works without a cookie
 
-Without `idea_usage_session` the handler returns `200` and `{schema, authenticated: false, user: null}` so the login page can ask. It is not a 401. Every other `/api/v1` path still requires the cookie.
+Without `idea_usage_session` the handler returns `200` and `{schema, authenticated: false, user: null}` so the login page can ask. It is not a 401. `POST /api/v1/session` and `DELETE /api/v1/session` stay public too (login / logout). Every other `/api/v1` path still requires the cookie.
+
+## U-9: only `koen` and `marco` may sign in
+
+The programme dashboard has exactly two operator accounts: `koen` and `marco`. There is no `admin` operator any more (`IDEA_USAGE_ADMIN_PASSWORD` is gone). Login is still `POST /api/v1/session` with `{username, password}` — `web/src/pages/LoginPage.tsx` already has both fields, so no single-user rewrite is required.
+
+`PUT /api/v1/session/password` (operator session) accepts `{currentPassword, newPassword}` (new password at least 8 characters). Success returns the same session payload as login. Wrong current password is `401` `{error:{code:"unauthorized",...}}`. A short new password is `400` `{error:{code:"validation",...}}`. The session cookie stays valid.
+
+The UI login mock (`web/src/mock/fetch.ts`) and `web/test/api-client.test.ts` still use `admin` / `mock-operator`. Those never hit the collector. Please retarget the mock at `koen` (or keep a mock-only username — just do not document `admin` as a real operator). A change-password form is not required for this drop; the API is there when you want one.
 
 ## `fileDrops` naming
 
