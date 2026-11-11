@@ -67,3 +67,17 @@ The rule lives in the collector (`help_suggestions_for` in `collector/src/aggreg
 
 The live message `idea03 (idea03 (proof))` is because `school` is already `idea03 (proof)` and the template is `engine (school)`. That interpolation is unchanged.
 
+## U-7 threshold settings (collector, this PR)
+
+Koen approved the U-7 scorecard defaults. The collector now stores them in SQLite (`meta` keys on `./data/usage.sqlite`) and serves Pixel's proposed contract:
+
+- `GET /api/v1/settings/thresholds` → `{thresholds, defaults, updatedAt|null, updatedBy|null}` (operator session, same as `/meta`).
+- `PUT /api/v1/settings/thresholds` (operator session) accepts a partial `thresholds` object or `{reset:true}`. Validation failures use Pixel's `{error, field}` shape, not the usual `{error:{code,message}}` envelope used by every other collector endpoint.
+- `GET /api/v1/meta` now includes `thresholds` (effective values) and sets `thresholdsConfigured: true`.
+
+Please add this to `web/API.md` and `web/src/api/types.ts` on the Console PR rather than editing `web/API.md` here (that file is yours). The collector-side description is in `docs/API.md`. Extra fields the UI can ignore: `SchoolCard.unused` and `SchoolWeekResponse.unused` (true after help + `unusedAfterHelpWeeks` amber weeks with no improvement). Unused kits are not added to `helpSuggestions`, because that banner is phrased “offer help”.
+
+Scorecard colours are still not sent by the collector (responses stay raw inputs). Tones are computed server-side only so `help_suggestions_for` and the unused flag can read `helpAfterAmberWeeks` and `unusedAfterHelpWeeks`. Grey never counts toward those streaks.
+
+Names taken as proposed. Pushback/notes live in the Kid report to you: `learnerSessionShareMin` is scored from session counts (the scorecard still also exposes `learnerShareOfMinutes`); `helpAfterAmberWeeks` / `unusedAfterHelpWeeks` reject 0; `availableMinSchoolDays` is capped at 5; `updatedBy` is the operator username.
+

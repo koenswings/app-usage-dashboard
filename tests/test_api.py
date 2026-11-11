@@ -251,7 +251,11 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(meta["schema"], "idea-usage-api/1")
         self.assertEqual(meta["staleAfterHours"], 48)
         self.assertEqual(meta["hourlyChartMinWeeklyViews"], 20)
-        self.assertFalse(meta["thresholdsConfigured"])
+        self.assertTrue(meta["thresholdsConfigured"])
+        self.assertEqual(meta["thresholds"]["availableMinSchoolDays"], 3)
+        self.assertEqual(meta["thresholds"]["learnerSessionShareMin"], 0.5)
+        self.assertEqual(meta["thresholds"]["helpAfterAmberWeeks"], 3)
+        self.assertEqual(meta["thresholds"]["unusedAfterHelpWeeks"], 4)
 
         status, kits = self.call("GET", "/api/v1/kits")
         self.assertEqual(status, 200)
@@ -625,6 +629,47 @@ class ApiTests(unittest.TestCase):
         self.assertFalse(payload["measured"])
         self.assertEqual(payload["samples"], [])
         self.assertEqual(payload["transitions"], [])
+
+    def test_settings_thresholds_round_trip(self):
+        status, payload = self.call("GET", "/api/v1/settings/thresholds")
+        self.assertEqual(status, 401)
+        self.login()
+        status, payload = self.call("GET", "/api/v1/settings/thresholds")
+        self.assertEqual(status, 200, payload)
+        self.assertEqual(payload["thresholds"], payload["defaults"])
+        self.assertEqual(payload["defaults"]["wikipediaMinViews"], 10)
+        self.assertIsNone(payload["updatedAt"])
+        self.assertIsNone(payload["updatedBy"])
+
+        status, payload = self.call("PUT", "/api/v1/settings/thresholds", {
+            "thresholds": {"wikipediaMinViews": 15, "learnerSessionShareMin": 0.6},
+        })
+        self.assertEqual(status, 200, payload)
+        self.assertEqual(payload["thresholds"]["wikipediaMinViews"], 15)
+        self.assertEqual(payload["thresholds"]["learnerSessionShareMin"], 0.6)
+        self.assertEqual(payload["thresholds"]["availableMinSchoolDays"], 3)
+        self.assertEqual(payload["updatedBy"], "admin")
+        self.assertIsNotNone(payload["updatedAt"])
+
+        status, meta = self.call("GET", "/api/v1/meta")
+        self.assertEqual(status, 200)
+        self.assertEqual(meta["thresholds"]["wikipediaMinViews"], 15)
+        self.assertTrue(meta["thresholdsConfigured"])
+
+        status, payload = self.call("PUT", "/api/v1/settings/thresholds", {
+            "thresholds": {"unknownKey": 1},
+        })
+        self.assertEqual(status, 400)
+        self.assertEqual(payload, {"error": "unknown threshold", "field": "unknownKey"})
+
+        status, payload = self.call("PUT", "/api/v1/settings/thresholds", {"reset": True})
+        self.assertEqual(status, 200, payload)
+        self.assertEqual(payload["thresholds"]["wikipediaMinViews"], 10)
+        self.assertIsNone(payload["updatedBy"])
+        status, overview = self.call("GET", "/api/v1/weeks/%s/overview" % WEEK)
+        self.assertEqual(status, 200, overview)
+        self.assertIn("unused", overview["cards"][0])
+        self.assertFalse(overview["cards"][0]["unused"])
 
     def test_help_event(self):
         self.login()

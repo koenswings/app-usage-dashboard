@@ -13,6 +13,7 @@ from . import auth
 from . import buildinfo
 from . import db
 from . import presence as presence_mod
+from . import thresholds as thresholds_mod
 
 PUBLIC_PATHS = {
     ("GET", "/api/v1/health"),
@@ -245,11 +246,83 @@ def _week_bundle(conn, kit, week_start: str, now: datetime | None = None) -> dic
     }
 
 
+
+def _presence_days(conn, engine: str, week_start: str) -> list[dict[str, Any]]:
+    p_rows = conn.execute(
+        """SELECT day, on_minutes, school_hours_on_minutes, boots,
+                  longest_gap_minutes, length_known
+           FROM presence_days WHERE engine = ? AND day >= ? AND day <= ? ORDER BY day""",
+        (engine, week_start, agg.friday_of(week_start)),
+    ).fetchall()
+    return [
+        {
+            "day": r["day"],
+            "onMinutes": r["on_minutes"],
+            "schoolHoursOnMinutes": r["school_hours_on_minutes"],
+            "boots": r["boots"],
+            "longestGapMinutes": r["longest_gap_minutes"],
+            "lengthKnown": bool(r["length_known"]),
+        }
+        for r in p_rows
+    ]
+
+
+def _scorecard_week(conn, kit, week_start: str) -> dict[str, Any]:
+    rows = _summaries(conn, kit["engine"], week_start)
+    grouped = agg.group_by_instance(rows)
+    kolibri, nextcloud, kiwix = [], [], []
+    for instance_rows in grouped.values():
+        app = instance_rows[0]["app"]
+        if app == "kolibri":
+            kolibri.append(agg.kolibri_week(instance_rows))
+        elif app == "nextcloud":
+            nextcloud.append(agg.nextcloud_week(instance_rows))
+        elif app == "kiwix":
+            kiwix.append(agg.kiwix_week(instance_rows))
+    presence_days = _presence_days(conn, kit["engine"], week_start)
+    return {
+        "weekStart": week_start,
+        "scorecard": agg.scorecard_from_weeks(kolibri, nextcloud, kiwix, presence_days, week_start),
+        "hasUsageData": bool(rows),
+    }
+
+
+def _weekly_scorecards(conn, kit, week_start: str, current_bundle: dict[str, Any]) -> list[dict[str, Any]]:
+    weeks = sorted(week for week in _weeks_available(conn) if week <= week_start)
+    if week_start not in weeks:
+        weeks.append(week_start)
+    out = []
+    for week in weeks:
+        if week == week_start:
+            out.append({
+                "weekStart": week,
+                "scorecard": current_bundle["scorecard"],
+                "hasUsageData": current_bundle["hasUsageData"],
+            })
+        else:
+            out.append(_scorecard_week(conn, kit, week))
+    return out
+
+
+def _help_events(conn, deployment_id: str, week_start: str) -> list[dict[str, Any]]:
+    horizon = agg.add_days(week_start, 7)
+    return [
+        {"offeredOn": row["offered_on"]}
+        for row in conn.execute(
+            """SELECT offered_on FROM help_events
+               WHERE deployment_id = ? AND offered_on < ?
+               ORDER BY offered_on""",
+            (deployment_id, horizon),
+        )
+    ]
+
+
 def meta_payload(conn=None, sample_data: bool = False) -> dict[str, Any]:
     body = {
         "schema": agg.API_SCHEMA,
         "daySchema": agg.DAY_SCHEMA,
-        "thresholdsConfigured": False,
+        "thresholdsConfigured": True,
+        "thresholds": thresholds_mod.effective(conn),
         "staleAfterHours": int(os.environ.get("STALE_AFTER_HOURS") or agg.STALE_AFTER_HOURS),
         "hourlyChartMinWeeklyViews": int(
             os.environ.get("HOURLY_CHART_MIN_WEEKLY_VIEWS") or agg.HOURLY_CHART_MIN_WEEKLY_VIEWS
@@ -313,6 +386,16 @@ def handle(conn, method: str, path: str, body: dict[str, Any] | None, user: str 
     if method == "GET" and route == "/api/v1/meta":
         return 200, meta_payload(conn), None
 
+    if route == "/api/v1/settings/thresholds":
+        if method == "GET":
+            return 200, thresholds_mod.settings_payload(conn), None
+        if method == "PUT":
+            try:
+                payload = thresholds_mod.apply_put(conn, body or {}, user)
+            except thresholds_mod.ValidationError as exc:
+                return 400, {"error": exc.error, "field": exc.field}, None
+            return 200, payload, None
+
     if method == "GET" and route == "/api/v1/kits":
         kits = []
         for row in conn.execute("SELECT * FROM kits ORDER BY school, engine"):
@@ -367,9 +450,19 @@ def handle(conn, method: str, path: str, body: dict[str, Any] | None, user: str 
                     "headlines": bundle["headlines"],
                 }
                 cards.append(card)
-                sug = agg.help_suggestions_for(card, kit, bundle["scorecard"], bundle["presence_days"])
-                if sug:
-                    suggestions.append(sug)
+                status = agg.help_status_for(
+                    card,
+                    kit,
+                    bundle["scorecard"],
+                    bundle["presence_days"],
+                    thresholds=meta["thresholds"],
+                    weekly=_weekly_scorecards(conn, kit, week_start, bundle),
+                    help_events=_help_events(conn, kit["deployment_id"], week_start),
+                    week_start=week_start,
+                )
+                card["unused"] = bool(status["unused"])
+                if status["suggestion"]:
+                    suggestions.append(status["suggestion"])
             return 200, {
                 "schema": agg.API_SCHEMA,
                 "weekStart": week_start,
@@ -390,6 +483,16 @@ def handle(conn, method: str, path: str, body: dict[str, Any] | None, user: str 
             bundle = _week_bundle(conn, kit, week_start, now=now)
             tail = rest[2:]
             if not tail:
+                status = agg.help_status_for(
+                    {"hasUsageData": bundle["hasUsageData"]},
+                    kit,
+                    bundle["scorecard"],
+                    bundle["presence_days"],
+                    thresholds=meta["thresholds"],
+                    weekly=_weekly_scorecards(conn, kit, week_start, bundle),
+                    help_events=_help_events(conn, kit["deployment_id"], week_start),
+                    week_start=week_start,
+                )
                 return 200, {
                     "schema": agg.API_SCHEMA,
                     "weekStart": week_start,
@@ -413,6 +516,7 @@ def handle(conn, method: str, path: str, body: dict[str, Any] | None, user: str 
                         "summary": bundle["presence_summary"],
                     },
                     "clockTrusted": agg.clocks_trusted(bundle["instances"]),
+                    "unused": bool(status["unused"]),
                 }, None
             if tail == ["presence"]:
                 return 200, {
@@ -596,6 +700,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_DELETE(self):
         self._dispatch("DELETE")
+
+    def do_PUT(self):
+        self._dispatch("PUT")
 
 
 def serve(conn, bind: str = "0.0.0.0:8080"):

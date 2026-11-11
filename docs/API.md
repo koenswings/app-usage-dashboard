@@ -19,6 +19,7 @@ Day-file schema: `idea-usage-day/1` (Axle, [agent-engine-dev#308](https://github
 | `help_events` | id, deployment_id, offered_on, tutorial_chapters, note, created_by, created_at |
 | `pull_log` | success, error, rejected, or **disabled** |
 | `collector_gaps` | idea-side sidecar outages |
+| `meta` | includes U-7 threshold settings: `thresholds` (JSON of the seven keys), `thresholds_updated_at`, `thresholds_updated_by` |
 
 The kit files do not carry a deployment id. idea maps `(engine, day)` to `deployment_id` when a pull is stored (registry: `./data/registry.json`).
 
@@ -38,7 +39,7 @@ The kit files do not carry a deployment id. idea maps `(engine, day)` to `deploy
 - `port` on the instance breakdown is always null: it is not in the export.
 - `KitTimezone.utcOffset` is the kit's offset at Monday 00:00 of the requested week, derived from the registry IANA `timeZone` via zoneinfo, for every kit, whether or not it has stored samples. If the registry has no IANA name, `utcOffset` falls back to the latest presence sample's RFC 3339 offset, then to `+00:00`. `timeZone` is the optional IANA name from the registry; without it the label is `kit local time (UTC±n)`. If a school week spans a DST change, both endpoints are still local midnights in that zone (so the window length may be 5 days ± 1 hour). The single `utcOffset` field is the offset at week start; segment timestamps carry their own RFC 3339 offsets. EU and US DST changes fall on Sunday, outside this Mon–Sat window, so those kits see a constant offset through the school week.
 - Each overview `SchoolCard` is one kit (`engine` + `deploymentId`). It includes `monitoringEnabled` with the same meaning as on `KitListItem` and `SchoolWeekResponse` (that kit's current flag). A school with several kits has one card per kit; the field is not an any-of aggregation and there is no separate monitored-kit count.
-- `helpSuggestions` on the overview is server-owned. The collector offers help when monitoring is on and either there is no pulled usage data yet, or the kit was on during school hours (07:00–16:00 kit-local) but had no learner sessions, or the kit was not on at all this week (`onMinutes` and `schoolHoursOnMinutes` are both 0). A kit whose only `on` time is outside school hours is not added — that is not a reason to offer help. The UI (`web/src/pages/FleetOverview.tsx`) prefixes a non-empty list with “Offer help first.” and renders each `message` verbatim.
+- `helpSuggestions` on the overview is server-owned and uses the shared U-7 thresholds (`helpAfterAmberWeeks`, default 3). The collector offers help when monitoring is on and either there is no pulled usage data yet, or the kit has been below the scorecard thresholds for that many consecutive school weeks. Grey weeks (no data) never count toward the streak and do not break it; a green week resets it. Each overview `SchoolCard` also has `unused: boolean`, set when a help event was recorded and the kit stayed amber with no improvement for `unusedAfterHelpWeeks` (default 4) school weeks after that event. Unused schools are not added to `helpSuggestions` (that banner always says “offer help”; unused means help was already offered). The UI (`web/src/pages/FleetOverview.tsx`) prefixes a non-empty list with “Offer help first.” and renders each `message` verbatim. Scorecard HTTP responses still send raw inputs, not colours; tones are computed server-side only to drive these streaks.
 - The HTTP API is same-origin (no CORS headers). The UI is served from the same host.
 
 ## Endpoints (served by this collector)
@@ -48,9 +49,13 @@ See Pixel's `web/API.md`. Additions that are not in that draft:
 | Method | Path | Notes |
 |---|---|---|
 | `GET` | `/api/v1/health` | Unauthenticated and cheap (no database). `{"ok": true, "schema": "idea-usage-api/1", "version": "<x-app.version>", "commit": "<sha or null>"}` so the Engine healthCheck can probe `${port}`. `version` is the App `x-app.version` (currently `"1.0"`). `commit` is the dashboard git SHA: `USAGE_DASHBOARD_COMMIT`, or `/etc/idea-usage/build-info.json` baked at image build, or the Engine bundle directory `usage-dashboard-<sha>` parsed from `/proc/self/mountinfo`. `commit` is `null` when none of those are available. |
+| `GET` | `/api/v1/settings/thresholds` | Operator session. `{thresholds, defaults, updatedAt, updatedBy}`. `thresholds` are the effective values (defaults until an operator saves a change). `updatedAt` / `updatedBy` are `null` until then. `updatedBy` is the operator username, matching `help_events.created_by`. |
+| `PUT` | `/api/v1/settings/thresholds` | Operator session. Body is a partial `{thresholds: {...}}` or `{reset: true}`. Returns the same shape as GET. Invalid input answers `400` with `{error, field}` (a flat pair, not the usual `{error: {code, message}}` envelope — see Pixel's contract). |
 
 `GET /api/v1/session` without a cookie returns `{authenticated: false}` so the login page can ask. Every other `/api/v1` path requires the `idea_usage_session` cookie.
 
-`GET /api/v1/meta` also returns `todayWeekStart` (Monday of today) and `currentWeekHasData`. `GET /api/v1/weeks` returns `currentWeekStart` as the latest Monday that has stored data, plus the same two fields.
+`GET /api/v1/meta` also returns `todayWeekStart` (Monday of today), `currentWeekHasData`, `thresholds` (the effective U-7 values), and `thresholdsConfigured: true` now that Koen approved the defaults. `GET /api/v1/weeks` returns `currentWeekStart` as the latest Monday that has stored data, plus `todayWeekStart` and `currentWeekHasData`.
+
+Threshold keys and defaults: `availableMinSchoolDays` 3 (integer 0–5), `teachingCycleMinItems` 1 (integer ≥ 0), `learnerSessionShareMin` 0.5 (number 0–1, learners as a share of Kolibri *sessions*, not minutes), `nextcloudMinActions` 1 (integer ≥ 0; worksheet shares + edit shares + school-files shares + file-drop uploads + office opens), `wikipediaMinViews` 10 (integer ≥ 0), `helpAfterAmberWeeks` 3 (integer ≥ 1), `unusedAfterHelpWeeks` 4 (integer ≥ 1). Set up is a yes/no line with no number (yes when registered learners and teachers are both > 0, or, with no Kolibri census, when a Nextcloud beyond-seed count is > 0).
 
 Consistent snapshots use `VACUUM INTO` under `./data/backup/`, keeping 14 copies.

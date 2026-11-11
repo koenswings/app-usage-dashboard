@@ -6,6 +6,7 @@ from datetime import date, datetime, timedelta, timezone, tzinfo
 from typing import Any
 
 from . import presence as presence_mod
+from . import thresholds as thresholds_mod
 
 API_SCHEMA = "idea-usage-api/1"
 DAY_SCHEMA = "idea-usage-day/1"
@@ -804,56 +805,93 @@ def school_note(kit_note: str, instances: list[dict[str, Any]], has_usage: bool)
     return ""
 
 
+def _kit_identity(kit: Any) -> tuple[str, str, str]:
+    return kit["engine"], kit["school"], kit["deployment_id"]
+
+
+def _suggestion(kit: Any, message: str) -> dict[str, Any]:
+    engine, school, deployment_id = _kit_identity(kit)
+    return {
+        "deploymentId": deployment_id,
+        "engine": engine,
+        "school": school,
+        "message": message,
+    }
+
+
+def help_status_for(
+    card: dict[str, Any],
+    kit: Any,
+    scorecard: dict[str, Any],
+    presence_days: list[dict[str, Any]] | None = None,
+    thresholds: dict[str, Any] | None = None,
+    weekly: list[dict[str, Any]] | None = None,
+    help_events: list[dict[str, Any]] | None = None,
+    week_start: str | None = None,
+) -> dict[str, Any]:
+    """Banner suggestion plus unused flag, using the shared U-7 thresholds.
+
+    Grey weeks never count toward the amber or unused streaks. Colours are
+    computed here only for those streaks; scorecard responses stay raw inputs.
+    ``presence_days`` is accepted for call-site compatibility and is not used:
+    school-hour availability is read from the scorecard's ``schoolDaysOn``.
+    """
+    del presence_days
+    thresholds = thresholds or thresholds_mod.DEFAULTS
+    engine, school, _deployment_id = _kit_identity(kit)
+    monitoring = kit["monitoring_enabled"]
+    if monitoring == 0:
+        return {"suggestion": None, "unused": False}
+    if weekly is None:
+        weekly = [{
+            "weekStart": week_start,
+            "scorecard": scorecard,
+            "hasUsageData": card.get("hasUsageData"),
+        }]
+    unused_count = thresholds_mod.unused_streak(weekly, help_events, thresholds)
+    unused = unused_count >= thresholds["unusedAfterHelpWeeks"]
+    if not card.get("hasUsageData") and not kit["last_pulled"]:
+        return {
+            "suggestion": _suggestion(
+                kit,
+                "%s (%s) has no pulled usage data yet — offer help checking the usage export."
+                % (engine, school),
+            ),
+            "unused": unused,
+        }
+    streak, streak_start = thresholds_mod.amber_streak(weekly, thresholds)
+    already = thresholds_mod.help_offered_for_streak(help_events, streak_start, week_start)
+    suggestion = None
+    if streak >= thresholds["helpAfterAmberWeeks"] and not already:
+        suggestion = _suggestion(
+            kit,
+            "%s (%s) has been below the scorecard thresholds for %d consecutive school weeks — offer help."
+            % (engine, school, streak),
+        )
+    return {"suggestion": suggestion, "unused": unused}
+
+
 def help_suggestions_for(
     card: dict[str, Any],
     kit: Any,
     scorecard: dict[str, Any],
     presence_days: list[dict[str, Any]] | None = None,
+    thresholds: dict[str, Any] | None = None,
+    weekly: list[dict[str, Any]] | None = None,
+    help_events: list[dict[str, Any]] | None = None,
+    week_start: str | None = None,
 ) -> dict[str, Any] | None:
-    """Server-owned fleet banner items. Messages that offer help say so.
-
-    'Offer help' depends on school-hours on-time (07:00-16:00 kit-local):
-    a kit whose only `on` time is outside school hours is not suggested.
-    """
-    engine = kit["engine"]
-    school = kit["school"]
-    deployment_id = kit["deployment_id"]
-    monitoring = kit["monitoring_enabled"]
-    if monitoring == 0:
-        return None
-    if not card.get("hasUsageData"):
-        if kit["last_pulled"]:
-            return None
-        return {
-            "deploymentId": deployment_id,
-            "engine": engine,
-            "school": school,
-            "message": "%s (%s) has no pulled usage data yet — offer help checking the usage export." % (engine, school),
-        }
-    school_on = (scorecard.get("available") or {}).get("schoolDaysOn")
-    learner_sessions = (scorecard.get("learnersOperate") or {}).get("learnerSessions")
-    if school_on and school_on >= 1 and learner_sessions == 0:
-        return {
-            "deploymentId": deployment_id,
-            "engine": engine,
-            "school": school,
-            "message": (
-                "%s (%s) shows a school-day power pattern but almost no learner activity this week "
-                "— offer help on tutorial chapters 3.3–3.4 and 4."
-            ) % (engine, school),
-        }
-    if school_on == 0 and scorecard.get("available", {}).get("schoolHoursOnMinutes") == 0:
-        total_on = sum(int(day.get("onMinutes") or 0) for day in (presence_days or []))
-        if total_on > 0:
-            # On only outside school hours: a fact, not a reason to offer help.
-            return None
-        return {
-            "deploymentId": deployment_id,
-            "engine": engine,
-            "school": school,
-            "message": "%s (%s) was not on during school hours this week — offer help." % (engine, school),
-        }
-    return None
+    """Server-owned fleet banner item, or None."""
+    return help_status_for(
+        card,
+        kit,
+        scorecard,
+        presence_days,
+        thresholds=thresholds,
+        weekly=weekly,
+        help_events=help_events,
+        week_start=week_start,
+    )["suggestion"]
 
 
 def tzinfo_from_offset(offset: str | None) -> tzinfo:

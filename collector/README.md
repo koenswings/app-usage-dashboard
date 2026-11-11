@@ -9,6 +9,7 @@ Python service. Modules live in `src/`:
 - `presence.py` — `on` / `off` / `gapUnknown` from kit samples; `collectorGap` from the sidecar watchdog
 - `pull.py` — restricted SSH `since` / `archive-and-clear --before`
 - `aggregate.py` — week views and scorecard inputs
+- `thresholds.py` — U-7 defaults, validation, SQLite settings, and amber/unused streaks
 - `api.py` — `/api/v1` (`idea-usage-api/1`)
 - `main.py` — process loop
 

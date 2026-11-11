@@ -354,7 +354,7 @@ class AggregateTests(unittest.TestCase):
         self.assertFalse(week["clock"]["synced"])
         self.assertFalse(clocks_trusted([week]))
 
-    def test_help_not_offered_when_only_on_outside_school_hours(self):
+    def test_single_off_week_does_not_offer_help(self):
         kit = {
             "engine": "happy-zebra",
             "school": "Nharira",
@@ -374,7 +374,7 @@ class AggregateTests(unittest.TestCase):
         scorecard = scorecard_from_weeks([], [], [], outside, "2026-11-09")
         self.assertEqual(scorecard["available"]["schoolDaysOn"], 0)
         self.assertEqual(scorecard["available"]["schoolHoursOnMinutes"], 0)
-        self.assertIsNone(help_suggestions_for(card, kit, scorecard, outside))
+        self.assertIsNone(help_suggestions_for(card, kit, scorecard, outside, week_start="2026-11-09"))
 
         off = [{
             "day": "2026-11-09",
@@ -385,10 +385,7 @@ class AggregateTests(unittest.TestCase):
             "lengthKnown": True,
         }]
         scorecard = scorecard_from_weeks([], [], [], off, "2026-11-09")
-        sug = help_suggestions_for(card, kit, scorecard, off)
-        self.assertIsNotNone(sug)
-        self.assertIn("offer help", sug["message"])
-        self.assertIn("not on during school hours", sug["message"])
+        self.assertIsNone(help_suggestions_for(card, kit, scorecard, off, week_start="2026-11-09"))
 
 
 if __name__ == "__main__":
