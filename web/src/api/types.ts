@@ -119,6 +119,10 @@ export interface LoginRequest {
 export interface HealthResponse {
   ok: true;
   schema: ApiSchema;
+  /** App version string when the collector reports it (e.g. "1.0"). */
+  version?: string;
+  /** Git commit of the running build, or null when it is unknown. */
+  commit?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -365,8 +369,8 @@ export interface SchoolWeekResponse {
   thresholdsConfigured: boolean;
   sampleData: boolean;
   /**
-   * False when any ok day-file this week had `clock.synced === false`.
-   * The whole week is then untrustworthy for time-based reading.
+   * False only when an ok day-file this week had `clock.synced === false`.
+   * With no ok days, clock is null and clockTrusted is true.
    * The collector serves this name (`clockTrusted`), not `clockTrustworthy`.
    */
   clockTrusted: boolean;
@@ -422,6 +426,11 @@ export interface UplinkResponse {
   deploymentId: string;
   weekStart: WeekStart;
   timezone: KitTimezone;
+  /**
+   * False when reachability was not measured this week (the dashboard's
+   * network link is not connected). Optional for older collectors.
+   */
+  measured?: boolean;
   samples: UplinkSample[];
   transitions: UplinkTransition[];
 }
@@ -505,6 +514,10 @@ export function instanceKey(row: { instance?: string; instanceId?: string }): st
   return row.instance || row.instanceId || '';
 }
 
+/**
+ * clockTrusted is false only when an ok day-file this week had
+ * clock.synced === false. With no ok days, clock is null and the week is trusted.
+ */
 export function weekClockTrusted(instances: Array<{ clock: ClockHonesty | null }>): boolean {
   return instances.every((row) => row.clock === null || row.clock.synced);
 }

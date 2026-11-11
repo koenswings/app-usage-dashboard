@@ -4,6 +4,7 @@ import { PresenceStrip } from '../components/shared/PresenceStrip';
 import { SchoolNav } from '../components/SchoolNav';
 import { formatDateTime } from '../lib/format';
 import { MONITORING_OFF_MESSAGE } from '../lib/monitoring';
+import { UPLINK_NOT_MEASURED_MESSAGE, uplinkNotMeasured } from '../lib/uplink';
 import { fridayOf } from '../lib/week';
 
 interface UplinkHistoryProps {
@@ -48,6 +49,12 @@ export function UplinkHistory(props: UplinkHistoryProps) {
             monitoringOff={props.monitoringEnabled === false}
           />
         </div>
+        <Show when={uplinkNotMeasured(props.data.measured)}>
+          <div class="panel" data-testid="uplink-not-measured" role="status">
+            <p>{UPLINK_NOT_MEASURED_MESSAGE}</p>
+          </div>
+        </Show>
+        <Show when={!uplinkNotMeasured(props.data.measured)}>
         <div class="grid2">
           <section class="panel">
             <strong>When reachability changed</strong>
@@ -118,6 +125,7 @@ export function UplinkHistory(props: UplinkHistoryProps) {
             </Show>
           </section>
         </div>
+        </Show>
       </div>
     </>
   );

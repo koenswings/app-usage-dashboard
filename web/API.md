@@ -66,10 +66,12 @@ Week paths use `weekStart`: the Monday of the school week as `YYYY-MM-DD`. A non
 
 | Method | Path | Query | Response |
 |---|---|---|---|
-| `GET` | `/api/v1/health` | — | `HealthResponse` — public `{ ok, schema }` |
+| `GET` | `/api/v1/health` | — | `HealthResponse` — public `{ ok, schema, version?, commit? }` |
 | `GET` | `/api/v1/meta` | — | `MetaResponse` — includes `todayWeekStart` (Monday of today) and `currentWeekHasData` |
 | `GET` | `/api/v1/kits` | — | `KitsResponse` — registry of engines / deployments, each with `lastPulled` |
 | `GET` | `/api/v1/weeks` | — | `WeeksResponse` — Mondays the picker can offer; `currentWeekStart` is the latest Monday with stored data; also `todayWeekStart` and `currentWeekHasData`. If the store is empty, `currentWeekStart` falls back to `todayWeekStart` and `currentWeekHasData` is false. |
+
+`HealthResponse` is public (no cookie). `ok` and `schema` (`idea-usage-api/1`) are always present. `version` (optional string, e.g. `"1.0"`) and `commit` (optional git SHA, or `null` when unknown) identify the running App build. The UI may show these unobtrusively in the footer (for example `v1.0 · 0d92961`).
 
 `MetaResponse` fields:
 
@@ -94,7 +96,7 @@ Week paths use `weekStart`: the Monday of the school week as `YYYY-MM-DD`. A non
 
 Contains one `SchoolCard` per kit (`engine` + `deploymentId`): scorecard **inputs** (raw counts), headline census (`classes`, `learnersRegistered`, `teachers`, `kolibriMinutes`), per-card `lastPulled`, `stale`, `dataFrom`, `hasUsageData`, and `monitoringEnabled`. A school with several kits has one card per kit; `monitoringEnabled` is that kit's current flag, not an any-of aggregate. The collector always sends the field (from f2d4adc). If a payload omits it, the UI joins `GET /api/v1/kits` by `deploymentId`. School-week responses also include `monitoringEnabled`.
 
-`helpSuggestions` is an optional, **server-owned** list of banner items (kits that look idle or dark). Each `message` is already phrased as "offer help". The UI renders these verbatim and does not invent cut-offs or retractions. Empty when the collector has nothing to flag.
+`helpSuggestions` is an optional, **server-owned** list of banner items (kits that look idle or dark). Each `message` is already phrased as "offer help". The UI renders these verbatim and does not invent cut-offs or retractions. Empty when the collector has nothing to flag. The collector's help rule ignores on-time outside 07:00–16:00 kit-local, so a kit that was only on outside school hours is not flagged.
 
 When `thresholdsConfigured` is `false`, the UI shows the pill and every data-bearing scorecard line as **Thresholds not set**. A card with no pulled usage data shows **No data** (never the word "Grey"). A card whose `monitoringEnabled` is `false` shows a **Monitoring off** pill and the sentence "Usage monitoring is switched off on this kit." in place of the scorecard lines. A monitoring-off kit is never flagged as stale.
 
@@ -115,7 +117,7 @@ Presence segments (also the standalone presence endpoint):
 
 The presence block also carries `timezone: { timeZone, utcOffset, label }` so ticks render in **kit local time**, labelled as such (the page header uses Brussels time). `timeZone` is the optional IANA name from idea's `registry.json` for that kit — not a value the kit itself reports. `utcOffset` is the kit's offset at Monday 00:00 of the requested week, derived from that registry IANA name via zoneinfo, whether or not the kit has stored samples. If the registry has no IANA name, `utcOffset` falls back to the latest presence sample's RFC 3339 offset, then to `+00:00`; `timeZone` is `""` and `label` is `kit local time (UTC±n)`. If a week spans a DST change, both endpoints are still local midnights (the window may be 5 days ± 1 hour); the single `utcOffset` is the week-start offset, and segment timestamps carry their own RFC 3339 offsets.
 
-School-week presence segments cover Monday 00:00 through Saturday 00:00 (the end of `weekEnd`, Friday) in kit-local time. They are contiguous, non-overlapping, and sum to that window. Unmeasured stretches arrive as `off`, `collectorGap`, or `gapUnknown` — the UI does not invent those pieces. `collectorGap` is only used for an idea-side sidecar outage while monitoring was known to be on. A kit that has never had monitoring enabled has a week of all `gapUnknown`, with no `collectorGap`. Periods covered by `disabled` polls, and time before the first successful pull, also stay `gapUnknown`. `lengthKnown` is true for measured `on`/`off` and for a collector gap that has both ends; it is false for `gapUnknown` and for an open-ended collector outage.
+School-week presence segments cover Monday 00:00 through Saturday 00:00 (the end of `weekEnd`, Friday) in kit-local time. They are contiguous, non-overlapping, and sum to that window. Unmeasured stretches arrive as `off`, `collectorGap`, or `gapUnknown` — the UI does not invent those pieces. `collectorGap` is only used for an idea-side sidecar outage while monitoring was known to be on. A kit that has never had monitoring enabled has a week of all `gapUnknown`, with no `collectorGap`. Periods covered by `disabled` polls, and time before the first successful pull, also stay `gapUnknown`. `lengthKnown` is true for measured `on`/`off` and for a collector gap that has both ends; it is false for `gapUnknown` and for an open-ended collector outage. An open `collectorGap` closes at a single per-request `now`, truncated to seconds, shared by the school-week and standalone presence endpoints so the two payloads do not disagree by a second.
 
 `presence.summary` is a short plain sentence such as `On 4 of 5 school days, 31 h in school hours`, built from `presence_days` school-hour totals. It is `null` when those roll-ups are missing, never an empty string. The UI shows it under the strip when it is non-null.
 
@@ -129,6 +131,7 @@ School-week presence segments cover Monday 00:00 through Saturday 00:00 (the end
 
 From §7.5 `uplink_samples` and `uplink_transitions`:
 
+- `measured` (optional boolean, for older collectors that omit it): `false` when reachability was not measured this week — the dashboard's network link is not connected. The UI then shows a clear empty state, not "No data", on the transitions and samples sections. `true` means the link was in a position to measure; empty `samples` / `transitions` are then a genuine empty week.
 - Sample: `timestamp`, `engine`, `online`, `lastSeen`, `via` (`direct` \| `DERP` \| `null`), `latencyMs`
 - Transition: `timestamp`, `engine`, `fromState`, `toState` (`online` \| `offline`)
 
@@ -148,7 +151,7 @@ Every instance (all three apps) carries the Engine envelope: `instance` (day-fil
 
 `hookStatus` (agent-engine-dev#308): `ok | timeout | failed | invalid | skipped | unlisted-no-hook | no-hook`. A working borrowed hook on an extra copy is `ok` with `listed: false` — there is no `unlistedBorrowed`. `missing` was renamed to `no-hook`. When status is `skipped`, `skipReason` is `backup | update | move | temperature`. The UI shows each status in plain words.
 
-Each app-week response also has `clockTrusted`. It is `false` when any day-file this week had `clock.synced === false`; the whole week is then untrustworthy for time-based reading.
+Each app-week response also has `clockTrusted`. It is `false` only when an ok day-file this week had `clock.synced === false`; the whole week is then untrustworthy for time-based reading. With no ok days, `clock` is `null` and `clockTrusted` is `true`.
 
 **Kolibri** mirrors §7.6: `clock`, `setup` (census + deltas; snapshot from the last ok day), `signins` (`learner` / `coach` / `admin` each `{ users, sessions, minutes }`, summed across ok days), `guest` (`visits`, `seconds` — convert to minutes only for the scorecard), `teaching` (summed), `content[]` (`channel`, `title`, `kind`, `role`, `visits`, `seconds`, `completions`, `assigned`, summed). `flags` may include `demoSeedExcluded`.
 
@@ -218,9 +221,11 @@ Threshold comparison, if it is ever enabled, lives in one UI module (`src/config
 | `nextcloudTeacherBeyondSeed`, `nextcloudLearnerBeyondSeed` | Scorecard copies of hook `setup.*.beyondSeed` on the last ok day; not derived on idea |
 | `assignedShareOfLearnerVisits`, `learnerShareOfMinutes`, `learnerSessionsOnAssigned` | `learnerSessionsOnAssigned` is assigned learner content visits (Kid keeps this name); the share is that number over all learner visits |
 | `listed`, `hookStatus`, `skipReason`, `collectedAt` | Instance envelope from the Engine contract (agent-engine-dev#308) |
-| `clockTrusted` | Week-level roll-up: any unsynced clock makes the week untrustworthy. The collector serves `clockTrusted`, not `clockTrustworthy`. |
+| `clockTrusted` | Week-level roll-up: `false` only when an ok day-file this week had `clock.synced === false`. With no ok days, `clock` is `null` and `clockTrusted` is `true`. The collector serves `clockTrusted`, not `clockTrustworthy`. |
 | `HelpEvent` (`id`, `offeredOn`, `tutorialChapters`, `note`, `createdBy`, `createdAt`) | §7.5 `help_events` column names were not specified |
 | `weeklyTrend` on help-events | Before/after comparison for page 6 |
+| `HealthResponse.version`, `HealthResponse.commit` | Optional running App version and git commit on public `GET /health`, so the UI can show a small footer such as `v1.0 · 0d92961` |
+| `UplinkResponse.measured` | Optional. `false` when reachability was not measured (network link not connected); the UI shows an empty state instead of "No data" |
 | `SessionResponse`, cookie `idea_usage_session` | Cookie equivalent of the Console operator session |
 | Error envelope (`error.code` / `message` / `details`) | Uniform client handling |
 
@@ -234,7 +239,7 @@ The HTTP week objects are aggregates of ok day-files:
 
 - Census / Nextcloud `setup` is a snapshot from the **last ok day**, never summed. Daily deltas may be summed.
 - Sign-ins, teaching, content visits/seconds/completions, and Kiwix `pageViews` / `sessions` / `byHour` are summed across ok days. Kiwix `distinctArticles` is the max of daily counts (never described as the week’s distinct total). On a Nextcloud instance, `office.distinctDocuments` is the last ok day’s Engine-union value, not a sum or max of days. Scorecard `officeDistinctDocuments` is the sum of those last-ok-day values across the school’s own Nextcloud instances (document ids are salted per instance, so two own Nextclouds hold different documents and the sum is correct).
-- Any day with `clock.synced === false` marks the whole week untrustworthy (`clockTrusted: false`). The UI shows a visible warning.
+- `clockTrusted` is `false` only when an ok day-file this week had `clock.synced === false`. With no ok days, `clock` is `null` and `clockTrusted` is `true`. The UI shows a visible warning only when `clockTrusted` is `false`.
 - A presence segment with `lengthKnown: false` is never displayed as a real duration.
 - Guest time stays in `seconds` on the payload; convert to minutes only when building scorecard `guestMinutes`.
 
