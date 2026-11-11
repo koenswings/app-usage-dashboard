@@ -45,3 +45,11 @@ If sidecar state is lost, Koen re-registers the node and sets its previous 100.x
 1. Restore `./data/usage.sqlite` from a `VACUUM INTO` snapshot under `./data/backup/` or from idea's Borg copy of App data.
 2. Restore `./data/keys/pull_key` and `./data/tailscale/` only from idea's encrypted Borg.
 3. Restart the App. The collector opens SQLite in WAL mode and keeps serving the last stored data if Tailscale is down.
+
+## Known limits
+
+When a monitored kit Engine is used as the test host (as on idea03 for idea#416), the collector cannot pull from its own host. The helper v7 key has the restriction `from=100.64.0.0/10`, and the container's source address is on the Docker bridge (`172.x`), so for the proof the host's data was loaded with a host-side plain-SSH pull.
+
+This is deliberately not fixed. In production the dashboard runs on idea, which is not a monitored kit: it isn't tagged `tag:idea` and has no idea-usage export. Widening `from=` would weaken the key restriction for no production gain. The real path is the Tailscale sidecar with the `tag:idea-hub` key (pending).
+
+The dashboard must not be installed on a monitored kit Engine.

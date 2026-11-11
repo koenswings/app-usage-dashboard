@@ -93,3 +93,12 @@ services:
       - ./web/entrypoint.sh:/entrypoint.sh:ro
       - ./web/placeholder:/usr/share/nginx/html:ro
     entrypoint: ["/bin/sh", "/entrypoint.sh"]
+    # curl is in nginx:1.28-alpine (official image apk-adds it). Hits the
+    # same public GET /api/v1/health the Engine x-app.healthCheck uses, on
+    # the container's internal port 8080. grep matches expect: '"ok"'.
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS -m 4 http://127.0.0.1:8080/api/v1/health | grep -q '\"ok\"'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
