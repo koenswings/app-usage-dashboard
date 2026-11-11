@@ -156,6 +156,9 @@ describe('Monitoring off school week and reachability', () => {
     expect(queryByTestId('old-data-marker')).toBeNull();
     expect(container.textContent).toMatch(/Monitoring off/i);
     expect(container.querySelector('[data-testid="scorecard-pill"]')?.textContent).toMatch(/Monitoring off/i);
+    expect(container.textContent).toMatch(/Learner share of minutes/);
+    expect(container.textContent).not.toMatch(/Learner share of time/);
+    expect(container.textContent).toMatch(/The Learners operate scorecard line uses sessions/);
   });
 
   it('renders the same muted strip and banner on Reachability, keeping the four-state legend off', () => {

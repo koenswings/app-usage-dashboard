@@ -46,9 +46,9 @@ export function SchoolWeek(props: SchoolWeekProps) {
     },
     {
       id: 'share',
-      label: 'Learner share of time',
+      label: 'Learner share of minutes',
       value: formatPercent(score().learnersOperate.learnerShareOfMinutes),
-      sub: `${formatMinutes(score().learnersOperate.learnerMinutes)} learner · rest coach/admin`,
+      sub: `${formatMinutes(score().learnersOperate.learnerMinutes)} learner · rest coach/admin. The Learners operate scorecard line uses sessions.`,
     },
   ];
   const kpiIds = () => kpis().map((item) => item.id);

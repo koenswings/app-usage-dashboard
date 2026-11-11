@@ -1,4 +1,5 @@
 import { fireEvent, render, waitFor } from '@solidjs/testing-library';
+import { formatLocalDateTime } from '../src/lib/format';
 import { SettingsPage } from '../src/pages/SettingsPage';
 import { DEFAULT_THRESHOLDS, cloneThresholds, validateThresholdPatch } from '../src/config/thresholds';
 import { mockFetch, resetMockThresholds } from '../src/mock/fetch';
@@ -111,6 +112,27 @@ describe('Settings page', () => {
     fireEvent.submit(getByTestId('settings-form'));
     await waitFor(() => expect(getByTestId('settings-error').textContent).toMatch(/0 and 100/));
     expect(called).toBe(false);
+  });
+
+  it('shows Last changed in local time with a zone label, not the raw UTC stamp', () => {
+    const stamp = '2026-11-11T11:45:22+00:00';
+    const { getByTestId } = render(() => (
+      <SettingsPage
+        week="2026-11-02"
+        thresholds={defaults}
+        defaults={defaults}
+        updatedAt={stamp}
+        updatedBy="koen"
+        writable={true}
+        onSave={async () => undefined}
+        onReset={async () => undefined}
+      />
+    ));
+    const text = getByTestId('settings-updated').textContent ?? '';
+    expect(text).toContain(formatLocalDateTime(stamp));
+    expect(text).toMatch(/Last changed at /);
+    expect(text).toMatch(/ by koen\./);
+    expect(text).not.toContain(stamp);
   });
 
   it('shows a read-only note when the settings endpoint is missing', () => {

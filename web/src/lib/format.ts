@@ -18,6 +18,49 @@ export function formatDateTime(iso: IsoDateTime | null, timeZone: string): strin
   return timeZone ? `${fmt.format(date)} ${timeZone}` : fmt.format(date);
 }
 
+const FALLBACK_TIME_ZONE = 'Europe/Brussels';
+
+/** Browser zone, or Europe/Brussels when the environment has none. */
+export function resolveTimeZone(timeZone?: string | null): string {
+  const candidate = timeZone?.trim();
+  if (candidate) {
+    try {
+      Intl.DateTimeFormat('en-GB', { timeZone: candidate }).format(0);
+      return candidate;
+    } catch {
+      // Invalid zone names fall through to the browser zone, then Brussels.
+    }
+  }
+  try {
+    const resolved = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (resolved) return resolved;
+  } catch {
+    // ignore
+  }
+  return FALLBACK_TIME_ZONE;
+}
+
+/**
+ * Local date and time with a short zone label, e.g. "11 Nov 2026, 12:45 CET".
+ * Uses the browser time zone unless `timeZone` is passed (tests).
+ */
+export function formatLocalDateTime(iso: IsoDateTime | null, timeZone?: string | null): string {
+  if (!iso) return '';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  const zone = resolveTimeZone(timeZone);
+  return new Intl.DateTimeFormat('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    timeZone: zone,
+    timeZoneName: 'short',
+  }).format(date);
+}
+
 export function formatDataFrom(iso: IsoDate | null): string | null {
   if (!iso) return null;
   return `data from ${formatDayLabel(iso)}`;
