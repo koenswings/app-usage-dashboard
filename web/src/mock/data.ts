@@ -41,6 +41,7 @@ export const meta: MetaResponse = {
   hourlyChartMinWeeklyViews: 20,
   headerTimeZone: 'Europe/Brussels',
   sampleData: true,
+  currentWeekStart: SAMPLE_WEEK,
   todayWeekStart: SAMPLE_WEEK,
   currentWeekHasData: true,
 };

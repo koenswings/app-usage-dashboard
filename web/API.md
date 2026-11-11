@@ -69,7 +69,7 @@ Week paths use `weekStart`: the Monday of the school week as `YYYY-MM-DD`. A non
 | Method | Path | Query | Response |
 |---|---|---|---|
 | `GET` | `/api/v1/health` | — | `HealthResponse` — public `{ ok, schema, version?, commit? }` |
-| `GET` | `/api/v1/meta` | — | `MetaResponse` — includes `todayWeekStart` (Monday of today) and `currentWeekHasData` |
+| `GET` | `/api/v1/meta` | — | `MetaResponse` — includes `currentWeekStart` (latest Monday with stored data; `todayWeekStart` when the store is empty), `todayWeekStart` (Monday of today) and `currentWeekHasData` |
 | `GET` | `/api/v1/kits` | — | `KitsResponse` — registry of engines / deployments, each with `lastPulled` |
 | `GET` | `/api/v1/weeks` | — | `WeeksResponse` — Mondays the picker can offer; `currentWeekStart` is the latest Monday with stored data; also `todayWeekStart` and `currentWeekHasData`. If the store is empty, `currentWeekStart` falls back to `todayWeekStart` and `currentWeekHasData` is false. |
 
@@ -84,6 +84,7 @@ Week paths use `weekStart`: the Monday of the school week as `YYYY-MM-DD`. A non
 - `headerTimeZone` — typically `Europe/Brussels`
 - `sampleData` — `true` when serving labelled sample / mock data
 - `daySchema` — `idea-usage-day/1`
+- `currentWeekStart` — latest Monday with stored data; falls back to `todayWeekStart` when the store is empty
 - `todayWeekStart` — Monday of today
 - `currentWeekHasData` — `true` when at least one stored week exists
 
@@ -259,7 +260,7 @@ Threshold comparison lives only in `src/config/thresholds.ts`. The UI maps each 
 | `headlines` | Fleet-card census strip (classes / learners / teachers / Kolibri minutes) |
 | `helpSuggestions[]` | Server-owned fleet banner; UI does not invent idle/dark cut-offs |
 | `weekStart` / `weekEnd` / `weekLabel` / `GET /weeks` | Week picker (accepted UI change 5) |
-| `todayWeekStart`, `currentWeekHasData` | On `GET /meta` and `GET /weeks`. `currentWeekStart` is the latest Monday with data; `todayWeekStart` is today’s Monday. The UI shows a calm note when today’s week has no data yet. |
+| `currentWeekStart`, `todayWeekStart`, `currentWeekHasData` | On `GET /meta` and `GET /weeks`. `currentWeekStart` is the latest Monday with data (falling back to `todayWeekStart` when the store is empty); `todayWeekStart` is today’s Monday. The UI shows a calm note when today’s week has no data yet. |
 | Scorecard input object grouping (`available`, `setup`, …) | §4 lines packaged so the UI does not re-derive them from day files |
 | `bootsPerSchoolDay`, `schoolDaysOn`, `schoolHoursOnMinutes` | Derived from `presence_days` for the Available line |
 | `nextcloudTeacherBeyondSeed`, `nextcloudLearnerBeyondSeed` | Scorecard copies of hook `setup.*.beyondSeed` on the last ok day; not derived on idea |
