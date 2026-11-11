@@ -12,7 +12,8 @@ from urllib.request import HTTPCookieProcessor, Request, build_opener
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "collector"))
 
 from src import db
-from src.api import serve
+from src.api import handle, serve
+from src.presence import parse_ts, rfc3339, truncate_to_seconds
 from src.pull import store_export
 
 
@@ -217,6 +218,9 @@ class ApiTests(unittest.TestCase):
         status, payload = self.call("GET", "/api/v1/health")
         self.assertEqual(status, 200)
         self.assertTrue(payload["ok"])
+        self.assertEqual(payload["schema"], "idea-usage-api/1")
+        self.assertEqual(payload["version"], "1.0")
+        self.assertIn("commit", payload)
         self.assertIn("ok", json.dumps(payload))
 
     def test_session_unauthenticated(self):
@@ -354,6 +358,7 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(got, want)
         self.assertTrue(drop.isdisjoint(got))
         self.assertEqual({item["timestamp"] for item in payload["transitions"]}, want)
+        self.assertTrue(payload["measured"])
 
     def test_current_week_is_latest_with_stored_data(self):
         self.login()
@@ -489,6 +494,137 @@ class ApiTests(unittest.TestCase):
         # The fixture's Nov 5 sidecar gap and the pre-enable gap must not appear.
         self.assertFalse(any(item["start"].startswith("2026-11-02T12:") for item in gaps))
         self.assertFalse(any(item["start"].startswith("2026-11-05T") for item in gaps))
+
+    def test_health_reports_version_and_commit(self):
+        previous_commit = os.environ.get("USAGE_DASHBOARD_COMMIT")
+        previous_version = os.environ.get("USAGE_DASHBOARD_VERSION")
+        os.environ["USAGE_DASHBOARD_COMMIT"] = "f2d4adc64a370118383b9c97e9b31edb2c72d049"
+        os.environ["USAGE_DASHBOARD_VERSION"] = "1.0"
+        try:
+            status, payload = self.call("GET", "/api/v1/health")
+        finally:
+            if previous_commit is None:
+                os.environ.pop("USAGE_DASHBOARD_COMMIT", None)
+            else:
+                os.environ["USAGE_DASHBOARD_COMMIT"] = previous_commit
+            if previous_version is None:
+                os.environ.pop("USAGE_DASHBOARD_VERSION", None)
+            else:
+                os.environ["USAGE_DASHBOARD_VERSION"] = previous_version
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["schema"], "idea-usage-api/1")
+        self.assertEqual(payload["version"], "1.0")
+        self.assertEqual(payload["commit"], "f2d4adc64a370118383b9c97e9b31edb2c72d049")
+
+    def test_school_week_and_presence_share_truncated_collector_gap_end(self):
+        self.conn.execute(
+            "INSERT INTO collector_gaps(start, end, reason) VALUES (?, NULL, ?)",
+            ("2026-11-11T01:00:00+01:00", "sidecar-offline"),
+        )
+        self.conn.commit()
+        now = parse_ts("2026-11-11T01:29:41.850000+01:00")
+        path_school = "/api/v1/weeks/%s/schools/dep-nharira" % WEEK
+        path_pres = "/api/v1/weeks/%s/schools/dep-nharira/presence" % WEEK
+        status_s, school, _ = handle(self.conn, "GET", path_school, None, "admin", False, now=now)
+        status_p, pres, _ = handle(self.conn, "GET", path_pres, None, "admin", False, now=now)
+        self.assertEqual(status_s, 200, school)
+        self.assertEqual(status_p, 200, pres)
+        school_gaps = [item for item in school["presence"]["segments"] if item["state"] == "collectorGap"]
+        pres_gaps = [item for item in pres["segments"] if item["state"] == "collectorGap"]
+        self.assertEqual(
+            [(item["start"], item["end"]) for item in school_gaps],
+            [(item["start"], item["end"]) for item in pres_gaps],
+        )
+        kit_tz = parse_ts(school["presence"]["segments"][0]["start"]).tzinfo
+        expected = rfc3339(truncate_to_seconds(now), kit_tz)
+        ends = {item["end"] for item in school_gaps}
+        self.assertIn(expected, ends)
+        self.assertNotIn("2026-11-11T01:29:42", "".join(ends))
+        self.assertNotIn("2026-11-11T02:29:42", "".join(ends))
+
+    def test_stub_rows_do_not_taint_clock_or_backfill_earlier_weeks(self):
+        def insert_day(day, instance, hook, collected_at, app="other"):
+            payload = {
+                "schema": "idea-usage-day/1",
+                "engine": "happy-zebra",
+                "day": day,
+                "app": app,
+                "instance": instance,
+                "name": instance,
+                "demo": False,
+                "listed": True,
+                "clock": {"synced": False, "correctedBoots": 0},
+                "collectedAt": collected_at,
+                "hookStatus": hook,
+            }
+            self.conn.execute(
+                """INSERT INTO daily_summaries(engine, deployment_id, day, instance, app, name, demo, listed, hook_status, skip_reason, payload, pulled_at)
+                   VALUES (?, ?, ?, ?, ?, ?, 0, 1, ?, NULL, ?, ?)""",
+                ("happy-zebra", "dep-nharira", day, instance, app, instance, hook, json.dumps(payload), collected_at),
+            )
+
+        insert_day("2026-10-28", "usage-dashboard", "no-hook", "2026-11-11T00:51:34+01:00")
+        insert_day("2026-10-28", "nextcloud-files-b-001", "no-hook", "2026-11-11T00:51:34+01:00", "nextcloud")
+        insert_day("2026-10-27", "updtest-stale", "skipped", "2026-11-11T00:51:34+01:00")
+        insert_day("2026-11-11", "updtest-late", "no-hook", "2026-11-11T00:51:34+01:00")
+        self.conn.commit()
+        self.login()
+        status, school = self.call("GET", "/api/v1/weeks/2026-10-26/schools/dep-nharira")
+        self.assertEqual(status, 200, school)
+        self.assertTrue(school["clockTrusted"])
+        status, discovered = self.call("GET", "/api/v1/weeks/2026-10-26/schools/dep-nharira/instances")
+        self.assertEqual(status, 200, discovered)
+        ids = {item["instance"]: item for item in discovered["instances"]}
+        self.assertIn("usage-dashboard", ids)
+        self.assertIsNone(ids["usage-dashboard"]["clock"])
+        self.assertEqual(ids["usage-dashboard"]["hookStatus"], "no-hook")
+        self.assertNotIn("updtest-late", ids)
+        status, nc = self.call("GET", "/api/v1/weeks/2026-10-26/schools/dep-nharira/nextcloud")
+        self.assertEqual(status, 200, nc)
+        self.assertTrue(nc["clockTrusted"])
+        self.assertIsNone(nc["instances"][0]["clock"])
+
+    def test_ok_unsynced_day_marks_week_untrusted(self):
+        payload = {
+            "schema": "idea-usage-day/1",
+            "engine": "happy-zebra",
+            "day": "2026-11-09",
+            "app": "kolibri",
+            "instance": "kolibri-unsynced",
+            "name": "Kolibri",
+            "demo": False,
+            "listed": True,
+            "clock": {"synced": False, "correctedBoots": 1},
+            "collectedAt": "2026-11-10T02:12:00+02:00",
+            "hookStatus": "ok",
+            "setup": {"classes": 1},
+            "signins": {"learner": {"users": 0, "sessions": 0, "minutes": 0},
+                        "coach": {"users": 0, "sessions": 0, "minutes": 0},
+                        "admin": {"users": 0, "sessions": 0, "minutes": 0}},
+            "guest": {"visits": 0, "seconds": 0},
+            "teaching": {"lessonsCreated": 0, "lessonsVisible": 0,
+                         "quizzesCreated": 0, "quizzesStarted": 0, "quizzesEnded": 0},
+            "content": [],
+        }
+        self.conn.execute(
+            """INSERT INTO daily_summaries(engine, deployment_id, day, instance, app, name, demo, listed, hook_status, skip_reason, payload, pulled_at)
+               VALUES (?, ?, ?, ?, ?, ?, 0, 1, 'ok', NULL, ?, ?)""",
+            ("happy-zebra", "dep-nharira", "2026-11-09", "kolibri-unsynced", "kolibri", "Kolibri", json.dumps(payload), "2026-11-10T02:12:00+02:00"),
+        )
+        self.conn.commit()
+        self.login()
+        status, school = self.call("GET", "/api/v1/weeks/%s/schools/dep-nharira" % WEEK)
+        self.assertEqual(status, 200, school)
+        self.assertFalse(school["clockTrusted"])
+
+    def test_uplink_unmeasured_when_empty(self):
+        self.login()
+        status, payload = self.call("GET", "/api/v1/weeks/%s/schools/dep-nharira/uplink" % WEEK)
+        self.assertEqual(status, 200, payload)
+        self.assertFalse(payload["measured"])
+        self.assertEqual(payload["samples"], [])
+        self.assertEqual(payload["transitions"], [])
 
     def test_help_event(self):
         self.login()

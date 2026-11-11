@@ -6,7 +6,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "collector"))
 
 from src.aggregate import (
+    clocks_trusted,
+    discovered_instance,
     group_by_instance,
+    help_suggestions_for,
+    instance_envelope,
     is_monday,
     kolibri_week,
     nextcloud_week,
@@ -118,6 +122,8 @@ class AggregateTests(unittest.TestCase):
         week = kolibri_week(rows)
         self.assertIsNone(week["setup"])
         self.assertEqual(week["hookStatus"], "failed")
+        self.assertIsNone(week["clock"])
+        self.assertTrue(clocks_trusted([week]))
 
     def test_nextcloud_engine_shapes_and_singular_roles(self):
         rows = [
@@ -309,6 +315,80 @@ class AggregateTests(unittest.TestCase):
             "On 4 of 5 school days, 31 h in school hours",
         )
         self.assertIsNone(presence_summary([], "2026-11-09"))
+
+    def test_stub_clock_does_not_taint_week(self):
+        """no-hook / unlisted-no-hook / skipped stubs: clock is null, week trusted."""
+        kit_rows = []
+        for hook, instance, extra in (
+            ("no-hook", "usage-dashboard", {"collectedAt": "2026-11-11T00:51:34+01:00"}),
+            ("unlisted-no-hook", "unlisted-old", {"collectedAt": "2026-11-11T00:51:34+01:00"}),
+            ("skipped", "updtest-stale", {"skipReason": "backup", "collectedAt": "2026-11-11T00:51:34+01:00"}),
+        ):
+            payload = {
+                "name": instance,
+                "clock": {"synced": False, "correctedBoots": 0},
+                "hookStatus": hook,
+            }
+            payload.update(extra)
+            kit_rows.append(row("2026-10-28", instance, "other", payload, hook=hook))
+        for item in kit_rows:
+            env = instance_envelope([item])
+            self.assertIsNone(env["clock"], env)
+            self.assertTrue(clocks_trusted([discovered_instance([item])]))
+        self.assertTrue(clocks_trusted([discovered_instance([item]) for item in kit_rows]))
+
+    def test_ok_unsynced_clock_taints_week(self):
+        rows = [row("2026-11-09", "kolibri-a", "kolibri", {
+            "name": "Kolibri",
+            "clock": {"synced": False, "correctedBoots": 1},
+            "setup": {"classes": 1},
+            "signins": {"learner": {"users": 0, "sessions": 0, "minutes": 0},
+                        "coach": {"users": 0, "sessions": 0, "minutes": 0},
+                        "admin": {"users": 0, "sessions": 0, "minutes": 0}},
+            "guest": {"visits": 0, "seconds": 0},
+            "teaching": {"lessonsCreated": 0, "lessonsVisible": 0,
+                         "quizzesCreated": 0, "quizzesStarted": 0, "quizzesEnded": 0},
+            "content": [],
+        })]
+        week = kolibri_week(rows)
+        self.assertFalse(week["clock"]["synced"])
+        self.assertFalse(clocks_trusted([week]))
+
+    def test_help_not_offered_when_only_on_outside_school_hours(self):
+        kit = {
+            "engine": "happy-zebra",
+            "school": "Nharira",
+            "deployment_id": "dep-nharira",
+            "monitoring_enabled": 1,
+            "last_pulled": "2026-11-10T13:40:00+01:00",
+        }
+        card = {"hasUsageData": True}
+        outside = [{
+            "day": "2026-11-09",
+            "onMinutes": 180,
+            "schoolHoursOnMinutes": 0,
+            "boots": 1,
+            "longestGapMinutes": 0,
+            "lengthKnown": True,
+        }]
+        scorecard = scorecard_from_weeks([], [], [], outside, "2026-11-09")
+        self.assertEqual(scorecard["available"]["schoolDaysOn"], 0)
+        self.assertEqual(scorecard["available"]["schoolHoursOnMinutes"], 0)
+        self.assertIsNone(help_suggestions_for(card, kit, scorecard, outside))
+
+        off = [{
+            "day": "2026-11-09",
+            "onMinutes": 0,
+            "schoolHoursOnMinutes": 0,
+            "boots": 0,
+            "longestGapMinutes": 0,
+            "lengthKnown": True,
+        }]
+        scorecard = scorecard_from_weeks([], [], [], off, "2026-11-09")
+        sug = help_suggestions_for(card, kit, scorecard, off)
+        self.assertIsNotNone(sug)
+        self.assertIn("offer help", sug["message"])
+        self.assertIn("not on during school hours", sug["message"])
 
 
 if __name__ == "__main__":

@@ -158,6 +158,18 @@ class PresenceTests(unittest.TestCase):
         self.assertEqual(total, 5 * 86400)
         _ = states
 
+    def test_cover_week_truncates_open_gap_now_to_seconds(self):
+        start, end = week_bounds("2026-11-09", "+02:00")
+        now = parse_ts("2026-11-11T10:00:00.850000+02:00")
+        covered = cover_week([], start, end, [{
+            "start": "2026-11-10T00:00:00+02:00",
+            "end": None,
+        }], now=now)
+        gap = [s for s in covered if s["state"] == "collectorGap"]
+        self.assertEqual(len(gap), 1)
+        self.assertEqual(gap[0]["end"], "2026-11-11T10:00:00+02:00")
+        self.assertNotEqual(gap[0]["end"], "2026-11-11T10:00:01+02:00")
+
     def test_rollup_school_hours(self):
         segs = [{
             "state": "on",

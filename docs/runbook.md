@@ -6,6 +6,8 @@ Install onto idea's **system disk** with `installApp`. Do not install on a schoo
 
 The Engine assigns `${port}` in the instance `.env`. The web entrypoint refuses 80, 3333, 3334 and 8081.
 
+The web image is a multi-stage build (`web/Dockerfile`): a digest-pinned `node:22-bookworm-slim` stage runs `corepack`-pinned `pnpm install --frozen-lockfile && pnpm build` when `web/package.json` exists and copies `web/dist` into the nginx html root. If `web/package.json` is absent, the existing placeholder is served instead. nginx still proxies `/api/` to the collector and serves `index.html` at `/`.
+
 ## Secrets
 
 | Path | What | Backup |

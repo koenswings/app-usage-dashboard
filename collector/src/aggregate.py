@@ -280,7 +280,7 @@ def instance_envelope(rows: list[Any]) -> dict[str, Any]:
         "listed": True if listed is None else bool(listed),
         "hookStatus": hook_status,
         "skipReason": skip_reason,
-        "clock": week_clock(ok_payloads or [last_payload]),
+        "clock": week_clock(ok_payloads) if ok_payloads else None,
         "collectedAt": last_payload.get("collectedAt"),
         "flags": list((last_ok or {}).get("flags") or []),
         "_ok_payloads": ok_payloads,
@@ -349,8 +349,16 @@ def _census_from_setup(setup: dict[str, Any] | None) -> dict[str, Any]:
 
 
 def clocks_trusted(instances: list[dict[str, Any]]) -> bool:
-    """False when any instance clock is present and unsynced (Pixel weekClockTrusted)."""
+    """False only if a contributing ok-row this week had clock.synced=false.
+
+    no-hook, unlisted-no-hook and skipped stub rows do not contribute, and
+    neither do timeout / failed / invalid rows. A week with no contributing
+    ok-rows is True (the documented shape is a boolean, not null). A missing
+    or null clock on an ok-row does not taint the week.
+    """
     for inst in instances:
+        if inst.get("hookStatus") != "ok":
+            continue
         clock = inst.get("clock")
         if clock is None:
             continue
@@ -796,8 +804,17 @@ def school_note(kit_note: str, instances: list[dict[str, Any]], has_usage: bool)
     return ""
 
 
-def help_suggestions_for(card: dict[str, Any], kit: Any, scorecard: dict[str, Any]) -> dict[str, Any] | None:
-    """Conservative, server-owned banner items. Always phrased as 'offer help'."""
+def help_suggestions_for(
+    card: dict[str, Any],
+    kit: Any,
+    scorecard: dict[str, Any],
+    presence_days: list[dict[str, Any]] | None = None,
+) -> dict[str, Any] | None:
+    """Server-owned fleet banner items. Messages that offer help say so.
+
+    'Offer help' depends on school-hours on-time (07:00-16:00 kit-local):
+    a kit whose only `on` time is outside school hours is not suggested.
+    """
     engine = kit["engine"]
     school = kit["school"]
     deployment_id = kit["deployment_id"]
@@ -826,6 +843,10 @@ def help_suggestions_for(card: dict[str, Any], kit: Any, scorecard: dict[str, An
             ) % (engine, school),
         }
     if school_on == 0 and scorecard.get("available", {}).get("schoolHoursOnMinutes") == 0:
+        total_on = sum(int(day.get("onMinutes") or 0) for day in (presence_days or []))
+        if total_on > 0:
+            # On only outside school hours: a fact, not a reason to offer help.
+            return None
         return {
             "deploymentId": deployment_id,
             "engine": engine,

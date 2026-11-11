@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 
 from . import aggregate as agg
 from . import auth
+from . import buildinfo
 from . import db
 from . import presence as presence_mod
 
@@ -166,7 +167,10 @@ def _rows_in_week(conn, table: str, engine: str, start, end):
     return [row for row in rows if presence_mod.in_bounds(row["timestamp"], start, end)]
 
 
-def _week_bundle(conn, kit, week_start: str) -> dict[str, Any]:
+def _week_bundle(conn, kit, week_start: str, now: datetime | None = None) -> dict[str, Any]:
+    now = presence_mod.truncate_to_seconds(now or datetime.now(timezone.utc))
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
     rows = _summaries(conn, kit["engine"], week_start)
     grouped = agg.group_by_instance(rows)
     kolibri, nextcloud, kiwix, instances = [], [], [], []
@@ -205,7 +209,7 @@ def _week_bundle(conn, kit, week_start: str) -> dict[str, Any]:
     ]
     scorecard = agg.scorecard_from_weeks(kolibri, nextcloud, kiwix, presence_days, week_start)
     has_usage = bool(rows)
-    stale, data_from = agg.freshness(kit["last_pulled"])
+    stale, data_from = agg.freshness(kit["last_pulled"], now=now)
     tz = _kit_tz(conn, kit, week_start)
     segs = conn.execute(
         """SELECT state, start, end, length_known FROM presence_segments
@@ -219,7 +223,7 @@ def _week_bundle(conn, kit, week_start: str) -> dict[str, Any]:
         {"state": s["state"], "start": s["start"], "end": s["end"], "lengthKnown": bool(s["length_known"])}
         for s in segs
     ]
-    segments = presence_mod.cover_week(raw_segments, start, end, _collector_gaps_for_kit(conn, kit))
+    segments = presence_mod.cover_week(raw_segments, start, end, _collector_gaps_for_kit(conn, kit), now=now)
     return {
         "kolibri": kolibri,
         "nextcloud": nextcloud,
@@ -263,13 +267,21 @@ def meta_payload(conn=None, sample_data: bool = False) -> dict[str, Any]:
     return body
 
 
-def handle(conn, method: str, path: str, body: dict[str, Any] | None, user: str | None, secure: bool):
+def handle(conn, method: str, path: str, body: dict[str, Any] | None, user: str | None, secure: bool, now: datetime | None = None):
     parsed = urlparse(path)
     route = parsed.path.rstrip("/") or "/"
     parts = [p for p in route.split("/") if p]
+    now = presence_mod.truncate_to_seconds(now or datetime.now(timezone.utc))
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
 
     if method == "GET" and route == "/api/v1/health":
-        return 200, {"ok": True, "schema": agg.API_SCHEMA}, None
+        return 200, {
+            "ok": True,
+            "schema": agg.API_SCHEMA,
+            "version": buildinfo.dashboard_version(),
+            "commit": buildinfo.dashboard_commit(),
+        }, None
 
     if method == "GET" and route == "/api/v1/session":
         if user:
@@ -340,7 +352,7 @@ def handle(conn, method: str, path: str, body: dict[str, Any] | None, user: str 
             cards = []
             suggestions = []
             for kit in conn.execute("SELECT * FROM kits ORDER BY school, engine"):
-                bundle = _week_bundle(conn, kit, week_start)
+                bundle = _week_bundle(conn, kit, week_start, now=now)
                 card = {
                     "deploymentId": kit["deployment_id"],
                     "school": kit["school"],
@@ -355,7 +367,7 @@ def handle(conn, method: str, path: str, body: dict[str, Any] | None, user: str 
                     "headlines": bundle["headlines"],
                 }
                 cards.append(card)
-                sug = agg.help_suggestions_for(card, kit, bundle["scorecard"])
+                sug = agg.help_suggestions_for(card, kit, bundle["scorecard"], bundle["presence_days"])
                 if sug:
                     suggestions.append(sug)
             return 200, {
@@ -375,7 +387,7 @@ def handle(conn, method: str, path: str, body: dict[str, Any] | None, user: str 
             kit = db.kit_by_deployment(conn, deployment_id)
             if kit is None:
                 return 404, error_body("not_found", "Unknown deployment", {"deploymentId": deployment_id}), None
-            bundle = _week_bundle(conn, kit, week_start)
+            bundle = _week_bundle(conn, kit, week_start, now=now)
             tail = rest[2:]
             if not tail:
                 return 200, {
@@ -438,6 +450,7 @@ def handle(conn, method: str, path: str, body: dict[str, Any] | None, user: str 
                     "deploymentId": deployment_id,
                     "weekStart": week_start,
                     "timezone": bundle["timezone"],
+                    "measured": bool(samples),
                     "samples": samples,
                     "transitions": transitions,
                 }, None
@@ -490,7 +503,7 @@ def handle(conn, method: str, path: str, body: dict[str, Any] | None, user: str 
                 })
             trend = []
             for week_start in _weeks_available(conn):
-                bundle = _week_bundle(conn, kit, week_start)
+                bundle = _week_bundle(conn, kit, week_start, now=now)
                 trend.append({"weekStart": week_start, "scorecard": bundle["scorecard"]})
             return 200, {
                 "schema": agg.API_SCHEMA,

@@ -24,6 +24,11 @@ def rfc3339(dt: datetime, tz=None) -> str:
     return dt.isoformat(timespec="seconds")
 
 
+def truncate_to_seconds(dt: datetime) -> datetime:
+    """Drop sub-second precision so every formatter sees the same instant."""
+    return dt.replace(microsecond=0)
+
+
 def normalize_offset(offset: str | None) -> str:
     raw = (offset or "+00:00").strip() or "+00:00"
     if raw in ("Z", "z"):
@@ -298,7 +303,9 @@ def cover_week(
     if end <= start:
         return []
     tz = start.tzinfo
-    now = now or datetime.now(timezone.utc)
+    now = truncate_to_seconds(now or datetime.now(timezone.utc))
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
     observed: list[dict[str, Any]] = []
 
     def _add(state: str, s0: datetime, s1: datetime, known: bool, priority: int) -> None:

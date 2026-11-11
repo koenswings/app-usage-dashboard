@@ -1,6 +1,6 @@
 # Remaining differences from Pixel `b4fa49b`
 
-The collector on `kid/i414-collector` serves `web/API.md` and `web/src/api/types.ts` at `pixel/dashboard-ui-415` head [`b4fa49b`](https://github.com/koenswings/app-usage-dashboard/commit/b4fa49baa5c2fc97fc6d79e40215b519c6c67bca). This note lists only what still differs from that head. Mapped already (not listed below): singular `admin` / `teacher` / `learner` as `{total, beyondSeed}` on Nextcloud `setup` and `logins`; `otherGroups` on `setup`; `instance` plus `instanceId` as an alias; `clockTrusted`; census and Nextcloud `setup` from the last ok day; null app payloads on stub days; scorecard `nextcloudTeacherBeyondSeed` / `nextcloudLearnerBeyondSeed` read from the hook (null when absent); scorecard Nextcloud office and workflow fields as in `ScorecardNextcloudInputs`.
+The collector on `kid/i414-collector` serves `web/API.md` and `web/src/api/types.ts` as merged to `main` at [`9bdf867`](https://github.com/koenswings/app-usage-dashboard/commit/9bdf867) (Pixel #1). This note lists only what still differs from that head, plus collector-side additions. Mapped already (not listed below): singular `admin` / `teacher` / `learner` as `{total, beyondSeed}` on Nextcloud `setup` and `logins`; `otherGroups` on `setup`; `instance` plus `instanceId` as an alias; `clockTrusted`; census and Nextcloud `setup` from the last ok day; null app payloads on stub days; scorecard `nextcloudTeacherBeyondSeed` / `nextcloudLearnerBeyondSeed` read from the hook (null when absent); scorecard Nextcloud office and workflow fields as in `ScorecardNextcloudInputs`.
 
 ## `port` is always null
 
@@ -12,7 +12,14 @@ The collector on `kid/i414-collector` serves `web/API.md` and `web/src/api/types
 
 ## `GET /api/v1/health` is public
 
-Unauthenticated `{"ok": true, "schema": "idea-usage-api/1"}` so the Engine healthCheck can probe `${port}`.
+Unauthenticated and cheap (no database). The Engine healthCheck probes `${port}` and still matches `expect: '"ok"'`.
+
+`HealthResponse` on `main` (`9bdf867`) is `{ ok, schema }`. The collector also sends:
+
+- `version` (string): the App `x-app.version`, currently `"1.0"`.
+- `commit` (string or `null`): the dashboard git SHA, from `USAGE_DASHBOARD_COMMIT`, or `/etc/idea-usage/build-info.json` baked at image build, or the Engine bundle directory `usage-dashboard-<sha>`. `null` when none of those are available.
+
+Pixel can add both as optional fields on `HealthResponse` in `web/API.md` and `web/src/api/types.ts`.
 
 ## `GET /api/v1/session` works without a cookie
 
@@ -41,3 +48,22 @@ Pixel's `b4fa49b` `SchoolCard` did not include `monitoringEnabled` (only `KitLis
 ## Weekly `distinctArticles` is a max over days
 
 Kiwix day files give a daily `distinctArticles` count, not the article set. The week value is the maximum of those daily counts (a union is not possible). Nextcloud `office.distinctDocuments` is different: the week passes through the last ok day's value, as `NextcloudOffice` comments require.
+
+## `clockTrusted` comes from ok day-files only
+
+Pixel's types.ts (`SchoolWeekResponse`) and the drift review on #2: `clockTrusted` is `false` only if a contributing `hookStatus: ok` day-file for that week had `clock.synced === false`. `no-hook`, `unlisted-no-hook` and `skipped` stubs (and `timeout` / `failed` / `invalid`) do not contribute. Each row is attributed only to its own `day`. If an instance has no ok day that week, its `clock` is `null`. A week with no contributing ok-rows has `clockTrusted: true` (boolean, not null).
+
+## `uplink.measured`
+
+`GET /api/v1/weeks/{weekStart}/schools/{deploymentId}/uplink` adds `measured: boolean`. It is `true` when at least one idea-side Tailscale sample was stored for that week, and `false` when `samples` and `transitions` are empty.
+
+Uplink is not missing from a filter and is not a field on the kit `idea-usage-export` stream (that stream is `presence`, `day`, and `sample` only). The collector records uplink by polling the sidecar Tailscale LocalAPI (`/localapi/v0/status`) in `main.loop` via `record_uplink`. Presence `on` comes from kit-side `idea-usage-presence/1` samples — a different source. Until the sidecar has joined the tailnet and stored samples, `measured` is `false` and the arrays are empty. That is expected, not a bounds bug.
+
+## Help banner when the only `on` time is outside school hours
+
+The rule lives in the collector (`help_suggestions_for` in `collector/src/aggregate.py`), not in `web/`. The UI (`web/src/pages/FleetOverview.tsx`) prefixes a non-empty `helpSuggestions` list with “Offer help first.” and renders each `message` verbatim.
+
+`offer help` now depends on school-hours on-time (07:00–16:00 kit-local). A kit whose only `on` time is outside school hours is not added to `helpSuggestions`. Help is still offered when monitoring is on and the kit was not on at all this week, or when it was on during school hours but had no learner sessions, or when there is no pulled usage data yet.
+
+The live message `idea03 (idea03 (proof))` is because `school` is already `idea03 (proof)` and the template is `engine (school)`. That interpolation is unchanged.
+
