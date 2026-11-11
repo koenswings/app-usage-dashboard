@@ -2,7 +2,7 @@
 
 Dashboard UI for the idea-hosted `app-usage-dashboard` App (Solid + Vite, static build, no CDN). Owner: Pixel, idea#415.
 
-The UI talks only to Kid's HTTP API (`/api/v1/...`). It never opens SQLite and never writes kit data. Writes are `POST /api/v1/schools/:deploymentId/help-events` (an operator records that help was offered) and `PUT /api/v1/settings/thresholds` (operator session; served by the collector in PR #2, Kid 7880247, not yet pushed).
+The UI talks only to Kid's HTTP API (`/api/v1/...`). It never opens SQLite and never writes kit data. Writes are `POST /api/v1/schools/:deploymentId/help-events` (an operator records that help was offered), `PUT /api/v1/settings/thresholds` (operator session; served by the collector in PR #2, Kid 7880247, not yet pushed), and `PUT /api/v1/session/password` (operator session; Kid e4c15dd).
 
 The HTTP contract is in [API.md](./API.md) and `src/api/types.ts`. `GET /api/v1/health` is public. `GET /api/v1/session` without a cookie returns `{authenticated:false}` (not a 401) so the login page can ask.
 
@@ -33,7 +33,7 @@ Build output: `web/dist/`.
 
 ## Mock login
 
-The mock adapter accepts username `admin` and password `mock-operator`. That password is mock-only. The production default-password convention lives in server configuration and is never baked into UI source.
+The mock adapter accepts usernames `koen` and `marco` (U-9) with the mock-only password `mock-operator`. That password is test-only and is not the production seed. Production seed passwords live in server configuration and are never baked into UI source. There is no `admin` operator account.
 
 Sample fixtures (Nharira / healthy-looking counts, Chigonda / offer-help banner plus stale data and a tiny Wikipedia week, kind-panda / No data) are clearly labelled “Sample data” in the UI.
 

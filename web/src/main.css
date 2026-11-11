@@ -419,6 +419,11 @@ td { padding: 7px 8px; border-bottom: 1px solid #f1f5f9; }
 .settings-field__unit { color: var(--muted); font-weight: 600; }
 .settings-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .settings-saved { color: var(--good); font-size: 13px; margin: 0; }
+.settings-account { margin-top: 32px; }
+.settings-account h2 { margin-top: 0; }
+.settings-password { display: flex; flex-direction: column; gap: 12px; }
+.settings-password label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 600; }
+.settings-password input { width: min(280px, 100%); padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; }
 
 .site-footer {
   background: var(--navy);

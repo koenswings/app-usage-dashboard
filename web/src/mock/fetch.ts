@@ -43,8 +43,21 @@ function clockTrustedFor(deploymentId: string, weekStart: string): boolean {
 }
 
 const SESSION_COOKIE = 'idea_usage_session';
-const MOCK_USER = 'admin';
+/** Mock-only operators (U-9). Not the production seed convention. */
+const MOCK_OPERATORS = ['koen', 'marco'] as const;
 const MOCK_PASSWORD = 'mock-operator';
+
+type MockOperator = (typeof MOCK_OPERATORS)[number];
+
+function emptyOperatorPasswords(): Record<MockOperator, string> {
+  return { koen: MOCK_PASSWORD, marco: MOCK_PASSWORD };
+}
+
+let operatorPasswords: Record<MockOperator, string> = emptyOperatorPasswords();
+
+function isMockOperator(value: string): value is MockOperator {
+  return (MOCK_OPERATORS as readonly string[]).includes(value);
+}
 
 const helpStore = new Map<string, HelpEvent[]>();
 
@@ -99,7 +112,9 @@ function clearSessionCookie(): void {
 
 function sessionUser(token: string | null): { username: string; role: 'operator' } | null {
   if (!token || !token.startsWith('op-')) return null;
-  return { username: token.slice(3), role: 'operator' };
+  const username = token.slice(3);
+  if (!isMockOperator(username)) return null;
+  return { username, role: 'operator' };
 }
 
 function requireAuth(): Response | { username: string; role: 'operator' } {
@@ -158,8 +173,8 @@ export function mockFetch(input: string, init?: RequestInit): Promise<Response> 
     if (!body?.username || !body.password) {
       return Promise.resolve(error(400, 'validation', 'Username and password are required.'));
     }
-    if (body.username !== MOCK_USER || body.password !== MOCK_PASSWORD) {
-      return Promise.resolve(error(401, 'unauthorized', 'Invalid username or password.'));
+    if (!isMockOperator(body.username) || operatorPasswords[body.username] !== body.password) {
+      return Promise.resolve(error(401, 'unauthorized', 'Unknown operator or wrong password'));
     }
     setSessionCookie(`op-${body.username}`);
     return Promise.resolve(json({
@@ -180,6 +195,24 @@ export function mockFetch(input: string, init?: RequestInit): Promise<Response> 
 
   const auth = requireAuth();
   if (auth instanceof Response) return Promise.resolve(auth);
+
+  if (path === '/api/v1/session/password' && method === 'PUT') {
+    const body = parseBody<{ currentPassword?: string; newPassword?: string }>(init);
+    const current = body?.currentPassword ?? '';
+    const next = body?.newPassword ?? '';
+    if (!isMockOperator(auth.username) || operatorPasswords[auth.username] !== current) {
+      return Promise.resolve(error(401, 'unauthorized', 'Unknown operator or wrong password'));
+    }
+    if (!next || next.length < 8) {
+      return Promise.resolve(error(400, 'validation', 'New password must be at least 8 characters'));
+    }
+    operatorPasswords[auth.username] = next;
+    return Promise.resolve(json({
+      schema: API_SCHEMA,
+      authenticated: true,
+      user: { username: auth.username, role: 'operator' },
+    }));
+  }
 
   if (path === '/api/v1/meta' && method === 'GET') {
     return Promise.resolve(json({
@@ -388,4 +421,8 @@ export function resetMockThresholds(): void {
   currentThresholds = cloneThresholds(DEFAULT_THRESHOLDS);
   thresholdsUpdatedAt = null;
   thresholdsUpdatedBy = null;
+}
+
+export function resetMockOperators(): void {
+  operatorPasswords = emptyOperatorPasswords();
 }

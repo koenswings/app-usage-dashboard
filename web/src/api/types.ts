@@ -115,6 +115,12 @@ export interface LoginRequest {
   password: string;
 }
 
+/** `PUT /api/v1/session/password` (operator session, Kid e4c15dd). */
+export interface ChangePasswordRequest {
+  currentPassword: string;
+  newPassword: string;
+}
+
 /**
  * `GET /api/v1/health` — public, no cookie.
  * Engine healthCheck probes this on `${port}`.

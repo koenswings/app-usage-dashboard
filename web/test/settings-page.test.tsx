@@ -70,12 +70,12 @@ describe('Settings page', () => {
         onSave={async (thresholds) => {
           saved.push(thresholds);
           current = { ...current, ...thresholds };
-          return { thresholds: current, defaults, updatedAt: '2026-11-11T09:42:00+01:00', updatedBy: 'admin' };
+          return { thresholds: current, defaults, updatedAt: '2026-11-11T09:42:00+01:00', updatedBy: 'koen' };
         }}
         onReset={async () => {
           saved.push({ reset: true });
           current = cloneThresholds(defaults);
-          return { thresholds: current, defaults, updatedAt: '2026-11-11T09:42:00+01:00', updatedBy: 'admin' };
+          return { thresholds: current, defaults, updatedAt: '2026-11-11T09:42:00+01:00', updatedBy: 'koen' };
         }}
       />
     ));
@@ -136,7 +136,7 @@ describe('Settings page', () => {
 describe('mock settings endpoint', () => {
   beforeEach(() => {
     resetMockThresholds();
-    document.cookie = 'idea_usage_session=op-admin; Path=/';
+    document.cookie = 'idea_usage_session=op-koen; Path=/';
   });
   afterEach(() => {
     resetMockThresholds();
@@ -151,7 +151,7 @@ describe('mock settings endpoint', () => {
     const saved = await client.putThresholds({ thresholds: { wikipediaMinViews: 25 } });
     expect(saved.thresholds.wikipediaMinViews).toBe(25);
     expect(saved.thresholds.availableMinSchoolDays).toBe(3);
-    expect(saved.updatedBy).toBe('admin');
+    expect(saved.updatedBy).toBe('koen');
     try {
       await client.putThresholds({ thresholds: { learnerSessionShareMin: 2 } });
       throw new Error('expected 400');

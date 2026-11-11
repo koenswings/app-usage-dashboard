@@ -4,7 +4,7 @@ Contract for Pixel's UI (idea#415) against Kid's `web` service in `app-usage-das
 
 `{ state: 'on' | 'off' | 'gapUnknown' | 'collectorGap', start, end, lengthKnown }`
 
-`lastPulled` is returned on every kit and every school card. Writes are `POST /api/v1/schools/:deploymentId/help-events` (an operator records that help was offered) and `PUT /api/v1/settings/thresholds` (operator session; served by the collector in PR #2, Kid 7880247, not yet pushed).
+`lastPulled` is returned on every kit and every school card. Writes are `POST /api/v1/schools/:deploymentId/help-events` (an operator records that help was offered), `PUT /api/v1/settings/thresholds` (operator session; served by the collector in PR #2, Kid 7880247, not yet pushed), and `PUT /api/v1/session/password` (operator session; Kid e4c15dd).
 
 TypeScript types live in `src/api/types.ts`.
 
@@ -21,7 +21,7 @@ A breaking change increments the HTTP API schema. Unknown fields must be ignored
 
 - Base path: `/api/v1`
 - JSON request and response bodies, UTF-8
-- Public (no cookie): `GET /api/v1/health`, `GET /api/v1/session`, `POST /api/v1/session`, `DELETE /api/v1/session`. Every other `/api/v1` path requires the cookie
+- Public (no cookie): `GET /api/v1/health`, `GET /api/v1/session`, `POST /api/v1/session`, `DELETE /api/v1/session`. Every other `/api/v1` path, including `PUT /api/v1/session/password`, requires the cookie
 - Role-level counts only (§9). No usernames, no per-learner dossiers, no document contents, no network addresses
 - Content titles, channel names and Wikipedia article titles are allowed (they describe curriculum, not people)
 - The UI never talks to SQLite and never writes kit data
@@ -32,8 +32,7 @@ The Console stores operator accounts in the Engine `userDB` and keeps a client-s
 
 - Cookie name: `idea_usage_session`
 - Attributes: `HttpOnly; SameSite=Lax; Path=/`; `Secure` when the request is HTTPS
-- Default-password convention (`<account name>911!`, e.g. the first operator `admin`) lives in **server config**, never in UI source
-- Who besides Koen may log in is a Koen item (idea#375); the login is required either way
+- Operator accounts are exactly `koen` and `marco` (U-9, Kid e4c15dd). There is no `admin` operator. Seed passwords live in **server config**, never in UI source
 
 | Method | Path | Body | Response |
 |---|---|---|---|
@@ -41,6 +40,7 @@ The Console stores operator accounts in the Engine `userDB` and keeps a client-s
 | `GET` | `/api/v1/session` | — | `SessionResponse`. Without a cookie this is `200` and `{ authenticated: false, user: null }` — not a 401. The UI uses that to show the login page. |
 | `POST` | `/api/v1/session` | `{ "username", "password" }` | `SessionResponse` + `Set-Cookie`. `401` with error `unauthorized` on bad credentials |
 | `DELETE` | `/api/v1/session` | — | `SessionResponse` with `authenticated: false` + cleared cookie |
+| `PUT` | `/api/v1/session/password` | `{ "currentPassword", "newPassword" }` | Operator session required (Kid e4c15dd). Success is `SessionResponse`; the current cookie stays valid. `newPassword` must be at least 8 characters (`400` `validation` if shorter). A wrong `currentPassword` is `401` `unauthorized`. The dashboard form also requires a confirmation field and that the new password differs from the current one |
 
 ## Error shape
 

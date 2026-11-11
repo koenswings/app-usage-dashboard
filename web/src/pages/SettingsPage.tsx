@@ -1,4 +1,5 @@
 import { For, Show, createSignal } from 'solid-js';
+import { ApiError } from '../api/client';
 import type { ScorecardThresholds, ThresholdsSettingsResponse } from '../api/types';
 import { FleetNav } from '../components/SchoolNav';
 import {
@@ -16,8 +17,10 @@ interface SettingsPageProps {
   updatedAt: string | null;
   updatedBy: string | null;
   writable: boolean;
+  username?: string;
   onSave: (thresholds: Partial<ScorecardThresholds>) => Promise<ThresholdsSettingsResponse | void>;
   onReset: () => Promise<ThresholdsSettingsResponse | void>;
+  onChangePassword?: (currentPassword: string, newPassword: string) => Promise<void>;
 }
 
 function shareToPercent(share: number): string {
@@ -46,6 +49,12 @@ export function SettingsPage(props: SettingsPageProps) {
   const [fieldError, setFieldError] = createSignal<string>('');
   const [saving, setSaving] = createSignal(false);
   const [message, setMessage] = createSignal('');
+  const [currentPassword, setCurrentPassword] = createSignal('');
+  const [newPassword, setNewPassword] = createSignal('');
+  const [confirmPassword, setConfirmPassword] = createSignal('');
+  const [passwordError, setPasswordError] = createSignal('');
+  const [passwordMessage, setPasswordMessage] = createSignal('');
+  const [passwordSaving, setPasswordSaving] = createSignal(false);
 
   const syncFrom = (thresholds: ScorecardThresholds) => {
     setDraft(cloneThresholds(thresholds));
@@ -111,6 +120,56 @@ export function SettingsPage(props: SettingsPageProps) {
       setError(err instanceof Error ? err.message : 'Could not reset the thresholds.');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const clearPasswordFields = () => {
+    setCurrentPassword('');
+    setNewPassword('');
+    setConfirmPassword('');
+  };
+
+  const changePassword = async (event: Event) => {
+    event.preventDefault();
+    if (!props.onChangePassword) return;
+    setPasswordError('');
+    setPasswordMessage('');
+    const current = currentPassword();
+    const next = newPassword();
+    const confirm = confirmPassword();
+    clearPasswordFields();
+    if (!current) {
+      setPasswordError('Current password is required.');
+      return;
+    }
+    if (next.length < 8) {
+      setPasswordError('New password must be at least 8 characters.');
+      return;
+    }
+    if (next === current) {
+      setPasswordError('New password must be different from the current password.');
+      return;
+    }
+    if (next !== confirm) {
+      setPasswordError('New password and confirmation do not match.');
+      return;
+    }
+    setPasswordSaving(true);
+    try {
+      await props.onChangePassword(current, next);
+      setPasswordMessage('Password changed.');
+    } catch (err) {
+      const status = err instanceof ApiError ? err.status : 0;
+      const apiText = err instanceof ApiError
+        ? (err.body?.error.message || (err.message.startsWith('HTTP ') ? '' : err.message))
+        : '';
+      if ((status === 400 || status === 401 || status === 403) && apiText) {
+        setPasswordError(apiText);
+      } else {
+        setPasswordError('Could not change the password.');
+      }
+    } finally {
+      setPasswordSaving(false);
     }
   };
 
@@ -223,6 +282,66 @@ export function SettingsPage(props: SettingsPageProps) {
             </button>
           </div>
         </form>
+        <Show when={props.onChangePassword}>
+          <section class="settings-account" data-testid="change-password">
+            <h2>Your account</h2>
+            <p class="muted">
+              <Show when={props.username} fallback="Change the password for this operator sign-in.">
+                {(name) => `Signed in as ${name()}. Change the password for this operator sign-in.`}
+              </Show>
+              {' '}The other operator account is unchanged.
+            </p>
+            <form class="panel settings-password" onSubmit={(event) => void changePassword(event)} data-testid="change-password-form">
+              <label>
+                Current password
+                <input
+                  type="password"
+                  name="currentPassword"
+                  autocomplete="current-password"
+                  value={currentPassword()}
+                  onInput={(event) => setCurrentPassword(event.currentTarget.value)}
+                  data-testid="password-current"
+                />
+              </label>
+              <label>
+                New password
+                <input
+                  type="password"
+                  name="newPassword"
+                  autocomplete="new-password"
+                  value={newPassword()}
+                  onInput={(event) => setNewPassword(event.currentTarget.value)}
+                  data-testid="password-new"
+                />
+              </label>
+              <label>
+                Confirm new password
+                <input
+                  type="password"
+                  name="confirmPassword"
+                  autocomplete="new-password"
+                  value={confirmPassword()}
+                  onInput={(event) => setConfirmPassword(event.currentTarget.value)}
+                  data-testid="password-confirm"
+                />
+              </label>
+              <p class="login-error" data-testid="password-error">{passwordError()}</p>
+              <Show when={passwordMessage()}>
+                {(text) => <p class="settings-saved" data-testid="password-saved">{text()}</p>}
+              </Show>
+              <div class="settings-actions">
+                <button
+                  class="btn btn-primary"
+                  type="submit"
+                  disabled={passwordSaving()}
+                  data-testid="password-save"
+                >
+                  Change password
+                </button>
+              </div>
+            </form>
+          </section>
+        </Show>
       </div>
     </>
   );

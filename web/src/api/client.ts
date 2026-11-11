@@ -101,6 +101,15 @@ export function createApiClient(fetcher: FetchLike = defaultFetch) {
       return readJson<SessionResponse>(await fetcher('/api/v1/session', { method: 'DELETE' }));
     },
 
+    async changePassword(currentPassword: string, newPassword: string): Promise<SessionResponse> {
+      return readJson<SessionResponse>(
+        await fetcher('/api/v1/session/password', {
+          method: 'PUT',
+          body: JSON.stringify({ currentPassword, newPassword }),
+        }),
+      );
+    },
+
     async getMeta(): Promise<MetaResponse> {
       return readJson<MetaResponse>(await fetcher('/api/v1/meta', { method: 'GET' }));
     },

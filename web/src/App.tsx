@@ -315,6 +315,7 @@ export default function App() {
                 updatedAt={thresholdSettings()?.updatedAt ?? null}
                 updatedBy={thresholdSettings()?.updatedBy ?? null}
                 writable={settingsWritable()}
+                username={session()?.user?.username ?? undefined}
                 onSave={async (thresholds) => {
                   const result = await api.putThresholds({ thresholds });
                   setThresholdSettings(result);
@@ -326,6 +327,9 @@ export default function App() {
                   setThresholdSettings(result);
                   setMeta((current) => current ? { ...current, thresholds: result.thresholds, thresholdsConfigured: true } : current);
                   return result;
+                }}
+                onChangePassword={async (currentPassword, newPassword) => {
+                  await api.changePassword(currentPassword, newPassword);
                 }}
               />
             </Show>
