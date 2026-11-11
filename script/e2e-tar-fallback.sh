@@ -253,6 +253,17 @@ assert_no_forbidden_target() {
   esac
 }
 
+
+disk_root() {
+  # System disk is "/", never an empty string (cd "" fails; join bugs).
+  local r="${1-}"
+  if [ -z "$r" ] || [ "$r" = "." ]; then
+    printf '%s\n' "/"
+  else
+    printf '%s\n' "$r"
+  fi
+}
+
 # --- compose image / tar names (Engine serviceImageTarName / saveName) ----
 
 compose_images() {
@@ -274,7 +285,7 @@ tar_rel_of() {
 # --- bundle staging -------------------------------------------------------
 
 stage_bundle() {
-  local root="$1"
+  local root; root=$(disk_root "$1")
   local tmp bundle
   assert_no_forbidden_target "$root"
   mkdir -p "$root/apps" "$root/services"
@@ -302,7 +313,7 @@ stage_bundle() {
 }
 
 write_sums() {
-  local root="$1"
+  local root; root=$(disk_root "$1")
   shift
   local bundle="$root/apps/$APP_ID"
   local sums="$bundle/SHA256SUMS"
@@ -344,7 +355,7 @@ ensure_official_image() {
 }
 
 save_tar() {
-  local root="$1"
+  local root; root=$(disk_root "$1")
   local ref="$2"
   local rel dest name
   rel=$(tar_rel_of "$ref")
@@ -612,7 +623,7 @@ docker_rm_exited() {
 }
 
 move_written() {
-  local root="$1"
+  local root; root=$(disk_root "$1")
   local dest="$2"
   mkdir -p "$dest/apps" "$dest/services"
   local rel
@@ -1019,8 +1030,8 @@ run_live() {
   take_snapshot "$RUN_DIR/before" "before"
   trap on_exit EXIT
 
-  # System disk roots are /apps /services /instances (empty prefix).
-  DISK_ROOT=""
+  # System disk roots are /apps /services /instances (disk root /).
+  DISK_ROOT="/"
   local pick
   pick=$(pick_system_disk)
   SYSTEM_DISK_ID=${pick%%$'\t'*}
