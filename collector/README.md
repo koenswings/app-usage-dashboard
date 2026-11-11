@@ -4,7 +4,8 @@ Owner: Kid, idea#414.
 
 Python service. Modules live in `src/`:
 
-- `db.py` — SQLite WAL schema (§7.5)
+- `db.py` — SQLite WAL schema (§7.5) and dated daily VACUUM INTO copies under `./data/backup/daily/`
+- `backup_hook.py` — idea#444 preHook / postHook dump and start-time restore from `./data/backup/usage.sqlite`
 - `parse.py` — `idea-usage-export` NDJSON (`since`); exit 10 is `disabled`, not an error
 - `presence.py` — `on` / `off` / `gapUnknown` from kit samples; `collectorGap` from the sidecar watchdog
 - `pull.py` — restricted SSH `since` / `archive-and-clear --before`

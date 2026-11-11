@@ -14,5 +14,6 @@ RUN apt-get update \
       > /etc/idea-usage/build-info.json
 WORKDIR /app
 COPY src /app/src
+COPY scripts /app/scripts
 COPY entrypoint.sh /app/entrypoint.sh
 ENTRYPOINT ["/bin/sh", "/app/entrypoint.sh"]

@@ -172,21 +172,129 @@ services:
         finally:
             Path(path).unlink()
 
-    def test_backup_exclude_covers_keys_and_sidecar_dirs(self):
-        """x-app.backup.exclude must list keys, node state, and the socket dir."""
+    def _backup_block(self):
         text = COMPOSE.read_text(encoding="utf-8")
         start = text.index("  backup:")
         rest = text[start:]
         # Stop at the next top-level or services: block.
         end_candidates = [rest.find("\nservices:"), rest.find("\n  services:")]
         end = min(i for i in end_candidates if i != -1)
-        block = rest[:end]
-        names = re.findall(r"^\s+- ([^\s#]+)", block, flags=re.M)
+        return rest[:end]
+
+    def _list_under(self, block, key):
+        header = re.search(r"(?m)^    %s:\s*$" % re.escape(key), block)
+        self.assertIsNotNone(header, "missing %s in\n%s" % (key, block))
+        rest = block[header.end():]
+        items = []
+        for line in rest.splitlines():
+            if re.match(r"^    [A-Za-z]", line):
+                break
+            if not line.strip() or line.lstrip().startswith("#"):
+                continue
+            m = re.match(r"^\s+- ([^\s#]+)", line)
+            if m:
+                items.append(m.group(1))
+        return items
+
+    def test_backup_exclude_and_hook_exclude_lists(self):
+        """exclude is always applied; hookExclude only after a successful preHook."""
+        block = self._backup_block()
+        exclude = self._list_under(block, "exclude")
+        hook_exclude = self._list_under(block, "hookExclude")
         self.assertEqual(
-            names,
-            ["keys", "tailscale", "tailscale-run"],
-            "x-app.backup.exclude must be keys, tailscale (node state) and tailscale-run (socket dir); got %r\n%s" % (names, block),
+            exclude,
+            ["keys", "tailscale", "tailscale-run", "data/backup/daily"],
+            "unexpected x-app.backup.exclude: %r\n%s" % (exclude, block),
         )
+        self.assertEqual(
+            hook_exclude,
+            ["usage.sqlite", "usage.sqlite-wal", "usage.sqlite-shm"],
+            "unexpected x-app.backup.hookExclude: %r\n%s" % (hook_exclude, block),
+        )
+        combined = exclude + hook_exclude
+        # The hook dump itself must stay in the archive (not in either list).
+        self.assertNotIn("data/backup/usage.sqlite", combined)
+        self.assertNotIn("backup/usage.sqlite", combined)
+        self.assertNotIn("backup", combined)
+        # data/backup/daily is the Engine-supported path (not backup/daily).
+        self.assertNotIn("backup/daily", exclude)
+
+    def test_check_compose_rejects_live_db_in_always_exclude(self):
+        body = COMPOSE.read_text(encoding="utf-8")
+        # Put the live db back under exclude (the pre-hookExclude shape).
+        body = body.replace(
+            """    exclude:
+      - keys
+      - tailscale
+      - tailscale-run
+      # Dated daily copies. #325 rejects globs, so these live under
+      # data/backup/daily/ (write data/backup/daily, not backup/daily:
+      # a slash path is instance-relative and is not auto-prefixed).
+      # The hook dump data/backup/usage.sqlite is in neither list.
+      - data/backup/daily
+    hookExclude:
+      - usage.sqlite
+      - usage.sqlite-wal
+      - usage.sqlite-shm
+""",
+            """    exclude:
+      - keys
+      - tailscale
+      - tailscale-run
+      - usage.sqlite
+      - usage.sqlite-wal
+      - usage.sqlite-shm
+      - data/backup/daily
+""",
+        )
+        with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as fh:
+            fh.write(body)
+            path = fh.name
+        try:
+            result = self._check(path)
+            self.assertNotEqual(result.returncode, 0)
+            combined = result.stderr + result.stdout
+            self.assertIn("hookExclude", combined)
+        finally:
+            Path(path).unlink()
+
+    def test_check_compose_rejects_unprefixed_daily_path(self):
+        body = COMPOSE.read_text(encoding="utf-8").replace(
+            "- data/backup/daily",
+            "- backup/daily",
+        )
+        with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as fh:
+            fh.write(body)
+            path = fh.name
+        try:
+            result = self._check(path)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("data/backup/daily", result.stderr + result.stdout)
+        finally:
+            Path(path).unlink()
+
+    def test_backup_declares_hook_method_and_collector_hooks(self):
+        """idea#444 compose fields: method hook, fallback stop, hooks on collector."""
+        block = self._backup_block()
+        self.assertRegex(block, r"(?m)^    method:\s*hook\s*$", msg=block)
+        self.assertRegex(block, r"(?m)^    hookTimeout:\s*300\s*$", msg=block)
+        self.assertRegex(block, r"(?m)^    fallback:\s*stop\s*$", msg=block)
+        self.assertRegex(block, r"(?m)^    preHook:", msg=block)
+        self.assertRegex(block, r"(?m)^    postHook:", msg=block)
+        self.assertIn("service: collector", block)
+        self.assertIn("command: /app/scripts/backup-snapshot.sh", block)
+        self.assertIn("command: /app/scripts/backup-cleanup.sh", block)
+        pre = block.split("preHook:", 1)[1].split("postHook:", 1)[0]
+        post = block.split("postHook:", 1)[1]
+        self.assertIn("service: collector", pre)
+        self.assertIn("/app/scripts/backup-snapshot.sh", pre)
+        self.assertIn("service: collector", post)
+        self.assertIn("/app/scripts/backup-cleanup.sh", post)
+        self.assertTrue((REPO / "collector" / "scripts" / "backup-snapshot.sh").is_file())
+        self.assertTrue((REPO / "collector" / "scripts" / "backup-cleanup.sh").is_file())
+        # Scripts are on the ./collector bind (read-only at /app).
+        compose = COMPOSE.read_text(encoding="utf-8")
+        self.assertIn("./collector:/app:ro", compose)
 
     def test_nginx_assets_return_404_and_spa_fallback_remains(self):
         text = NGINX.read_text(encoding="utf-8")

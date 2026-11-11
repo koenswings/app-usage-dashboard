@@ -11,8 +11,14 @@ from datetime import datetime, timezone
 
 SCHEMA_VERSION = 1
 SNAPSHOT_KEEP = 14
-# One consistent copy per UTC day: ./data/backup/usage-YYYY-MM-DD.sqlite
+# One consistent copy per UTC day: ./data/backup/daily/usage-YYYY-MM-DD.sqlite
+# The daily/ subdirectory is listed in x-app.backup.exclude (idea#444). Engine
+# helper v8 rejects globs, so we cannot exclude usage-????-??-??.sqlite in
+# place next to the hook dump at ./data/backup/usage.sqlite (which must stay
+# in the archive). The prune regex still only matches the dated names, so it
+# never touches the hook dump.
 SNAPSHOT_NAME_RE = re.compile(r"^usage-([0-9]{4}-[0-9]{2}-[0-9]{2})\.sqlite$")
+DAILY_SUBDIR = "daily"
 
 DDL = """
 PRAGMA journal_mode = WAL;
@@ -181,26 +187,82 @@ def is_snapshot_name(name: str) -> bool:
     return SNAPSHOT_NAME_RE.match(name) is not None
 
 
+def dated_snapshot_dir(backup_dir: str) -> str:
+    """Directory that holds dated daily copies: ``<backup_dir>/daily``."""
+    return os.path.join(backup_dir, DAILY_SUBDIR)
+
+
 def snapshot_path(backup_dir: str, day: str) -> str:
-    return os.path.join(backup_dir, f"usage-{day}.sqlite")
+    return os.path.join(dated_snapshot_dir(backup_dir), f"usage-{day}.sqlite")
+
+
+def migrate_dated_snapshots(backup_dir: str) -> list[str]:
+    """Move leftover ``usage-YYYY-MM-DD.sqlite`` files into ``backup/daily/``.
+
+    Every dated file in the parent is considered, so a live tree that still
+    writes the old path does not leave packable leftovers. The hook dump
+    (``usage.sqlite``) and any other name stay put. Idempotent: a second
+    run is a no-op. If ``daily/<name>`` already exists, that copy is kept
+    (never overwritten) and the leftover parent file is removed so a
+    backup cannot pack it.
+    """
+    if not os.path.isdir(backup_dir):
+        return []
+    dest_dir = dated_snapshot_dir(backup_dir)
+    moved: list[str] = []
+    for name in os.listdir(backup_dir):
+        if not is_snapshot_name(name):
+            continue
+        src = os.path.join(backup_dir, name)
+        if not os.path.isfile(src):
+            continue
+        os.makedirs(dest_dir, exist_ok=True)
+        dest = os.path.join(dest_dir, name)
+        if os.path.exists(dest):
+            if os.path.samefile(src, dest):
+                continue
+            try:
+                os.remove(src)
+            except OSError:
+                pass
+            continue
+        os.replace(src, dest)
+        moved.append(dest)
+    return moved
+
+
+def migrate_legacy_backups(data_dir: str) -> list[str]:
+    """Migrate dated snapshots under ``<data_dir>/backup``. Missing dir is fine."""
+    return migrate_dated_snapshots(os.path.join(data_dir, "backup"))
 
 
 def list_snapshot_files(backup_dir: str) -> list[tuple[str, str]]:
-    """(utc_day, path) for usage-YYYY-MM-DD.sqlite files, newest day first."""
-    if not os.path.isdir(backup_dir):
+    """(utc_day, path) for usage-YYYY-MM-DD.sqlite files, newest day first.
+
+    Looks in ``backup/daily/`` after migrating any leftover dated files from
+    the parent ``backup/`` directory (the layout used before idea#444).
+    ``usage.sqlite`` (the hook dump) does not match and is never listed.
+    """
+    migrate_dated_snapshots(backup_dir)
+    snap_dir = dated_snapshot_dir(backup_dir)
+    if not os.path.isdir(snap_dir):
         return []
     found: list[tuple[str, str]] = []
-    for name in os.listdir(backup_dir):
+    for name in os.listdir(snap_dir):
         m = SNAPSHOT_NAME_RE.match(name)
         if not m:
             continue
-        found.append((m.group(1), os.path.join(backup_dir, name)))
+        found.append((m.group(1), os.path.join(snap_dir, name)))
     found.sort(key=lambda item: item[0], reverse=True)
     return found
 
 
 def prune_backups(backup_dir: str, keep: int = SNAPSHOT_KEEP) -> list[str]:
-    """Delete older usage-YYYY-MM-DD.sqlite files only. Other files are left alone."""
+    """Delete older usage-YYYY-MM-DD.sqlite files only. Other files are left alone.
+
+    The hook dump at ``backup/usage.sqlite`` does not match SNAPSHOT_NAME_RE
+    and is never removed. Files not in ``backup/daily/`` are left alone.
+    """
     if not os.path.isdir(backup_dir):
         return []
     removed: list[str] = []
@@ -222,16 +284,18 @@ def take_daily_snapshot(
 ) -> str | None:
     """Write today's UTC snapshot if that file does not already exist.
 
-    Uses VACUUM INTO a temp file in backup_dir, then os.replace onto
+    Uses VACUUM INTO a temp file in backup/daily/, then os.replace onto
     usage-YYYY-MM-DD.sqlite. Returns the new path, or None if the day's
     file was already present (restart-safe). Raises on failure.
     """
     day = utc_day(now)
-    os.makedirs(backup_dir, exist_ok=True)
+    migrate_dated_snapshots(backup_dir)
+    snap_dir = dated_snapshot_dir(backup_dir)
+    os.makedirs(snap_dir, exist_ok=True)
     dest = snapshot_path(backup_dir, day)
     if os.path.exists(dest):
         return None
-    fd, tmp = tempfile.mkstemp(prefix=f"usage-{day}.", suffix=".tmp", dir=backup_dir)
+    fd, tmp = tempfile.mkstemp(prefix=f"usage-{day}.", suffix=".tmp", dir=snap_dir)
     os.close(fd)
     os.unlink(tmp)
     try:

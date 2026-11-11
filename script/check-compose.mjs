@@ -158,6 +158,95 @@ const checkCollectorDoesNotMountState = (text, errs) => {
 };
 
 
+
+const xAppBackupBlock = (text) => {
+  const start = text.search(/^  backup:\s*$/m);
+  if (start < 0) return null;
+  const rest = text.slice(start);
+  const endMatch = rest.slice(1).search(/\nservices:|\n\S/);
+  return endMatch === -1 ? rest : rest.slice(0, endMatch + 1);
+};
+
+const backupField = (block, key) => {
+  const m = block.match(new RegExp('^    ' + key + ':\\s*(\\S+)\\s*$', 'm'));
+  return m ? stripQuotes(m[1]) : undefined;
+};
+
+const backupList = (block, key) => {
+  const header = new RegExp('^    ' + key + ':\\s*$', 'm');
+  const m = header.exec(block);
+  if (!m) return null;
+  const from = block.slice(m.index + m[0].length);
+  const items = [];
+  for (const line of from.split('\n')) {
+    if (/^    [A-Za-z]/.test(line)) break;
+    if (/^\s*#/.test(line) || line.trim() === '') continue;
+    const item = line.match(/^\s+- ([^\s#]+)/);
+    if (item) items.push(item[1]);
+  }
+  return items;
+};
+
+const sameList = (got, want) =>
+  Array.isArray(got) && got.length === want.length && got.every((v, i) => v === want[i]);
+
+const HOOK_EXCLUDE_ALWAYS = ['keys', 'tailscale', 'tailscale-run', 'data/backup/daily'];
+const HOOK_EXCLUDE_AFTER_PREHOOK = ['usage.sqlite', 'usage.sqlite-wal', 'usage.sqlite-shm'];
+const HOOK_DUMP_PATHS = ['data/backup/usage.sqlite', 'backup/usage.sqlite', 'backup'];
+
+const checkBackupHook = (text, errs) => {
+  const block = xAppBackupBlock(text);
+  if (!block) return;
+  const method = backupField(block, 'method');
+  if (method !== undefined && method !== 'hook' && method !== 'stop') {
+    errs.push("x-app.backup.method must be 'hook' or 'stop', got '" + method + "'");
+    return;
+  }
+  if (method !== 'hook') return;
+
+  const fallback = backupField(block, 'fallback');
+  if (fallback !== undefined && fallback !== 'stop' && fallback !== 'fail') {
+    errs.push("x-app.backup.fallback must be 'stop' or 'fail', got '" + fallback + "'");
+  }
+  const timeout = backupField(block, 'hookTimeout');
+  if (timeout !== undefined && !/^[1-9][0-9]*$/.test(timeout)) {
+    errs.push("x-app.backup.hookTimeout must be a positive integer, got '" + timeout + "'");
+  }
+  if (!/^    preHook:\s*$/m.test(block)) errs.push('x-app.backup.preHook is required when method is hook');
+  if (!/^    postHook:\s*$/m.test(block)) errs.push('x-app.backup.postHook is required when method is hook');
+  if (!/service:\s*collector/.test(block)) {
+    errs.push("x-app.backup hooks must run in the collector service");
+  }
+  if (!/command:\s*\/app\/scripts\/backup-snapshot\.sh/.test(block)) {
+    errs.push('x-app.backup.preHook.command must be /app/scripts/backup-snapshot.sh');
+  }
+  if (!/command:\s*\/app\/scripts\/backup-cleanup\.sh/.test(block)) {
+    errs.push('x-app.backup.postHook.command must be /app/scripts/backup-cleanup.sh');
+  }
+
+  const exclude = backupList(block, 'exclude') || [];
+  const hookExclude = backupList(block, 'hookExclude') || [];
+  if (!sameList(exclude, HOOK_EXCLUDE_ALWAYS)) {
+    errs.push(
+      'x-app.backup.exclude must be keys, tailscale, tailscale-run, data/backup/daily (always applied); got ' +
+        JSON.stringify(exclude)
+    );
+  }
+  if (!sameList(hookExclude, HOOK_EXCLUDE_AFTER_PREHOOK)) {
+    errs.push(
+      'x-app.backup.hookExclude must be usage.sqlite, usage.sqlite-wal, usage.sqlite-shm (after a successful preHook only); got ' +
+        JSON.stringify(hookExclude)
+    );
+  }
+  const combined = exclude.concat(hookExclude);
+  for (const path of HOOK_DUMP_PATHS) {
+    if (combined.includes(path)) {
+      errs.push('hook dump data/backup/usage.sqlite must stay in the archive; do not list ' + path);
+    }
+  }
+};
+
+
 export function checkCompose(text, { tag, release } = {}) {
   const errs = [];
   if (PLACEHOLDER_RE.test(text)) {
@@ -195,6 +284,7 @@ export function checkCompose(text, { tag, release } = {}) {
 
   checkTailscalePersist(text, errs);
   checkCollectorDoesNotMountState(text, errs);
+  checkBackupHook(text, errs);
 
   if (release) {
     const image = webImage(text);
