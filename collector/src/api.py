@@ -380,8 +380,22 @@ def handle(conn, method: str, path: str, body: dict[str, Any] | None, user: str 
             "user": None,
         }, auth.clear_cookie_header(secure=secure)
 
-    if (method, route) not in PUBLIC_PATHS and user is None:
+    if (method, route) not in PUBLIC_PATHS and (user is None or not auth.is_allowed(user)):
         return 401, error_body("unauthorized", "Operator session required"), None
+
+    if method == "PUT" and route == "/api/v1/session/password":
+        current = (body or {}).get("currentPassword") or ""
+        new_password = (body or {}).get("newPassword") or ""
+        try:
+            auth.change_password(user, current, new_password)
+        except auth.PasswordError as exc:
+            status = 401 if exc.code == "unauthorized" else 400
+            return status, error_body(exc.code, exc.message), None
+        return 200, {
+            "schema": agg.API_SCHEMA,
+            "authenticated": True,
+            "user": {"username": user, "role": "operator"},
+        }, None
 
     if method == "GET" and route == "/api/v1/meta":
         return 200, meta_payload(conn), None

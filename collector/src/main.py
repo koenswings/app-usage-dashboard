@@ -10,6 +10,7 @@ import urllib.error
 import urllib.request
 from datetime import date, timedelta
 
+from . import auth
 from . import db
 from .api import serve
 from .pull import handle_pull, record_uplink
@@ -131,6 +132,9 @@ def loop(conn) -> None:
 def main() -> int:
     data_dir = os.environ.get("DATA_DIR") or "/data"
     os.makedirs(data_dir, exist_ok=True)
+    if not os.environ.get("IDEA_USAGE_OPERATORS_FILE"):
+        os.environ["IDEA_USAGE_OPERATORS_FILE"] = os.path.join(data_dir, "operators.json")
+    auth.ensure_operators()
     db_path = os.path.join(data_dir, "usage.sqlite")
     conn = db.connect(db_path)
     db.load_registry(conn, os.environ.get("REGISTRY_PATH") or os.path.join(data_dir, "registry.json"))

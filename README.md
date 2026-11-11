@@ -10,4 +10,4 @@ IDEA App for the programme field-usage dashboard (proposal merged in idea#410).
 
 The usage-pull key lives at `./data/keys/pull_key` (mode 0600). Sidecar state lives under `./data/tailscale`. Both are listed in `x-app.backup.exclude` (`keys`, `tailscale`) so a normal Engine backup does not copy them; they go only to idea's encrypted Borg repository. See `docs/runbook.md`.
 
-HTTP responses follow `idea-usage-api/1` (Pixel, `web/API.md`). The collector-side data model is in `docs/API.md`.
+Only Koen and Marco may open the dashboard (`koen` and `marco`; see `docs/accounts.md`). HTTP responses follow `idea-usage-api/1` (Pixel, `web/API.md`). The collector-side data model is in `docs/API.md`.

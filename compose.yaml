@@ -73,7 +73,8 @@ services:
       # (falls through to collector/build-info.json written at bundle time).
       # There is no need to set this in the instance .env.
       - USAGE_DASHBOARD_COMMIT=${USAGE_DASHBOARD_COMMIT:-}
-      - IDEA_USAGE_ADMIN_PASSWORD=${IDEA_USAGE_ADMIN_PASSWORD:-admin911!}
+      - IDEA_USAGE_KOEN_PASSWORD=${IDEA_USAGE_KOEN_PASSWORD:-koen911!}
+      - IDEA_USAGE_MARCO_PASSWORD=${IDEA_USAGE_MARCO_PASSWORD:-marco911!}
       - IDEA_USAGE_SESSION_SECRET=${IDEA_USAGE_SESSION_SECRET:-}
     volumes:
       - ./data:/data
