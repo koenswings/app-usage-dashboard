@@ -200,6 +200,12 @@ h2 { font-size: 15px; margin: 22px 0 10px; color: var(--navy); }
   margin-top: 10px; font-size: 11px; color: var(--muted);
   display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap;
 }
+.scorecard-card__message {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--ink);
+  line-height: 1.45;
+}
 .old-data-marker {
   background: var(--amber-bg);
   color: var(--amber);
@@ -217,6 +223,7 @@ h2 { font-size: 15px; margin: 22px 0 10px; color: var(--navy); }
 .pill--help { background: var(--amber-bg); color: var(--amber); }
 .pill--noData,
 .pill--thresholdsNotSet { background: var(--nodata-bg); color: var(--nodata); }
+.pill--monitoringOff { background: #e2e8f0; color: #334155; }
 
 .panel, .kpi {
   background: var(--card);
@@ -304,6 +311,21 @@ td { padding: 7px 8px; border-bottom: 1px solid #f1f5f9; }
 }
 .presence-legend li { display: flex; align-items: center; gap: 6px; }
 .presence-legend .presence-seg { width: 16px; height: 12px; display: inline-block; }
+.presence-strip__track--off {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 56px;
+  border-radius: 6px;
+  background: #e2e8f0;
+  position: relative;
+}
+.presence-strip__off-label {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  color: #334155;
+}
 
 .hours {
   display: flex; gap: 2px; align-items: flex-end; height: 72px; margin-top: 10px;

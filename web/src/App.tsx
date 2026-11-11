@@ -23,11 +23,20 @@ export default function App() {
   const [route, setRoute] = createSignal<Route>(parseHash(window.location.hash));
   const [meta, setMeta] = createSignal<MetaResponse | null>(null);
   const [weeks, setWeeks] = createSignal<WeeksResponse | null>(null);
-  const [kits, setKits] = createSignal<{ deploymentId: string; school: string }[]>([]);
+  const [kits, setKits] = createSignal<{ deploymentId: string; school: string; monitoringEnabled: boolean }[]>([]);
 
   const week = () => route().week || weeks()?.currentWeekStart || '';
   const schoolName = (deploymentId: string) =>
     kits().find((item) => item.deploymentId === deploymentId)?.school ?? deploymentId;
+
+  const monitoringByDeployment = (): Record<string, boolean> => {
+    const map: Record<string, boolean> = {};
+    for (const kit of kits()) map[kit.deploymentId] = kit.monitoringEnabled;
+    return map;
+  };
+
+  const kitMonitoring = (deploymentId: string): boolean | undefined =>
+    kits().find((item) => item.deploymentId === deploymentId)?.monitoringEnabled;
 
   const weekFallbackNote = () => {
     const listed = weeks();
@@ -44,7 +53,11 @@ export default function App() {
     ]);
     setMeta(nextMeta);
     setWeeks(nextWeeks);
-    setKits(nextKits.kits.map((item) => ({ deploymentId: item.deploymentId, school: item.school })));
+    setKits(nextKits.kits.map((item) => ({
+      deploymentId: item.deploymentId,
+      school: item.school,
+      monitoringEnabled: item.monitoringEnabled,
+    })));
   };
 
   const navigate = (next: Route) => {
@@ -213,6 +226,7 @@ export default function App() {
               <FleetOverview
                 overview={page().data}
                 headerTimeZone={meta()?.headerTimeZone ?? 'Europe/Brussels'}
+                monitoringByDeployment={monitoringByDeployment()}
               />
             </Show>
             <Show when={!pageLoading() && !pageError() && page().kind === 'school'}>
@@ -255,8 +269,9 @@ export default function App() {
             <Show when={!pageLoading() && !pageError() && page().kind === 'uplink'}>
               <UplinkHistory
                 data={page().data}
-                school={schoolName(String(page().data?.deploymentId ?? ''))}
+                school={schoolName(String(page().data?.deploymentId ?? route().deploymentId ?? ''))}
                 segments={page().segments ?? []}
+                monitoringEnabled={kitMonitoring(String(page().data?.deploymentId ?? route().deploymentId ?? ''))}
               />
             </Show>
             <Show when={!pageLoading() && !pageError() && page().kind === 'instances'}>

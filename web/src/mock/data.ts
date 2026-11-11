@@ -318,6 +318,7 @@ export const cardsByWeek: Record<string, SchoolCard[]> = {
       stale: false,
       dataFrom: null,
       hasUsageData: false,
+      monitoringEnabled: false,
       scorecard: emptyScorecard(),
       headlines: { classes: null, learnersRegistered: null, teachers: null, kolibriMinutes: null },
     },
@@ -356,6 +357,7 @@ export const cardsByWeek: Record<string, SchoolCard[]> = {
       stale: false,
       dataFrom: null,
       hasUsageData: false,
+      monitoringEnabled: false,
       scorecard: emptyScorecard(),
       headlines: { classes: null, learnersRegistered: null, teachers: null, kolibriMinutes: null },
     },
@@ -431,10 +433,18 @@ export const chigondaSegments: PresenceSegment[] = [
   seg('off', '2026-11-03T15:00:00+02:00', '2026-11-07T00:00:00+02:00', true),
 ];
 
+/** kind-panda is monitoring off. The collector may still send gap/unknown cover; the UI must not draw it as presence. */
+export const pandaOffSegments: PresenceSegment[] = [
+  seg('gapUnknown', '2026-11-02T00:00:00+02:00', '2026-11-04T23:48:00+02:00', false),
+  seg('collectorGap', '2026-11-04T23:48:00+02:00', '2026-11-05T00:00:00+02:00', false),
+  seg('gapUnknown', '2026-11-05T00:00:00+02:00', '2026-11-07T00:00:00+02:00', false),
+];
+
 export function segmentsFor(deploymentId: string, weekStart: string): PresenceSegment[] {
   if (weekStart !== SAMPLE_WEEK) return [];
   if (deploymentId === DEP_NHARIRA) return nhariraSegments;
   if (deploymentId === DEP_CHIGONDA) return chigondaSegments;
+  if (deploymentId === DEP_PANDA) return pandaOffSegments;
   return [];
 }
 

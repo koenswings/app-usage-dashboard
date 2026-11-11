@@ -3,12 +3,14 @@ import type { PresenceSegment, UplinkResponse } from '../api/types';
 import { PresenceStrip } from '../components/shared/PresenceStrip';
 import { SchoolNav } from '../components/SchoolNav';
 import { formatDateTime } from '../lib/format';
+import { MONITORING_OFF_MESSAGE } from '../lib/monitoring';
 import { fridayOf } from '../lib/week';
 
 interface UplinkHistoryProps {
   data: UplinkResponse;
   school: string;
   segments: PresenceSegment[];
+  monitoringEnabled?: boolean;
 }
 
 function reachableWord(online: boolean): string {
@@ -29,6 +31,11 @@ export function UplinkHistory(props: UplinkHistoryProps) {
           Whether idea could reach the kit, next to the power sampler.
           Not reachable to us is not the same as powered off.
         </p>
+        <Show when={props.monitoringEnabled === false}>
+          <p class="status-banner" data-testid="monitoring-off-banner" role="status">
+            {MONITORING_OFF_MESSAGE}
+          </p>
+        </Show>
         <div class="panel" style={{ 'margin-bottom': '14px' }}>
           <PresenceStrip
             segments={props.segments}
@@ -38,6 +45,7 @@ export function UplinkHistory(props: UplinkHistoryProps) {
             weekStart={props.data.weekStart}
             weekEnd={fridayOf(props.data.weekStart)}
             summary="Power sampler (kit-local). Compare with reachability below."
+            monitoringOff={props.monitoringEnabled === false}
           />
         </div>
         <div class="grid2">

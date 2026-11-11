@@ -5,6 +5,7 @@ import { ScorecardCard } from '../components/shared/ScorecardCard';
 import { ClockWeekWarning } from '../components/InstanceMeta';
 import { SchoolNav } from '../components/SchoolNav';
 import { formatCount, formatDataFrom, formatDateTime, formatMinutes, formatPercent } from '../lib/format';
+import { isMonitoringOff, MONITORING_OFF_MESSAGE, showStale } from '../lib/monitoring';
 import { buildHeadlines, buildPill, buildScorecardLines } from '../lib/scorecardView';
 
 interface SchoolWeekProps {
@@ -60,9 +61,14 @@ export function SchoolWeek(props: SchoolWeekProps) {
           {props.data.school} · {props.data.engine} · week detail
         </h2>
         <ClockWeekWarning trusted={props.data.clockTrusted} />
+        <Show when={isMonitoringOff(props.data.monitoringEnabled, undefined)}>
+          <p class="status-banner" data-testid="monitoring-off-banner" role="status">
+            {MONITORING_OFF_MESSAGE}
+          </p>
+        </Show>
         <p class="muted">
           Last pulled: {formatDateTime(props.data.lastPulled, props.headerTimeZone)}
-          <Show when={props.data.stale && props.data.dataFrom}>
+          <Show when={showStale(props.data.stale, isMonitoringOff(props.data.monitoringEnabled, undefined)) && props.data.dataFrom}>
             <span class="old-data-marker" data-testid="old-data-marker">
               {' '}{formatDataFrom(props.data.dataFrom)}
             </span>
@@ -96,23 +102,25 @@ export function SchoolWeek(props: SchoolWeekProps) {
               weekStart={props.data.weekStart}
               weekEnd={props.data.weekEnd}
               summary={props.data.presence.summary}
+              monitoringOff={isMonitoringOff(props.data.monitoringEnabled, undefined)}
             />
           </div>
           <ScorecardCard
             school={props.data.school}
             engine={props.data.engine}
             note="Scorecard inputs this week"
-            pill={buildPill(props.data.hasUsageData, props.data.thresholdsConfigured).pill}
-            pillLabel={buildPill(props.data.hasUsageData, props.data.thresholdsConfigured).pillLabel}
-            lines={buildScorecardLines(props.data.scorecard, props.data.thresholdsConfigured)}
-            headlines={buildHeadlines({
+            pill={buildPill(props.data.hasUsageData, props.data.thresholdsConfigured, props.data.monitoringEnabled).pill}
+            pillLabel={buildPill(props.data.hasUsageData, props.data.thresholdsConfigured, props.data.monitoringEnabled).pillLabel}
+            lines={isMonitoringOff(props.data.monitoringEnabled, undefined) ? [] : buildScorecardLines(props.data.scorecard, props.data.thresholdsConfigured)}
+            headlines={isMonitoringOff(props.data.monitoringEnabled, undefined) ? [] : buildHeadlines({
               classes: census().classes,
               learnersRegistered: census().learnersRegistered,
               teachers: census().teachers,
               kolibriMinutes: kolibriMinutes(),
             })}
+            message={isMonitoringOff(props.data.monitoringEnabled, undefined) ? MONITORING_OFF_MESSAGE : undefined}
             lastPulledLabel={formatDateTime(props.data.lastPulled, props.headerTimeZone)}
-            stale={props.data.stale}
+            stale={showStale(props.data.stale, isMonitoringOff(props.data.monitoringEnabled, undefined))}
             dataFromLabel={formatDataFrom(props.data.dataFrom)}
           />
         </div>

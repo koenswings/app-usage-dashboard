@@ -92,11 +92,11 @@ Week paths use `weekStart`: the Monday of the school week as `YYYY-MM-DD`. A non
 |---|---|---|
 | `GET` | `/api/v1/weeks/{weekStart}/overview` | `OverviewResponse` |
 
-Contains one `SchoolCard` per deployment: scorecard **inputs** (raw counts), headline census (`classes`, `learnersRegistered`, `teachers`, `kolibriMinutes`), per-card `lastPulled`, `stale`, `dataFrom`, and `hasUsageData`.
+Contains one `SchoolCard` per deployment: scorecard **inputs** (raw counts), headline census (`classes`, `learnersRegistered`, `teachers`, `kolibriMinutes`), per-card `lastPulled`, `stale`, `dataFrom`, and `hasUsageData`. `monitoringEnabled` is **optional** on the overview card. When the collector sends it, the UI uses that value (Kid: true if any of the school's kits has monitoring on). When the field is omitted, the UI joins `GET /api/v1/kits` by `deploymentId`. School-week responses always include `monitoringEnabled`.
 
 `helpSuggestions` is an optional, **server-owned** list of banner items (kits that look idle or dark). Each `message` is already phrased as "offer help". The UI renders these verbatim and does not invent cut-offs or retractions. Empty when the collector has nothing to flag.
 
-When `thresholdsConfigured` is `false`, the UI shows the pill and every data-bearing scorecard line as **Thresholds not set**. A card with no pulled usage data shows **No data** (never the word "Grey").
+When `thresholdsConfigured` is `false`, the UI shows the pill and every data-bearing scorecard line as **Thresholds not set**. A card with no pulled usage data shows **No data** (never the word "Grey"). A card whose `monitoringEnabled` is `false` (from the card or the kits join) shows a **Monitoring off** pill and the sentence "Usage monitoring is switched off on this kit." in place of the scorecard lines. A monitoring-off kit is never flagged as stale.
 
 ### School week (page 2)
 
@@ -105,7 +105,7 @@ When `thresholdsConfigured` is `false`, the UI shows the pill and every data-bea
 | `GET` | `/api/v1/weeks/{weekStart}/schools/{deploymentId}` | `SchoolWeekResponse` |
 | `GET` | `/api/v1/weeks/{weekStart}/schools/{deploymentId}/presence` | `PresenceResponse` |
 
-`SchoolWeekResponse` is the scorecard inputs plus the Q3 census (`classes`, `classesDelta`, `learnersRegistered`, `learnersRegisteredDelta`, `learnersEnrolled`, `teachers`, `teachersDelta`, `admins`) and a `presence` block.
+`SchoolWeekResponse` is the scorecard inputs plus the Q3 census (`classes`, `classesDelta`, `learnersRegistered`, `learnersRegisteredDelta`, `learnersEnrolled`, `teachers`, `teachersDelta`, `admins`) and a `presence` block. It always includes `monitoringEnabled`. When that is `false`, the school-week and Reachability pages show a "Usage monitoring is switched off on this kit." banner and draw the presence strip as a muted "Monitoring off" week, not as hatched `gapUnknown` / `collectorGap` segments. The four-state legend stays on enabled kits only.
 
 Presence segments (also the standalone presence endpoint):
 

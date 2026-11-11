@@ -64,11 +64,15 @@ export function buildScorecardLines(
   });
 }
 
-export function buildPill(hasUsageData: boolean, thresholdsConfigured: boolean): {
+export function buildPill(
+  hasUsageData: boolean,
+  thresholdsConfigured: boolean,
+  monitoringEnabled?: boolean,
+): {
   pill: CardPill;
   pillLabel: string;
 } {
-  const pill = pillForCard(hasUsageData, thresholdsConfigured);
+  const pill = pillForCard(hasUsageData, thresholdsConfigured, monitoringEnabled);
   return { pill, pillLabel: pillWord(pill) };
 }
 

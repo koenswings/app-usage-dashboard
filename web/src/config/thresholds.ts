@@ -8,7 +8,7 @@
 import type { ScorecardInputs } from '../api/types';
 
 export type LineTone = 'onTrack' | 'needsHelp' | 'noData' | 'thresholdsNotSet';
-export type CardPill = 'ok' | 'help' | 'noData' | 'thresholdsNotSet';
+export type CardPill = 'ok' | 'help' | 'noData' | 'thresholdsNotSet' | 'monitoringOff';
 
 export type ScorecardLineId =
   | 'available'
@@ -72,7 +72,12 @@ export function wordForTone(tone: LineTone): string {
   }
 }
 
-export function pillForCard(hasUsageData: boolean, thresholdsConfigured: boolean): CardPill {
+export function pillForCard(
+  hasUsageData: boolean,
+  thresholdsConfigured: boolean,
+  monitoringEnabled?: boolean,
+): CardPill {
+  if (monitoringEnabled === false) return 'monitoringOff';
   if (!hasUsageData) return 'noData';
   if (!thresholdsConfigured) return 'thresholdsNotSet';
   return 'thresholdsNotSet';
@@ -80,6 +85,8 @@ export function pillForCard(hasUsageData: boolean, thresholdsConfigured: boolean
 
 export function pillWord(pill: CardPill): string {
   switch (pill) {
+    case 'monitoringOff':
+      return 'Monitoring off';
     case 'noData':
       return 'No data';
     case 'thresholdsNotSet':

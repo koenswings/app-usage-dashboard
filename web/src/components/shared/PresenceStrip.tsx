@@ -18,6 +18,8 @@ export interface PresenceStripProps {
   weekStart: string;
   weekEnd: string;
   summary?: string | null;
+  /** When true, the week is drawn as monitoring off — not as unknown or collector gaps. */
+  monitoringOff?: boolean;
 }
 
 const STATE_WORD: Record<PresenceStripState, string> = {
@@ -103,57 +105,88 @@ export function placedSegments(
   return placed;
 }
 
+function DayTicks() {
+  const dayIds = () => WEEKDAY.map((day) => day);
+  return (
+    <div class="presence-strip__days">
+      <For each={dayIds()}>
+        {(day) => <span>{day}</span>}
+      </For>
+    </div>
+  );
+}
+
 export function PresenceStrip(props: PresenceStripProps) {
   const placed = () => placedSegments(props.segments, props.weekStart, props.weekEnd, props.utcOffset);
   const ids = () => placed().map((item) => item.id);
 
   return (
-    <section class="presence-strip" data-testid="presence-strip">
-      <header class="presence-strip__head">
-        <strong>Kit active / idle this week</strong>
-        <p>
-          Each block is one continuous presence segment. Width follows the calendar.
-          A hatched block is a gap whose length is not known — it is not a measured
-          duration. Ticks are in {props.timeZoneLabel}.
-        </p>
-      </header>
+    <section
+      class={`presence-strip${props.monitoringOff ? ' presence-strip--monitoring-off' : ''}`}
+      data-testid="presence-strip"
+    >
       <Show
-        when={props.segments.length > 0}
-        fallback={<p class="presence-strip__empty">No presence samples for this week.</p>}
+        when={props.monitoringOff}
+        fallback={
+          <>
+            <header class="presence-strip__head">
+              <strong>Kit active / idle this week</strong>
+              <p>
+                Each block is one continuous presence segment. Width follows the calendar.
+                A hatched block is a gap whose length is not known — it is not a measured
+                duration. Ticks are in {props.timeZoneLabel}.
+              </p>
+            </header>
+            <Show
+              when={props.segments.length > 0}
+              fallback={<p class="presence-strip__empty">No presence samples for this week.</p>}
+            >
+              <div class="presence-strip__track" role="img" aria-label="Presence segments for the school week">
+                <For each={ids()}>
+                  {(id) => {
+                    const item = () => placed().find((row) => row.id === id);
+                    return (
+                      <Show when={item()}>
+                        {(row) => (
+                          <div
+                            class={`presence-seg presence-seg--${row().segment.state}`}
+                            style={{ left: `${row().left}%`, width: `${row().width}%` }}
+                            title={segmentTitle(row().segment)}
+                            data-state={row().segment.state}
+                          />
+                        )}
+                      </Show>
+                    );
+                  }}
+                </For>
+              </div>
+              <DayTicks />
+            </Show>
+            <ul class="presence-legend">
+              <li><i class="presence-seg presence-seg--on" /> Powered on</li>
+              <li><i class="presence-seg presence-seg--off" /> Powered off</li>
+              <li><i class="presence-seg presence-seg--gapUnknown" /> Gap, length unknown</li>
+              <li><i class="presence-seg presence-seg--collectorGap" /> Collector gap</li>
+            </ul>
+          </>
+        }
       >
-        <div class="presence-strip__track" role="img" aria-label="Presence segments for the school week">
-          <For each={ids()}>
-            {(id) => {
-              const item = () => placed().find((row) => row.id === id);
-              return (
-                <Show when={item()}>
-                  {(row) => (
-                    <div
-                      class={`presence-seg presence-seg--${row().segment.state}`}
-                      style={{ left: `${row().left}%`, width: `${row().width}%` }}
-                      title={segmentTitle(row().segment)}
-                      data-state={row().segment.state}
-                    />
-                  )}
-                </Show>
-              );
-            }}
-          </For>
+        <header class="presence-strip__head">
+          <strong>Kit active / idle this week</strong>
+          <p>Usage monitoring is switched off, so this week is not a measured presence record. Ticks are in {props.timeZoneLabel}.</p>
+        </header>
+        <div
+          class="presence-strip__track presence-strip__track--off"
+          role="img"
+          aria-label="Usage monitoring is switched off"
+          data-testid="monitoring-off-strip"
+        >
+          <span class="presence-strip__off-label">Monitoring off</span>
         </div>
-        <div class="presence-strip__days">
-          <For each={WEEKDAY}>
-            {(day) => <span>{day}</span>}
-          </For>
-        </div>
+        <DayTicks />
       </Show>
-      <ul class="presence-legend">
-        <li><i class="presence-seg presence-seg--on" /> Powered on</li>
-        <li><i class="presence-seg presence-seg--off" /> Powered off</li>
-        <li><i class="presence-seg presence-seg--gapUnknown" /> Gap, length unknown</li>
-        <li><i class="presence-seg presence-seg--collectorGap" /> Collector gap</li>
-      </ul>
       <p class="presence-strip__tz">Times shown in {props.timeZoneLabel} (offset {props.utcOffset}).</p>
-      <Show when={props.summary}>
+      <Show when={!props.monitoringOff && props.summary}>
         {(text) => (
           <p class="presence-strip__summary" data-testid="presence-summary">{text()}</p>
         )}

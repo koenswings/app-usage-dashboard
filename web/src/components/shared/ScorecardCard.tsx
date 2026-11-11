@@ -1,7 +1,7 @@
 import { For, Show, type JSX } from 'solid-js';
 
 export type ScorecardTone = 'onTrack' | 'needsHelp' | 'noData' | 'thresholdsNotSet';
-export type ScorecardPill = 'ok' | 'help' | 'noData' | 'thresholdsNotSet';
+export type ScorecardPill = 'ok' | 'help' | 'noData' | 'thresholdsNotSet' | 'monitoringOff';
 
 export interface ScorecardLineView {
   id: string;
@@ -29,6 +29,8 @@ export interface ScorecardCardProps {
   lastPulledLabel: string | null;
   stale: boolean;
   dataFromLabel: string | null;
+  /** When set, replaces the scorecard lines (and headlines) with one sentence. */
+  message?: string;
   href?: string;
   selected?: boolean;
 }
@@ -56,44 +58,57 @@ export function ScorecardCard(props: ScorecardCardProps) {
           {props.pillLabel}
         </span>
       </div>
-      <div class="scorecard-card__lines">
-        <For each={lineIds()}>
-          {(id) => {
-            const line = () => props.lines.find((item) => item.id === id);
-            return (
-              <Show when={line()}>
-                {(item) => (
-                  <div class="scorecard-line" data-line-id={item().id}>
-                    <span class="scorecard-line__label">
-                      <i class={`scorecard-line__icon scorecard-line__icon--${item().tone}`} aria-hidden="true" />
-                      {item().label}
-                    </span>
-                    <span class="scorecard-line__detail">{item().detail}</span>
-                    <span class="scorecard-line__word">{item().word}</span>
-                  </div>
-                )}
-              </Show>
-            );
-          }}
-        </For>
-      </div>
-      <div class="scorecard-card__stats">
-        <For each={headlineIds()}>
-          {(id) => {
-            const item = () => props.headlines.find((headline) => headline.id === id);
-            return (
-              <Show when={item()}>
-                {(headline) => (
-                  <div>
-                    <strong>{headline().value}</strong>
-                    {headline().label}
-                  </div>
-                )}
-              </Show>
-            );
-          }}
-        </For>
-      </div>
+      <Show
+        when={props.message}
+        fallback={
+          <>
+            <div class="scorecard-card__lines">
+              <For each={lineIds()}>
+                {(id) => {
+                  const line = () => props.lines.find((item) => item.id === id);
+                  return (
+                    <Show when={line()}>
+                      {(item) => (
+                        <div class="scorecard-line" data-line-id={item().id}>
+                          <span class="scorecard-line__label">
+                            <i class={`scorecard-line__icon scorecard-line__icon--${item().tone}`} aria-hidden="true" />
+                            {item().label}
+                          </span>
+                          <span class="scorecard-line__detail">{item().detail}</span>
+                          <span class="scorecard-line__word">{item().word}</span>
+                        </div>
+                      )}
+                    </Show>
+                  );
+                }}
+              </For>
+            </div>
+            <div class="scorecard-card__stats">
+              <For each={headlineIds()}>
+                {(id) => {
+                  const item = () => props.headlines.find((headline) => headline.id === id);
+                  return (
+                    <Show when={item()}>
+                      {(headline) => (
+                        <div>
+                          <strong>{headline().value}</strong>
+                          {headline().label}
+                        </div>
+                      )}
+                    </Show>
+                  );
+                }}
+              </For>
+            </div>
+          </>
+        }
+      >
+        {(message) => (
+          <p class="scorecard-card__message" data-testid="monitoring-off-message">
+            {message()}
+          </p>
+        )}
+      </Show>
       <div class="scorecard-card__meta">
         <span>Last pulled: {props.lastPulledLabel ?? 'Never pulled'}</span>
         <Show when={props.stale && props.dataFromLabel}>

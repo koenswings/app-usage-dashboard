@@ -284,6 +284,11 @@ export interface SchoolCard {
   /** Calendar date shown in "data from <date>" when stale; otherwise null. */
   dataFrom: IsoDate | null;
   hasUsageData: boolean;
+  /**
+   * Optional on the overview card. When omitted the UI joins
+   * `/api/v1/kits` by deploymentId. School-week responses always send it.
+   */
+  monitoringEnabled?: boolean;
   scorecard: ScorecardInputs;
   headlines: SchoolHeadlines;
 }

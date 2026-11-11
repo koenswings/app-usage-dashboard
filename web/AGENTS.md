@@ -30,7 +30,7 @@ QC before a PR: `pnpm install`, `pnpm typecheck`, `pnpm test`, `pnpm build`, and
 - Threshold comparison lives only in `src/config/thresholds.ts`. Until Koen sets cut-offs (idea#375) show “Thresholds not set”; never invent grades. “No data” is never the word “Grey”
 - Read-only `GET /api/v1/...` except `POST` help-events (and the session login/logout). No direct SQLite
 - Banner and help wording always say “offer help”, never “retract”
-- Presence states: `on`, `off`, `gapUnknown`, `collectorGap`. The last two are hatched grey with their own words, never drawn as the kit going dark
+- Presence states: `on`, `off`, `gapUnknown`, `collectorGap`. The last two are hatched grey with their own words, never drawn as the kit going dark. A kit with `monitoringEnabled: false` is a first-class **Monitoring off** state (pill, banner, muted strip), never "No data", stale, or a hatched unknown/collector gap
 - Display defaults (`staleAfterHours`, `hourlyChartMinWeeklyViews`) live in `src/config/display.ts` and yield to `/api/v1/meta`
 
 ## Layout
