@@ -8,12 +8,13 @@ import socket
 import sys
 import threading
 import time
-from datetime import date, timedelta
+from datetime import date, timedelta, timezone
 from typing import Any
 
 from . import auth
 from . import db
 from . import identity as identitymod
+from . import presence as presence_mod
 from .api import serve
 from .pull import handle_pull, record_uplink
 
@@ -23,6 +24,10 @@ DEFAULT_TS_SOCKET = "/var/run/tailscale/tailscaled.sock"
 # Only request a sidecar restart after this long continuously un-Running / unreachable.
 DEFAULT_RESTART_AFTER_S = 600
 DEFAULT_RESTART_MIN_INTERVAL_S = 600
+# On startup, a last presence/uplink sample older than this is a whole-hub
+# outage the collector could not record while it was down (idea#414 / #445).
+DEFAULT_COLLECTOR_OFFLINE_AFTER_S = 600
+GAP_COLLECTOR_OFFLINE = "collector-offline"
 LOCALAPI_HOST = "local-tailscaled.sock"
 
 
@@ -116,6 +121,84 @@ def close_collector_gap(conn) -> None:
         (db.now_rfc3339(),),
     )
     conn.commit()
+
+
+def latest_sample_time(conn):
+    """Latest timestamp across the sample tables used for presence and uplink.
+
+    Returns a timezone-aware datetime, or None when the store has no samples
+    (a fresh or empty DB).
+    """
+    times = []
+    for sql in (
+        "SELECT MAX(ts) FROM presence_samples",
+        "SELECT MAX(timestamp) FROM uplink_samples",
+    ):
+        row = conn.execute(sql).fetchone()
+        if row and row[0]:
+            times.append(presence_mod.parse_ts(row[0]))
+    return max(times) if times else None
+
+
+def record_startup_outage_gap(conn, now=None, threshold_s: int | None = None) -> str | None:
+    """If the last sample is older than the gap threshold, record a closed gap.
+
+    The gap runs from that last sample to ``now`` with reason
+    ``collector-offline``. Idempotent: does nothing on a fresh empty DB, when
+    the last sample is still recent, when a gap is already open (the open
+    start is backdated if it is later than the last sample), or when an
+    existing row already overlaps the interval (a quick second restart).
+    Returns the reason when a new row is inserted, else None.
+    """
+    if threshold_s is None:
+        threshold_s = env_int("COLLECTOR_OFFLINE_AFTER_S", DEFAULT_COLLECTOR_OFFLINE_AFTER_S)
+    if now is None:
+        now_dt = presence_mod.parse_ts(db.now_rfc3339())
+    elif isinstance(now, str):
+        now_dt = presence_mod.parse_ts(now)
+    else:
+        now_dt = now
+        if now_dt.tzinfo is None:
+            now_dt = now_dt.replace(tzinfo=timezone.utc)
+    last = latest_sample_time(conn)
+    if last is None:
+        return None
+    if (now_dt - last).total_seconds() < threshold_s:
+        return None
+    start_s = presence_mod.rfc3339(last)
+    end_s = presence_mod.rfc3339(now_dt)
+
+    open_row = conn.execute(
+        "SELECT id, start FROM collector_gaps WHERE end IS NULL ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    if open_row:
+        open_start = presence_mod.parse_ts(open_row["start"])
+        if open_start > last:
+            conn.execute(
+                "UPDATE collector_gaps SET start = ? WHERE id = ?",
+                (start_s, open_row["id"]),
+            )
+            conn.commit()
+        return None
+
+    for row in conn.execute("SELECT start, end FROM collector_gaps"):
+        g0 = presence_mod.parse_ts(row["start"])
+        g1 = presence_mod.parse_ts(row["end"]) if row["end"] else now_dt
+        if g0 < now_dt and g1 > last:
+            return None
+
+    conn.execute(
+        "INSERT INTO collector_gaps(start, end, reason) VALUES (?, ?, ?)",
+        (start_s, end_s, GAP_COLLECTOR_OFFLINE),
+    )
+    conn.commit()
+    print(
+        "collector: recorded startup outage gap from %s to %s (%s)"
+        % (start_s, end_s, GAP_COLLECTOR_OFFLINE),
+        file=sys.stderr,
+        flush=True,
+    )
+    return GAP_COLLECTOR_OFFLINE
 
 
 def backend_state(status: dict[str, Any] | None) -> str:
@@ -355,6 +438,9 @@ def main() -> int:
     db_path = os.path.join(data_dir, "usage.sqlite")
     conn = db.connect(db_path)
     db.load_registry(conn, os.environ.get("REGISTRY_PATH") or os.path.join(data_dir, "registry.json"))
+    # Whole-hub outages (collector was down) must show as a collectorGap.
+    # The watchdog can only open a gap while the process is running.
+    record_startup_outage_gap(conn)
     bind = os.environ.get("COLLECTOR_BIND") or "0.0.0.0:8080"
     server = serve(conn, bind)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
