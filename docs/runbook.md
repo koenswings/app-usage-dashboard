@@ -157,6 +157,7 @@ script/join-idea-hub-once.sh verify --state-dir /instances/<instance-id>/data/ta
 |---|---|---|
 | `./data/keys/pull_key` | usage-pull private key, mode 0600 | idea's encrypted Borg only (`x-app.backup.exclude: keys`) |
 | `./data/tailscale/` | sidecar Tailscale state | idea's encrypted Borg only (`exclude: tailscale`) |
+| `./data/tailscale-run/` | LocalAPI unix-socket dir (not the node key) | excluded from a normal Engine backup (`exclude: tailscale-run`); runtime only |
 | instance `.env` `TS_AUTHKEY` | optional first-time auth key; leave empty when moving existing idea-hub state | Engine instance env (not this repo) |
 | `./data/operators.json` | salted PBKDF2 hashes for `koen` and `marco` (mode 0640) | instance data (hashes only) |
 | `IDEA_USAGE_KOEN_PASSWORD` | first-run seed for Koen's login (compose default `koen911!`) | instance env |
