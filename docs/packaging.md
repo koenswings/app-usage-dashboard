@@ -10,10 +10,11 @@ directory.
 unless the image is already present locally or a tar is waiting on the disk.
 The idea03 re-walk worked by building the image on the Pi and saving
 `/services/usage-dashboard-web:1.0.tar` so Engine's existing-tar path accepted
-it. Publishing to `ghcr.io` needs Koen's yes ([idea#375](https://github.com/koenswings/idea/issues/375) U-10).
+it. Publishing to `ghcr.io` was approved on 11 Nov 2026 (idea#375 U-10).
 
-This document covers the two paths prepared while U-10 is pending, and how
-`GET /api/v1/health` reports the git commit without an instance `.env` hack.
+This document covers the ghcr publish path, the tar-in-bundle fallback
+kept for offline installs, and how `GET /api/v1/health` reports the git
+commit without an instance `.env` hack.
 
 ## How `/health` gets `commit`
 
@@ -59,59 +60,92 @@ The web image also accepts `--build-arg COMMIT=<full sha>` and writes
 `/etc/idea-usage/build-info.json` inside the nginx image. That identifies
 the published web image; the collector does not read it.
 
-## Pending U-10: publish to ghcr
+## Publish to ghcr (U-10 approved)
 
-`script/publish-web-image.sh` builds `linux/arm64` with buildx:
+Koen approved publishing on 11 Nov 2026 (Europe/Brussels). The image
+is `ghcr.io/koenswings/usage-dashboard-web`. The package must be
+**public** so idea can `docker pull` it without credentials.
+
+`script/publish-web-image.sh` builds `linux/arm64` with buildx and
+tags both:
 
 ```
+ghcr.io/koenswings/usage-dashboard-web:<x-app.version>
 ghcr.io/koenswings/usage-dashboard-web:<x-app.version>-<shortsha>
 ```
 
-`<shortsha>` is `git rev-parse --short=12 HEAD`. The tag shape follows
+`<shortsha>` is `git rev-parse --short=12 HEAD`. Compose pins the
+stable `:1.0` tag by digest. The `:1.0-<shortsha>` tag is a
+per-commit alias so two builds of App version 1.0 stay
+distinguishable. The tag shape follows
 [app-kolibri-channel-builder](https://github.com/koenswings/app-kolibri-channel-builder)
-(`ghcr.io/koenswings/<image>:<version>`) with a per-commit suffix so two
-builds of App version 1.0 do not collide.
+(`ghcr.io/koenswings/<image>:<version>`).
 
-The script passes `--build-arg COMMIT=<full sha>` and prints `digest:` plus
-a ready-to-paste `pin:` line. It pushes **only** when invoked with an
-explicit `--push`. Do not run `--push` until U-10 is approved.
+The script passes `--build-arg COMMIT=<full sha>` and prints `digest:`
+plus a ready-to-paste `pin:` line. It pushes **only** when invoked
+with an explicit `--push`.
 
-After a successful publish (and not before):
+Pushing requires a GitHub token with `write:packages` and
+`read:packages`, and a `docker login ghcr.io` on the host that runs
+`--push`. Refresh an existing `gh` login with:
 
-1. Confirm the image is arm64:
+```sh
+gh auth refresh -s write:packages,read:packages
+```
+
+Then log docker into ghcr.io with that token (do not scrape a token
+from an agent session). After a successful publish:
+
+1. Make the package public (the first push creates it private):
+
+   ```sh
+   gh api --method PATCH -H "Accept: application/vnd.github+json" \
+     /user/packages/container/usage-dashboard-web \
+     -f visibility=public
+   ```
+
+   If that 404s, use
+   `/users/koenswings/packages/container/usage-dashboard-web`
+   instead.
+
+2. Confirm an anonymous inspect sees `linux` / `arm64`:
 
    ```sh
    docker manifest inspect \
-     "ghcr.io/koenswings/usage-dashboard-web:1.0-$(git rev-parse --short=12 HEAD)"
+     ghcr.io/koenswings/usage-dashboard-web:1.0
    ```
 
-   The response must list `linux` / `arm64` (a single-platform arm64
-   manifest or an index that includes that platform). The digest must match
-   the script's `digest:` line.
+   Run this from a host (or a `DOCKER_CONFIG` directory) that has no
+   ghcr credentials, so the check is actually anonymous. The digest
+   must match the script's `digest:` line.
 
-2. Edit the `web:` service in `compose.yaml` as shown in
-   `compose.web-ghcr.example.yaml`: set
+3. Pin `compose.yaml` with `script/pin-web-digest.sh`. That inspects
+   the published `:1.0` tag (`docker buildx imagetools inspect`,
+   falling back to `docker manifest inspect`), verifies `linux/arm64`,
+   and sets
 
    ```yaml
-   image: ghcr.io/koenswings/usage-dashboard-web:1.0-<shortsha>@sha256:<digest>
+   image: ghcr.io/koenswings/usage-dashboard-web:1.0@sha256:<digest>
    ```
 
-   and drop `build:` and `pull_policy: never`. Use `repo:tag@sha256:digest`,
-   not `repo@sha256:digest`. Engine idea#322 `saveName()` rejects a
-   digest-only pin so `docker image load` keeps a named tag.
+   dropping `build:` and `pull_policy: never` from `web`. Use
+   `repo:tag@sha256:digest`, not `repo@sha256:digest`. Engine idea#322
+   `saveName()` rejects a digest-only pin so `docker image load` keeps
+   a named tag.
 
-3. `script/check-compose.mjs --release compose.yaml` must pass. It fails
+4. `script/check-compose.mjs --release compose.yaml` must pass. It fails
    while `DIGEST_PLACEHOLDER`, `SHORTSHA`, or `<DIGEST>` remains, if `web`
    still has a `build:` block, or if the image is not the digest-pinned
-   ghcr form above.
+   ghcr form `ghcr.io/koenswings/usage-dashboard-web:1.0@sha256:<64 hex>`
+   (a `:1.0-<shortsha>@sha256:…` pin is also accepted).
 
-Until that edit lands, `compose.yaml` keeps the local `build:` path so a
-developer (or a tar-in-bundle fallback) can still produce
+Until the digest is filled in, `compose.yaml` keeps the local `build:`
+path so a developer (or the tar-in-bundle fallback) can still produce
 `usage-dashboard-web:1.0`.
 
 ## Fallback: ship a docker-save tar on the App Disk
 
-If Koen says no to ghcr, ship the image as a tar next to the App bundle.
+For an offline App Disk, or if ghcr is unreachable, ship the image as a tar next to the App bundle.
 Engine's existing-tar path looks for
 
 ```
@@ -176,8 +210,8 @@ tar.
 - GitHub `installApp` without the tar still hits `docker pull
   usage-dashboard-web:1.0` and fails.
 
-Prefer the ghcr digest-pin once U-10 is approved. Keep this fallback
-documented in case Koen says no.
+Prefer the ghcr digest-pin once the image is published and compose.yaml is pinned. Keep this fallback for offline App Disks
+and for a GitHub `installApp` that cannot reach ghcr.
 
 ## Tar-fallback e2e test (pool Pi)
 

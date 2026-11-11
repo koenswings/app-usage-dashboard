@@ -6,7 +6,8 @@
 //
 // --release (idea#375 U-10): also require the web service to use a
 // digest-pinned ghcr image
-//   ghcr.io/koenswings/usage-dashboard-web:<version>-<shortsha>@sha256:<64 hex>
+//   ghcr.io/koenswings/usage-dashboard-web:<version>@sha256:<64 hex>
+//   (a :<version>-<shortsha>@sha256:<64 hex> pin is also accepted)
 // with no build: block. Fails if a packaging placeholder
 // (DIGEST_PLACEHOLDER, SHORTSHA, <DIGEST>) is still present.
 //
@@ -16,7 +17,7 @@
 import { readFileSync } from 'node:fs';
 
 const PLACEHOLDER_RE = /DIGEST_PLACEHOLDER|<DIGEST>|SHORTSHA|REPLACE_ME_WITH_PUBLISHED_DIGEST/i;
-const GHCR_PIN_RE = /^ghcr\.io\/koenswings\/usage-dashboard-web:\d+\.\d+[0-9A-Za-z._+-]*-[0-9a-f]{7,40}@sha256:[0-9a-f]{64}$/;
+const GHCR_PIN_RE = /^ghcr\.io\/koenswings\/usage-dashboard-web:\d+\.\d+[0-9A-Za-z._+-]*@sha256:[0-9a-f]{64}$/;
 
 const stripQuotes = (value) => String(value).trim().replace(/^['"]|['"]$/g, '');
 
@@ -117,7 +118,7 @@ export function checkCompose(text, { tag, release } = {}) {
       errs.push('release web service has no image:');
     } else if (!GHCR_PIN_RE.test(image)) {
       errs.push(
-        `release web image must be ghcr.io/koenswings/usage-dashboard-web:<version>-<shortsha>@sha256:<64-hex> (idea#322 tag+digest), got '${image}'`
+        `release web image must be ghcr.io/koenswings/usage-dashboard-web:<version>@sha256:<64-hex> (idea#322 tag+digest; optional -<shortsha> suffix is accepted), got '${image}'`
       );
     }
     if (webHasBuild(text)) {

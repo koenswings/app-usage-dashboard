@@ -1,30 +1,31 @@
-# VARIANT: replace the `web:` service in compose.yaml after idea#375 U-10
-# allows publishing to ghcr. Do not ship this file until both tokens below
-# are replaced with values printed by script/publish-web-image.sh:
+# VARIANT: replace the `web:` service in compose.yaml after the image is
+# published to ghcr (idea#375 U-10, approved 11 Nov 2026). Do not ship this
+# file until DIGEST_PLACEHOLDER is replaced. Prefer script/pin-web-digest.sh,
+# which inspects the published :1.0 tag and writes compose.yaml directly.
 #
-#   SHORTSHA              12-char git short SHA (git rev-parse --short=12 HEAD)
-#   DIGEST_PLACEHOLDER    sha256 hex from the script's "digest:" line
+#   DIGEST_PLACEHOLDER    sha256 hex from publish-web-image.sh "digest:"
+#                         or inspect of ghcr.io/koenswings/usage-dashboard-web:1.0
 #
 # image uses repo:tag@sha256:digest because Engine idea#322 saveName()
 # rejects a digest-only pin (no tag): the saved image must keep a name
 # after `docker image load`. A line such as
 #   image: ghcr.io/koenswings/usage-dashboard-web@sha256:<DIGEST>
-# would throw. Convention follows app-kolibri-channel-builder
-# (ghcr.io/koenswings/<image>:<version>) with a per-commit suffix
-# <x-app.version>-<shortsha>.
+# would throw. Compose pins the stable :1.0 tag (the per-commit
+# :1.0-<shortsha> tag is also pushed, but is not the compose pin).
 #
 # Drop `build:` and `pull_policy: never` as shown. Other services keep
 # `pull_policy: never` (they are official digest-pinned images loaded
 # from App Disk tars). For an offline App Disk start, web can take
-# `pull_policy: never` again once services/ghcr.io_koenswings_usage-dashboard-web:<tag>.tar
-# is present (Engine existing-tar path; see docs/packaging.md).
+# `pull_policy: never` again once the matching services/ tar is present
+# (Engine existing-tar path; see docs/packaging.md). The tar fallback is
+# kept for offline installs.
 #
-# script/check-compose.mjs --release fails while DIGEST_PLACEHOLDER or
-# SHORTSHA remains.
+# script/check-compose.mjs --release fails while DIGEST_PLACEHOLDER,
+# SHORTSHA, or <DIGEST> remains.
 
 services:
   web:
-    image: ghcr.io/koenswings/usage-dashboard-web:1.0-SHORTSHA@sha256:DIGEST_PLACEHOLDER
+    image: ghcr.io/koenswings/usage-dashboard-web:1.0@sha256:DIGEST_PLACEHOLDER
     labels:
       x-app-version: "1.0"
     restart: unless-stopped

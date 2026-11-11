@@ -10,18 +10,25 @@ The web image is a multi-stage build (`web/Dockerfile`): a digest-pinned `node:2
 
 `location /` keeps the SPA fallback (`try_files $uri /index.html`). Missing files under `/assets/` return 404 (`location /assets/ { try_files $uri =404; }`) so a stale hashed bundle URL is not served as the app shell. There is no nginx-config test harness that runs nginx; `tests/test_packaging.py` checks these directives in `web/nginx.conf`.
 
-## Packaging (pending U-10)
+## Packaging (U-10 approved)
 
-The web image is build-only (`usage-dashboard-web:1.0`). Engine `installApp` runs `docker pull` on every compose image and fails unless a matching tar already exists under the disk's `services/` directory, or the image is published and digest-pinned. Publishing to ghcr waits on [idea#375](https://github.com/koenswings/idea/issues/375) U-10. Details, the tar-in-bundle fallback (measured 25,836,544 bytes / 24.6 MiB), and how `/health` gets `commit` without an instance `.env` hack are in `docs/packaging.md`.
+The web image is published to `ghcr.io/koenswings/usage-dashboard-web` as
+a public package, pinned in compose as
+`ghcr.io/koenswings/usage-dashboard-web:1.0@sha256:<digest>`. Engine
+`installApp` runs `docker pull` on every compose image; the public
+digest-pin is what lets idea pull without credentials. The tar-in-bundle
+fallback (measured 25,836,544 bytes / 24.6 MiB) is kept for offline App
+Disks. How `/health` gets `commit` without an instance `.env` hack is in
+`docs/packaging.md`.
 
-After U-10 is approved, build and (only then) push with `script/publish-web-image.sh --push`. Verify the published tag is arm64:
-
-```sh
-docker manifest inspect \
-  "ghcr.io/koenswings/usage-dashboard-web:1.0-$(git rev-parse --short=12 HEAD)"
-```
-
-The inspect output must list platform `linux` / `arm64`, and the digest must match the script's `digest:` line. Then replace the `web:` service as shown in `compose.web-ghcr.example.yaml` (`repo:tag@sha256:digest`, no `build:` block) and run `script/check-compose.mjs --release compose.yaml`. Do not push an image until Koen says yes.
+Build (and only with `--push`, publish) with `script/publish-web-image.sh`.
+That tags both `:1.0` and `:1.0-<shortsha>`. After a push, make the
+package public, confirm an anonymous `docker manifest inspect` of
+`ghcr.io/koenswings/usage-dashboard-web:1.0` lists `linux` / `arm64`,
+then run `script/pin-web-digest.sh` and
+`script/check-compose.mjs --release compose.yaml`.
+`compose.web-ghcr.example.yaml` shows the intended `web:` service
+(`repo:tag@sha256:digest`, no `build:` block).
 
 The tar-fallback e2e test (`script/e2e-tar-fallback.sh`) and the host-side
 export ingest (`script/ingest-usage-export.py`) are documented in

@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 # publish-web-image.sh — build (and only with --push, publish) the arm64 web image.
 #
-# Tag convention follows app-kolibri-channel-builder
-# (ghcr.io/koenswings/<image>:<version>) with a per-commit suffix:
+# Tags:
+#   ghcr.io/koenswings/usage-dashboard-web:<x-app.version>
 #   ghcr.io/koenswings/usage-dashboard-web:<x-app.version>-<shortsha>
-# shortsha is `git rev-parse --short=12 HEAD`.
+# Compose pins the :1.0 (version) tag by digest. The per-commit suffix
+# (shortsha = `git rev-parse --short=12 HEAD`) keeps two builds of the
+# same App version distinguishable. Follows app-kolibri-channel-builder
+# (ghcr.io/koenswings/<image>:<version>).
 #
 # Usage:
 #   script/publish-web-image.sh           # build linux/arm64, do not push, print digest
@@ -39,9 +42,11 @@ VERSION=$(awk '/^x-app:/{x=1;next} x&&/^[^ #]/{x=0} x&&/^  version:/{
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "not a git checkout"
 COMMIT=$(git rev-parse HEAD)
 SHORT=$(git rev-parse --short=12 HEAD)
-IMAGE="ghcr.io/koenswings/usage-dashboard-web:${VERSION}-${SHORT}"
+IMAGE="ghcr.io/koenswings/usage-dashboard-web:${VERSION}"
+IMAGE_SHA="ghcr.io/koenswings/usage-dashboard-web:${VERSION}-${SHORT}"
 
 echo "image:  $IMAGE"
+echo "sha:    $IMAGE_SHA"
 echo "COMMIT: $COMMIT"
 echo "push:   $PUSH"
 
@@ -61,10 +66,11 @@ BUILD_ARGS=(
   --build-arg "PNPM_VERSION=9.15.9"
   --build-arg "USAGE_DASHBOARD_VERSION=$VERSION"
   --tag "$IMAGE"
+  --tag "$IMAGE_SHA"
   --metadata-file "$META"
 )
 if [ "$PUSH" = 1 ]; then
-  echo "pushing $IMAGE to ghcr.io (explicit --push)"
+  echo "pushing $IMAGE and $IMAGE_SHA to ghcr.io (explicit --push)"
   BUILD_ARGS+=(--push)
 else
   echo "building without --push (image stays local / in buildx cache)"
