@@ -70,7 +70,11 @@ target `/var/lib/tailscale` (`./data/tailscale` on the host),
 `TS_AUTH_ONCE=true` so containerboot does not force `tailscale up` on every
 start, and `TS_KUBE_SECRET` empty. `collector/sidecar-wrap.sh` refuses to
 start if `./data/tailscale` has no persisted node key unless `TS_AUTHKEY`
-is set.
+is set. Production `tailscaled.state` files base64-encode each persist
+profile, so `PrivateNodeKey` is often not visible in plaintext; the wrapper
+decodes those blobs when `python3` is available and otherwise treats a
+state file of 200 bytes or more as persisted (a machinekey-only start is
+typically under 200 bytes).
 
 When moving existing state, leave `TS_AUTHKEY` empty and do not open a
 login URL. After the sidecar is Running, confirm the on-disk nodekey still

@@ -24,9 +24,50 @@ fi
 
 state_has_nodekey() {
   dir=$1
-  [ -f "$dir/tailscaled.state" ] || return 1
+  f="$dir/tailscaled.state"
+  [ -f "$f" ] || return 1
   # Match the field name only; do not print file contents (they include private keys).
-  grep -q 'PrivateNodeKey' "$dir/tailscaled.state"
+  grep -q 'PrivateNodeKey' "$f" && return 0
+  # Production tailscaled.state base64-encodes each profile, so the field
+  # name is not visible in plaintext.
+  if command -v python3 >/dev/null 2>&1; then
+    if python3 -c '
+import base64, json, sys
+try:
+    data = json.load(open(sys.argv[1]))
+except Exception:
+    sys.exit(1)
+
+def walk(obj):
+    if isinstance(obj, dict):
+        if "PrivateNodeKey" in obj:
+            return True
+        return any(walk(v) for v in obj.values())
+    if isinstance(obj, list):
+        return any(walk(i) for i in obj)
+    if isinstance(obj, str) and obj:
+        try:
+            raw = base64.b64decode(obj)
+        except Exception:
+            return False
+        if b"PrivateNodeKey" in raw:
+            return True
+        try:
+            return walk(json.loads(raw.decode("utf-8", "replace")))
+        except Exception:
+            return False
+    return False
+
+sys.exit(0 if walk(data) else 1)
+' "$f"; then
+      return 0
+    fi
+    return 1
+  fi
+  # Fallback in the tailscale image (no python): a persist profile is
+  # much larger than a machinekey-only start (typically under 200 bytes).
+  size=$(wc -c < "$f" | tr -d '[:space:]')
+  [ -n "$size" ] && [ "$size" -ge 200 ]
 }
 
 join_blocked() {

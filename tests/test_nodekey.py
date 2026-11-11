@@ -141,6 +141,62 @@ class SidecarWrapGuardTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_allows_encoded_persist_profile_without_plaintext_field(self):
+        priv, _pub = _keypair()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _state_file(root, priv)
+            text = (root / "tailscaled.state").read_text()
+            self.assertNotIn("PrivateNodeKey", text)
+            env = os.environ.copy()
+            env.pop("TS_AUTHKEY", None)
+            result = subprocess.run(
+                ["sh", str(WRAP), "--check-state", tmp],
+                capture_output=True,
+                text=True,
+                env=env,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotIn(priv.hex(), result.stdout + result.stderr)
+            self.assertNotIn("tskey-", result.stdout + result.stderr)
+
+    def test_refuses_small_state_without_nodekey(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "tailscaled.state").write_text('{"_machinekey": "' + ("ab" * 40) + '"}')
+            env = os.environ.copy()
+            env.pop("TS_AUTHKEY", None)
+            result = subprocess.run(
+                ["sh", str(WRAP), "--check-state", tmp],
+                capture_output=True,
+                text=True,
+                env=env,
+            )
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("refusing to start", result.stderr)
+            self.assertLess((Path(tmp) / "tailscaled.state").stat().st_size, 200)
+
+    def test_size_fallback_allows_large_state_without_python(self):
+        import shutil
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "tailscaled.state").write_bytes(b"n" * 250)
+            bindir = root / "bin"
+            bindir.mkdir()
+            for name in ("grep", "wc", "tr"):
+                src = shutil.which(name)
+                self.assertIsNotNone(src, name)
+                os.symlink(src, bindir / name)
+            env = os.environ.copy()
+            env.pop("TS_AUTHKEY", None)
+            env["PATH"] = str(bindir)
+            result = subprocess.run(
+                ["/bin/sh", str(WRAP), "--check-state", tmp],
+                capture_output=True,
+                text=True,
+                env=env,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_refuses_keyed_start_when_marker_present(self):
         fake = FAKE_AUTHKEY
         with tempfile.TemporaryDirectory() as tmp:
