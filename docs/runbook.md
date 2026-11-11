@@ -57,6 +57,14 @@ given copy owns the live node key; any leftover copy then goes stale
 exist. Do not run a standalone `idea-hub-sidecar` at the same time as this
 App's sidecar: the standalone sidecar is retired.
 
+Never start an older copy of the state after this App's sidecar has run:
+it re-registers a stale node key and the tailnet then marks idea-hub
+Expired (this happened on 2026-11-11). Removing or stopping the App only
+stops its containers and keeps `./data/tailscale` in place; never run
+`tailscale logout` or `tailscale down` on teardown. Install the App with
+the moved state already in `./data/tailscale`, so the sidecar never starts
+empty (an empty start asks for a new login).
+
 When moving existing state, leave `TS_AUTHKEY` empty and do not open a
 login URL. If sidecar state is lost, Koen re-registers the node and sets
 its previous 100.x IPv4 in the Tailscale admin console so the kits'
