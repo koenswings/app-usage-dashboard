@@ -1,6 +1,7 @@
 import { For, Show, createSignal } from 'solid-js';
 import { ApiError } from '../api/client';
 import type { ScorecardThresholds, ThresholdsSettingsResponse } from '../api/types';
+import { formatLocalDateTime } from '../lib/format';
 import { FleetNav } from '../components/SchoolNav';
 import {
   SETUP_RULE_MEANING,
@@ -253,7 +254,7 @@ export function SettingsPage(props: SettingsPageProps) {
           <Show when={props.updatedAt || props.updatedBy}>
             <p class="muted" data-testid="settings-updated">
               Last changed
-              <Show when={props.updatedAt}>{(stamp) => ` at ${stamp()}`}</Show>
+              <Show when={props.updatedAt}>{(stamp) => ` at ${formatLocalDateTime(stamp())}`}</Show>
               <Show when={props.updatedBy}>{(name) => ` by ${name()}`}</Show>
               .
             </p>
