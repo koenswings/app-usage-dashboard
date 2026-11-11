@@ -1,6 +1,9 @@
 #!/bin/sh
 # Watchdog-friendly wrapper around Tailscale containerboot.
-# The collector writes $TS_STATE_DIR/restart-requested when Self.Online is false.
+# The collector writes $TS_SOCKET's directory/restart-requested (the shared
+# socket dir, never the state dir) when LocalAPI is unreachable or
+# BackendState has been non-Running for SIDECAR_RESTART_AFTER_S.
+# NeedsLogin / logged out must never trigger a restart or a join.
 #
 # A keyed join (TS_AUTHKEY set, no persisted node key) runs exactly once.
 # If that attempt fails or does not reach Running (authorized) before
@@ -12,6 +15,11 @@
 set -eu
 STATE=${TS_STATE_DIR:-/var/lib/tailscale}
 BOOT=${TS_CONTAINERBOOT:-/usr/local/bin/containerboot}
+SOCKET=${TS_SOCKET:-/var/run/tailscale/tailscaled.sock}
+# ${SOCKET%/*} is a POSIX builtin; do not call dirname (some tests strip PATH).
+SOCKET_DIR=${TS_SOCKET_DIR:-${SOCKET%/*}}
+[ -n "$SOCKET_DIR" ] || SOCKET_DIR=.
+RESTART_FLAG=${TS_RESTART_FLAG:-$SOCKET_DIR/restart-requested}
 JOIN_TIMEOUT=${TS_JOIN_TIMEOUT:-90}
 MARKER_NAME=authkey-join-blocked
 
@@ -114,9 +122,9 @@ is_running_authorized() {
   # join timeout. Tests may set TS_TAILSCALE to a fake binary.
   ts=${TS_TAILSCALE:-tailscale}
   if command -v timeout >/dev/null 2>&1; then
-    status=$(timeout 2 "$ts" --socket=/tmp/tailscaled.sock status --json 2>/dev/null) || return 1
+    status=$(timeout 2 "$ts" --socket="$SOCKET" status --json 2>/dev/null) || return 1
   else
-    status=$("$ts" --socket=/tmp/tailscaled.sock status --json 2>/dev/null) || return 1
+    status=$("$ts" --socket="$SOCKET" status --json 2>/dev/null) || return 1
   fi
   printf '%s' "$status" | grep -Eq '"BackendState":[[:space:]]*"Running"' || return 1
   if printf '%s' "$status" | grep -Eq '"Online":[[:space:]]*true'; then
@@ -129,7 +137,10 @@ is_running_authorized() {
 watch_boot() {
   pid=$1
   while kill -0 "$pid" 2>/dev/null; do
-    if [ -f "$STATE/restart-requested" ]; then
+    if [ -S "$SOCKET" ]; then
+      chmod 0660 "$SOCKET" 2>/dev/null || true
+    fi
+    if [ -f "$RESTART_FLAG" ]; then
       echo "sidecar-wrap: restart requested by collector watchdog" >&2
       kill "$pid" 2>/dev/null || true
       wait "$pid" 2>/dev/null || true
@@ -182,6 +193,14 @@ if [ "${1:-}" = "--check-state" ]; then
 fi
 
 mkdir -p "$STATE"
+# The socket dir is bind-mounted in compose; do not fail the wrapper if the
+# default path cannot be created (unit tests set TS_STATE_DIR only).
+mkdir -p "$SOCKET_DIR" 2>/dev/null || true
+chmod 0755 "$SOCKET_DIR" 2>/dev/null || true
+# Pre-fix collectors wrote this into the state dir. Ignore and remove it; the
+# live flag lives next to the socket, not next to the node key.
+rm -f "$STATE/restart-requested"
+
 if ! allow_start; then
   refuse_message
   if ! join_blocked; then
@@ -210,7 +229,7 @@ if [ -n "${TS_AUTHKEY:-}" ] && ! state_has_nodekey "$STATE"; then
 fi
 
 while true; do
-  rm -f "$STATE/restart-requested"
+  rm -f "$RESTART_FLAG"
   "$BOOT" &
   pid=$!
   watch_boot "$pid"
