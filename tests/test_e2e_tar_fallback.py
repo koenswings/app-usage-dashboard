@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import stat
 import subprocess
 import tempfile
@@ -21,6 +22,16 @@ def _command_lines(text: str):
             continue
         out.append(stripped)
     return out
+
+
+def _function_body(text: str, name: str) -> str:
+    """Body of a top-level `name() { ... }` function, up to the next one."""
+    match = re.search(r"^" + re.escape(name) + r"\(\) \{", text, re.M)
+    if not match:
+        raise AssertionError("missing function %s" % name)
+    rest = text[match.end():]
+    nxt = re.search(r"^[a-zA-Z_][a-zA-Z0-9_]*\(\) \{", rest, re.M)
+    return rest[: nxt.start()] if nxt else rest
 
 
 class E2eTarFallbackTests(unittest.TestCase):
@@ -110,6 +121,27 @@ class E2eTarFallbackTests(unittest.TestCase):
             self.assertIn("--fresh", commands)
             self.assertIn("--keep", commands)
             self.assertIn("since 2026-10-01", commands)
+
+
+    def test_ingest_handles_root_owned_registry(self):
+        """Host-side ingest must sudo (or match ownership) for root-owned ./data."""
+        ensure = _function_body(self.text, "ensure_registry")
+        install = _function_body(self.text, "install_into_instance_data")
+        run_ingest = _function_body(self.text, "run_ingest_python")
+        ingest = _function_body(self.text, "ingest_stream")
+        self.assertIn("sudo -n", install)
+        self.assertIn("sudo -n", run_ingest)
+        self.assertIn("registry.json", ensure)
+        self.assertIn("install_into_instance_data", ensure)
+        self.assertIn("sudo -n cat", ensure)
+        self.assertIn("run_ingest_python", ingest)
+        self.assertIn("root-owned", self.text)
+        # Direct writes of registry.json / ingest without the sudo fallback
+        # must not be the only path: both helpers fall back to sudo -n when
+        # the dest is not writable.
+        self.assertIn('sudo -n cp "$src" "$dest"', install)
+        self.assertIn("sudo -n python3", run_ingest)
+
 
     def test_ingest_helper_stores_export_stream(self):
         stream = """{"type":"presence","schema":"idea-usage-presence/1","day":"2026-10-28","payload":{"ts":"2026-10-28T09:00:00+01:00","day":"2026-10-28","bootId":"b","uptimeS":10,"ntpSynced":true}}

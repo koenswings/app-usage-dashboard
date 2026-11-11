@@ -683,10 +683,55 @@ on_exit() {
 
 # --- history ingest (host-side, no pull key) ------------------------------
 
+# The collector container writes ./data as root, so registry.json and
+# usage.sqlite are often root-owned. Host-side ingest as pi has to copy or
+# run via sudo (or matching ownership) rather than opening those paths
+# directly. Never print credentials. sudo -n so a missing NOPASSWD fails
+# immediately instead of hanging on a prompt.
+
+install_into_instance_data() {
+  local src="$1" dest="$2"
+  local dir
+  dir=$(dirname "$dest")
+  if [ -e "$dest" ] && [ -w "$dest" ] && [ -w "$dir" ]; then
+    cp "$src" "$dest"
+  elif [ ! -e "$dest" ] && [ -w "$dir" ]; then
+    cp "$src" "$dest"
+  else
+    sudo -n cp "$src" "$dest"
+  fi
+}
+
+run_ingest_python() {
+  local db_path="$1"
+  shift
+  local dir
+  dir=$(dirname "$db_path")
+  if { [ ! -e "$db_path" ] || [ -w "$db_path" ]; } && [ -w "$dir" ]; then
+    python3 "$REPO/script/ingest-usage-export.py" --db "$db_path" "$@"
+  else
+    sudo -n python3 "$REPO/script/ingest-usage-export.py" --db "$db_path" "$@"
+  fi
+}
+
 ensure_registry() {
   local data_dir="$1"
-  local path="$data_dir/registry.json"
-  python3 - "$path" "$KIT_ENGINE" "$DEPLOYMENT_ID" <<'PY'
+  local dest="$data_dir/registry.json"
+  local scratch="$RUN_DIR/registry.json"
+  # Seed the scratch copy from the live registry when we can read it.
+  # The collector's root-owned file may be unreadable without sudo.
+  if [ -f "$dest" ]; then
+    if [ -r "$dest" ]; then
+      cp "$dest" "$scratch"
+    else
+      # Read as root; the redirect targets the user-writable scratch copy.
+      # shellcheck disable=SC2024
+      sudo -n cat "$dest" > "$scratch"
+    fi
+  else
+    printf '%s\n' '{"kits":[]}' > "$scratch"
+  fi
+  python3 - "$scratch" "$KIT_ENGINE" "$DEPLOYMENT_ID" <<'PY'
 import json, sys
 from pathlib import Path
 path, engine, dep = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
@@ -718,6 +763,9 @@ if not found:
 path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 print(str(path))
 PY
+  install_into_instance_data "$scratch" "$dest"
+  # Ingest reads the installed path (sudo can read a root-owned copy).
+  printf '%s\n' "$dest"
 }
 
 flatten_archive_days() {
@@ -804,8 +852,7 @@ ingest_stream() {
   local stream="$2"
   local registry="$3"
   local label="$4"
-  python3 "$REPO/script/ingest-usage-export.py" \
-    --db "$db_path" \
+  run_ingest_python "$db_path" \
     --engine "$KIT_ENGINE" \
     --deployment-id "$DEPLOYMENT_ID" \
     --stream "$stream" \
