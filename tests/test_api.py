@@ -400,6 +400,44 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(meta["todayWeekStart"], "2026-11-09")
         self.assertTrue(meta["currentWeekHasData"])
 
+    def test_meta_sets_current_week_start_when_week_has_data(self):
+        """GET /meta must send currentWeekStart whenever a stored week exists.
+
+        The field is already on GET /weeks (latest Monday with data; today
+        when the store is empty). Omitting it on /meta left clients with
+        currentWeekStart: null even when currentWeekHasData was true and
+        todayWeekStart was this week's Monday.
+        """
+        self.login()
+        status, meta = self.call("GET", "/api/v1/meta")
+        self.assertEqual(status, 200, meta)
+        self.assertEqual(meta.get("todayWeekStart"), "2026-11-09")
+        self.assertTrue(meta["currentWeekHasData"])
+        self.assertEqual(meta.get("currentWeekStart"), WEEK)
+
+        self.conn.execute("DELETE FROM daily_summaries")
+        self.conn.execute("DELETE FROM presence_days")
+        self.conn.execute(
+            """INSERT INTO daily_summaries(engine, deployment_id, day, instance, app, name, demo, listed, hook_status, skip_reason, payload, pulled_at)
+               VALUES (?, ?, ?, ?, ?, ?, 0, 1, 'ok', NULL, '{}', ?)""",
+            ("happy-zebra", "dep-nharira", "2026-11-03", "kolibri-a", "kolibri", "Kolibri", "2026-11-03T18:00:00+02:00"),
+        )
+        self.conn.commit()
+        status, meta = self.call("GET", "/api/v1/meta")
+        self.assertEqual(status, 200, meta)
+        self.assertEqual(meta.get("todayWeekStart"), "2026-11-09")
+        self.assertTrue(meta["currentWeekHasData"])
+        self.assertEqual(meta.get("currentWeekStart"), "2026-11-02")
+
+        self.conn.execute("DELETE FROM daily_summaries")
+        self.conn.execute("DELETE FROM presence_days")
+        self.conn.commit()
+        status, meta = self.call("GET", "/api/v1/meta")
+        self.assertEqual(status, 200, meta)
+        self.assertEqual(meta.get("todayWeekStart"), "2026-11-09")
+        self.assertFalse(meta["currentWeekHasData"])
+        self.assertEqual(meta.get("currentWeekStart"), "2026-11-09")
+
     def test_four_state_presence_week(self):
         self.login()
         status, school = self.call("GET", "/api/v1/weeks/%s/schools/dep-nharira" % FOUR_STATE_WEEK)

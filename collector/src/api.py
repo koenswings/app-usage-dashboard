@@ -332,10 +332,13 @@ def meta_payload(conn=None, sample_data: bool = False) -> dict[str, Any]:
     }
     if conn is not None:
         idx = _week_index(conn)
+        body["currentWeekStart"] = idx["currentWeekStart"]
         body["todayWeekStart"] = idx["todayWeekStart"]
         body["currentWeekHasData"] = idx["currentWeekHasData"]
     else:
-        body["todayWeekStart"] = _current_monday()
+        today = _current_monday()
+        body["currentWeekStart"] = today
+        body["todayWeekStart"] = today
         body["currentWeekHasData"] = False
     return body
 

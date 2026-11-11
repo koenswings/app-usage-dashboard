@@ -163,6 +163,8 @@ export interface MetaResponse {
   headerTimeZone: string;
   /** True when the server (or the UI mock) is serving labelled sample data. */
   sampleData: boolean;
+  /** Latest Monday with stored data. Falls back to todayWeekStart when the store is empty. */
+  currentWeekStart: WeekStart;
   /** Monday of today (header calendar), even if that week has no stored data. */
   todayWeekStart: WeekStart;
   /** True when at least one stored week exists. */
