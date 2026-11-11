@@ -1,0 +1,46 @@
+# VARIANT: replace the `web:` service in compose.yaml after idea#375 U-10
+# allows publishing to ghcr. Do not ship this file until both tokens below
+# are replaced with values printed by script/publish-web-image.sh:
+#
+#   SHORTSHA              12-char git short SHA (git rev-parse --short=12 HEAD)
+#   DIGEST_PLACEHOLDER    sha256 hex from the script's "digest:" line
+#
+# image uses repo:tag@sha256:digest because Engine idea#322 saveName()
+# rejects a digest-only pin (no tag): the saved image must keep a name
+# after `docker image load`. A line such as
+#   image: ghcr.io/koenswings/usage-dashboard-web@sha256:<DIGEST>
+# would throw. Convention follows app-kolibri-channel-builder
+# (ghcr.io/koenswings/<image>:<version>) with a per-commit suffix
+# <x-app.version>-<shortsha>.
+#
+# Drop `build:` and `pull_policy: never` as shown. Other services keep
+# `pull_policy: never` (they are official digest-pinned images loaded
+# from App Disk tars). For an offline App Disk start, web can take
+# `pull_policy: never` again once services/ghcr.io_koenswings_usage-dashboard-web:<tag>.tar
+# is present (Engine existing-tar path; see docs/packaging.md).
+#
+# script/check-compose.mjs --release fails while DIGEST_PLACEHOLDER or
+# SHORTSHA remains.
+
+services:
+  web:
+    image: ghcr.io/koenswings/usage-dashboard-web:1.0-SHORTSHA@sha256:DIGEST_PLACEHOLDER
+    labels:
+      x-app-version: "1.0"
+    restart: unless-stopped
+    depends_on:
+      - collector
+    ports:
+      - ${port}:8080
+    environment:
+      - IDEA_WEB_PORT=${port}
+    volumes:
+      - ./web/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./web/entrypoint.sh:/entrypoint.sh:ro
+    entrypoint: ["/bin/sh", "/entrypoint.sh"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS -m 4 http://127.0.0.1:8080/api/v1/health | grep -q '\"ok\"'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 120s

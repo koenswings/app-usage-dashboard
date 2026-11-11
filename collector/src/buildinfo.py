@@ -1,10 +1,14 @@
 """Dashboard version and commit for GET /api/v1/health.
 
-The collector image can bake a JSON file at build time. The compose path
-bind-mounts ./collector over /app, so that file is also written to
-/etc/idea-usage/build-info.json (outside the mount). When neither a file
-nor USAGE_DASHBOARD_COMMIT is set, the Engine bundle directory name
-`usage-dashboard-<sha>` is parsed from /proc/self/mountinfo.
+The collector runs the stock python image with ./collector bind-mounted at
+/app, so a COMMIT baked into the web image never reaches this module.
+`script/write-build-info.sh` writes collector/build-info.json at App Disk
+bundle time (read here as /app/build-info.json). A custom collector image
+can also bake /etc/idea-usage/build-info.json outside the mount.
+
+Resolution: non-empty USAGE_DASHBOARD_COMMIT (optional override), then the
+build-info JSON, then the Engine bundle directory name
+`usage-dashboard-<sha>` parsed from /proc/self/mountinfo.
 """
 from __future__ import annotations
 

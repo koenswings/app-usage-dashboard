@@ -28,6 +28,12 @@ RUN set -eu \
     fi
 
 FROM ${NGINX_IMAGE}
+ARG COMMIT=
+ARG USAGE_DASHBOARD_VERSION=1.0
+RUN mkdir -p /etc/idea-usage \
+ && printf '{"version":"%s","commit":"%s"}\n' \
+      "$USAGE_DASHBOARD_VERSION" "$COMMIT" \
+      > /etc/idea-usage/build-info.json
 COPY web/nginx.conf /etc/nginx/nginx.conf
 COPY web/entrypoint.sh /entrypoint.sh
 COPY --from=ui /build/web/dist /usr/share/nginx/html

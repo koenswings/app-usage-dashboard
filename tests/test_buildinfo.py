@@ -1,5 +1,6 @@
 import json
 import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -62,6 +63,48 @@ class BuildinfoTests(unittest.TestCase):
             "f2d4adc64a370118383b9c97e9b31edb2c72d049",
         )
         self.assertIsNone(commit_from_mountinfo("36 24 0:34 /workspace/app-usage-dashboard /app\n"))
+
+    def test_empty_env_falls_through_to_file(self):
+        handle, path = tempfile.mkstemp(suffix=".json")
+        os.close(handle)
+        try:
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump({"version": "1.0", "commit": "fromfileaaa"}, fh)
+            os.environ["USAGE_DASHBOARD_BUILD_INFO"] = path
+            os.environ["USAGE_DASHBOARD_COMMIT"] = ""
+            os.environ["USAGE_DASHBOARD_VERSION"] = "  "
+            self.assertEqual(dashboard_commit(), "fromfileaaa")
+            self.assertEqual(dashboard_version(), "1.0")
+        finally:
+            os.remove(path)
+
+    def test_write_build_info_script(self):
+        repo = Path(__file__).resolve().parents[1]
+        script = repo / "script" / "write-build-info.sh"
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = Path(tmp)
+            result = subprocess.run(
+                [
+                    str(script),
+                    "--dest",
+                    str(dest),
+                    "--commit",
+                    "0d929618656ec82819f29207613c88ad7813a0f1",
+                    "--version",
+                    "1.0",
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            path = dest / "collector" / "build-info.json"
+            self.assertTrue(path.is_file(), result.stdout)
+            data = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(data["version"], "1.0")
+            self.assertEqual(data["commit"], "0d929618656ec82819f29207613c88ad7813a0f1")
+            os.environ["USAGE_DASHBOARD_BUILD_INFO"] = str(path)
+            self.assertEqual(dashboard_commit(), "0d929618656ec82819f29207613c88ad7813a0f1")
+            self.assertEqual(dashboard_version(), "1.0")
 
 
 if __name__ == "__main__":

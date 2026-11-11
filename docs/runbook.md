@@ -8,6 +8,21 @@ The Engine assigns `${port}` in the instance `.env`. The web entrypoint refuses 
 
 The web image is a multi-stage build (`web/Dockerfile`): a digest-pinned `node:22-bookworm-slim` stage runs `corepack`-pinned `pnpm install --frozen-lockfile && pnpm build` when `web/package.json` exists and copies `web/dist` into the nginx html root. If `web/package.json` is absent, the existing placeholder is served instead. nginx still proxies `/api/` to the collector and serves `index.html` at `/`.
 
+`location /` keeps the SPA fallback (`try_files $uri /index.html`). Missing files under `/assets/` return 404 (`location /assets/ { try_files $uri =404; }`) so a stale hashed bundle URL is not served as the app shell. There is no nginx-config test harness that runs nginx; `tests/test_packaging.py` checks these directives in `web/nginx.conf`.
+
+## Packaging (pending U-10)
+
+The web image is build-only (`usage-dashboard-web:1.0`). Engine `installApp` runs `docker pull` on every compose image and fails unless a matching tar already exists under the disk's `services/` directory, or the image is published and digest-pinned. Publishing to ghcr waits on [idea#375](https://github.com/koenswings/idea/issues/375) U-10. Details, the tar-in-bundle fallback (measured 25,836,544 bytes / 24.6 MiB), and how `/health` gets `commit` without an instance `.env` hack are in `docs/packaging.md`.
+
+After U-10 is approved, build and (only then) push with `script/publish-web-image.sh --push`. Verify the published tag is arm64:
+
+```sh
+docker manifest inspect \
+  "ghcr.io/koenswings/usage-dashboard-web:1.0-$(git rev-parse --short=12 HEAD)"
+```
+
+The inspect output must list platform `linux` / `arm64`, and the digest must match the script's `digest:` line. Then replace the `web:` service as shown in `compose.web-ghcr.example.yaml` (`repo:tag@sha256:digest`, no `build:` block) and run `script/check-compose.mjs --release compose.yaml`. Do not push an image until Koen says yes.
+
 ## Secrets
 
 | Path | What | Backup |
