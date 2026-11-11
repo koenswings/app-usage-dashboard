@@ -141,6 +141,37 @@ services:
         dest.unlink()
         tmpdir.rmdir()
 
+
+    def test_check_compose_requires_matching_state_dir(self):
+        body = COMPOSE.read_text(encoding="utf-8").replace(
+            "- TS_STATE_DIR=/var/lib/tailscale",
+            "- TS_STATE_DIR=/tmp/not-the-mount",
+        )
+        with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as fh:
+            fh.write(body)
+            path = fh.name
+        try:
+            result = self._check(path)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("TS_STATE_DIR", result.stderr + result.stdout)
+        finally:
+            Path(path).unlink()
+
+    def test_check_compose_requires_auth_once(self):
+        body = COMPOSE.read_text(encoding="utf-8").replace(
+            "- TS_AUTH_ONCE=true",
+            "- TS_AUTH_ONCE=false",
+        )
+        with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as fh:
+            fh.write(body)
+            path = fh.name
+        try:
+            result = self._check(path)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("TS_AUTH_ONCE", result.stderr + result.stdout)
+        finally:
+            Path(path).unlink()
+
     def test_nginx_assets_return_404_and_spa_fallback_remains(self):
         text = NGINX.read_text(encoding="utf-8")
         assets = re.search(

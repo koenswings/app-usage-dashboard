@@ -77,6 +77,50 @@ const webHasBuild = (text) => {
   return /^    build:\s*$/m.test(block) || /^    build:\s+\S/m.test(block);
 };
 
+
+const envValue = (block, name) => {
+  const re = new RegExp('^\\s+-\\s+' + name + '=(.*)$', 'm');
+  const m = block.match(re);
+  return m ? stripQuotes(m[1]) : undefined;
+};
+
+const checkTailscalePersist = (text, errs) => {
+  const block = serviceBlock(text, 'tailscale');
+  if (!block) return;
+  const stateDir = envValue(block, 'TS_STATE_DIR');
+  const hasVolume = /^\s+volumes:\s*$/m.test(block);
+  if (!stateDir && !hasVolume) return;
+
+  if (!stateDir) {
+    errs.push('tailscale service TS_STATE_DIR is missing');
+    return;
+  }
+  const authOnce = envValue(block, 'TS_AUTH_ONCE');
+  if (authOnce !== 'true') {
+    errs.push("tailscale service TS_AUTH_ONCE must be true (containerboot defaults to forcing tailscale up every start), got '" + authOnce + "'");
+  }
+  const kubeSecret = envValue(block, 'TS_KUBE_SECRET');
+  if (kubeSecret === undefined) {
+    errs.push('tailscale service TS_KUBE_SECRET must be set to empty (containerboot default is "tailscale")');
+  } else if (kubeSecret !== '' && kubeSecret !== '${TS_KUBE_SECRET:-}') {
+    errs.push("tailscale service TS_KUBE_SECRET must be empty so state stays on the bind mount, got '" + kubeSecret + "'");
+  }
+  const volRe = /^\s+-\s+(\S+):(\S+)\s*$/gm;
+  let matched = false;
+  let m;
+  while ((m = volRe.exec(block)) !== null) {
+    if (m[2] === stateDir) {
+      matched = true;
+      if (m[1] !== './data/tailscale') {
+        errs.push('tailscale service volume for TS_STATE_DIR should be ./data/tailscale:' + stateDir + ', got ' + m[1] + ':' + m[2]);
+      }
+    }
+  }
+  if (!matched) {
+    errs.push('tailscale service TS_STATE_DIR=' + stateDir + ' has no matching bind-mount destination');
+  }
+};
+
 export function checkCompose(text, { tag, release } = {}) {
   const errs = [];
   if (PLACEHOLDER_RE.test(text)) {
@@ -111,6 +155,8 @@ export function checkCompose(text, { tag, release } = {}) {
       else if (l !== ver) errs.push(`service ${name}: label x-app-version '${l}' != x-app.version '${ver}'`);
     }
   }
+
+  checkTailscalePersist(text, errs);
 
   if (release) {
     const image = webImage(text);

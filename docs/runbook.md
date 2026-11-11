@@ -65,10 +65,65 @@ stops its containers and keeps `./data/tailscale` in place; never run
 the moved state already in `./data/tailscale`, so the sidecar never starts
 empty (an empty start asks for a new login).
 
+Compose persists sidecar state by setting `TS_STATE_DIR` to the bind-mount
+target `/var/lib/tailscale` (`./data/tailscale` on the host),
+`TS_AUTH_ONCE=true` so containerboot does not force `tailscale up` on every
+start, and `TS_KUBE_SECRET` empty. `collector/sidecar-wrap.sh` refuses to
+start if `./data/tailscale` has no persisted node key unless `TS_AUTHKEY`
+is set.
+
 When moving existing state, leave `TS_AUTHKEY` empty and do not open a
-login URL. If sidecar state is lost, Koen re-registers the node and sets
-its previous 100.x IPv4 in the Tailscale admin console so the kits'
-`from=` lines keep working (idea#375).
+login URL. After the sidecar is Running, confirm the on-disk nodekey still
+matches control:
+
+```sh
+script/check-idea-hub-nodekey.py --state-dir ./data/tailscale --socket /tmp/tailscaled.sock
+```
+
+(Use `docker exec` of the sidecar for the socket, or pass a saved
+`status --json` file with `--status-json`. The script prints public
+prefixes only; it never prints private keys.)
+
+### One-join when Koen issues a fresh single-use key
+
+If sidecar state is lost, Koen issues a **single-use** auth key and (if
+needed) sets the previous 100.x IPv4 in the Tailscale admin console so the
+kits' `from=` lines keep working (idea#375). The key must never be pasted
+into chat, a ticket, or git.
+
+On the host that has the instance, in a shell that will not be logged:
+
+1. Export the key in that shell only: `export TS_AUTHKEY=...` (do not put
+   it on a command line that will be stored in history if you can avoid it).
+2. Write it into the instance `.env` without printing the value:
+
+```sh
+script/join-idea-hub-once.sh write-env --env-file /instances/<instance-id>/.env
+```
+
+3. Start the instance **once** (`startInstance`). `TS_AUTH_ONCE=true` and
+   the wrapper allow this empty-state start because `TS_AUTHKEY` is set.
+   Do not open a login URL.
+4. When the sidecar `BackendState` is `Running` and there is no `AuthURL`,
+   verify the on-disk nodekey matches `Self.PublicKey`:
+
+```sh
+script/join-idea-hub-once.sh verify --state-dir /instances/<instance-id>/data/tailscale --socket /tmp/tailscaled.sock
+```
+
+   (`--socket` is the socket inside the sidecar; `docker exec` the
+   `check-idea-hub-nodekey.py` equivalent, or write `status --json` out
+   and pass `--status-json`.) Expect `match=true`.
+5. Remove the consumed key from the instance env:
+
+```sh
+script/join-idea-hub-once.sh remove-env --env-file /instances/<instance-id>/.env
+```
+
+6. Recreate or stop+start the instance so the container environment no
+   longer holds `TS_AUTHKEY`. Existing state is present, so the wrapper
+   starts without a key. Verify again with the same `verify` command so
+   the on-disk nodekey still matches after the restart.
 
 ## Secrets
 

@@ -34,8 +34,12 @@ services:
     # when handing the identity between containers — never copy it. Whichever
     # container runs last owns the live node key; a leftover copy goes stale
     # (NeedsLogin / nodeKeyExpired). Only one idea-hub container may ever exist.
-    # TS_EXTRA_ARGS already advertises tag:idea-hub. Leave TS_AUTHKEY empty
-    # when reusing existing state; do not re-auth.
+    # TS_EXTRA_ARGS already advertises tag:idea-hub. TS_STATE_DIR must equal
+    # the bind-mount target (/var/lib/tailscale). TS_AUTH_ONCE=true stops
+    # containerboot forcing `tailscale up` on every start. TS_KUBE_SECRET is
+    # cleared so state cannot drift to a kube store. Leave TS_AUTHKEY empty
+    # when reusing existing state; do not re-auth. sidecar-wrap refuses to
+    # start with empty state unless TS_AUTHKEY is set.
     image: tailscale/tailscale:v1.88.3@sha256:b2a19f6b6402adc26a2aa8cb90da66afe3061e718ac67ed3f21ec3d4b366439f
     labels:
       x-app-version: "1.0"
@@ -44,6 +48,8 @@ services:
     pull_policy: never
     environment:
       - TS_AUTHKEY=${TS_AUTHKEY:-}
+      - TS_AUTH_ONCE=true
+      - TS_KUBE_SECRET=
       - TS_STATE_DIR=/var/lib/tailscale
       - TS_USERSPACE=true
       - TS_SOCKS5_SERVER=127.0.0.1:1055
@@ -55,6 +61,18 @@ services:
       - ./data/tailscale:/var/lib/tailscale
       - ./collector/sidecar-wrap.sh:/sidecar-wrap.sh:ro
     entrypoint: ["/bin/sh", "/sidecar-wrap.sh"]
+    # State file must exist (or TS_AUTHKEY for a one-time join). sidecar-wrap
+    # refuses an empty start. This healthcheck confirms the bind-mounted state
+    # is still present and containerboot reached Running; script/check-idea-hub-nodekey.py
+    # compares the derived on-disk nodekey with Self.PublicKey.
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - test -f /var/lib/tailscale/tailscaled.state && grep -q PrivateNodeKey /var/lib/tailscale/tailscaled.state && tailscale --socket=/tmp/tailscaled.sock status --json | grep -Eq '"BackendState":[[:space:]]*"Running"'
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
 
   collector:
     # Official multi-arch index digest (idea#322). linux/arm64 verified 2026-11-11.
