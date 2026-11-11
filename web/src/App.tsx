@@ -33,7 +33,7 @@ export default function App() {
 
   const week = () => route().week || weeks()?.currentWeekStart || '';
   const effectiveThresholds = (): ScorecardThresholds =>
-    resolveEffectiveThresholds(meta()?.thresholds, thresholdSettings()?.thresholds);
+    resolveEffectiveThresholds(meta()?.thresholds);
   const schoolName = (deploymentId: string) =>
     kits().find((item) => item.deploymentId === deploymentId)?.school ?? deploymentId;
 

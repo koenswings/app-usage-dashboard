@@ -24,15 +24,15 @@ export function lineDetail(id: ScorecardLineId, inputs: ScorecardInputs): string
     }
     case 'setup': {
       const complete = setupIsComplete(inputs);
-      const { classes, teachers, learnersEnrolled, nextcloudTeacherBeyondSeed, nextcloudLearnerBeyondSeed } =
+      const { teachers, learnersRegistered, nextcloudTeacherBeyondSeed, nextcloudLearnerBeyondSeed } =
         inputs.setup;
-      if (complete === null && classes === null && teachers === null && learnersEnrolled === null) {
-        return '—';
+      if (complete === null) return '—';
+      if (learnersRegistered !== null || teachers !== null) {
+        return `${formatCount(learnersRegistered)} learners registered · ${formatCount(teachers)} teachers`;
       }
       return (
-        `${formatCount(teachers)} coaches · ${formatCount(classes)} classes · ` +
-        `${formatCount(learnersEnrolled)} enrolled · Nextcloud beyond seed: ` +
-        `${formatCount(nextcloudTeacherBeyondSeed)} teachers, ${formatCount(nextcloudLearnerBeyondSeed)} learners`
+        `Nextcloud beyond seed: ${formatCount(nextcloudTeacherBeyondSeed)} teachers, ` +
+        `${formatCount(nextcloudLearnerBeyondSeed)} learners`
       );
     }
     case 'teachingCycle': {
@@ -52,7 +52,7 @@ export function lineDetail(id: ScorecardLineId, inputs: ScorecardInputs): string
     case 'nextcloud': {
       const actions = nextcloudWorkflowActions(inputs);
       if (actions === null) return '—';
-      return `${formatUnit(actions, 'share, co-edit or File drop upload', 'shares, co-edits or File drop uploads')}`;
+      return `${formatUnit(actions, 'counted Nextcloud action', 'counted Nextcloud actions')}`;
     }
     case 'wikipedia': {
       if (inputs.wikipedia.pageViewsOwn === null) return '—';
@@ -87,6 +87,7 @@ export function buildPill(
   hasUsageData: boolean,
   lines: ScorecardLineView[],
   monitoringEnabled?: boolean,
+  unused?: boolean,
 ): {
   pill: CardPill;
   pillLabel: string;
@@ -95,6 +96,7 @@ export function buildPill(
     hasUsageData,
     lines.map((line) => line.tone),
     monitoringEnabled,
+    unused,
   );
   return { pill, pillLabel: pillWord(pill) };
 }

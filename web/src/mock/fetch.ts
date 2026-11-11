@@ -261,6 +261,7 @@ export function mockFetch(input: string, init?: RequestInit): Promise<Response> 
       dataFrom: card.dataFrom,
       hasUsageData: card.hasUsageData,
       monitoringEnabled: deploymentId !== 'dep-kind-panda',
+      unused: card.unused === true,
       thresholdsConfigured: true,
       sampleData: true,
       clockTrusted: clockTrustedFor(deploymentId, weekStart),

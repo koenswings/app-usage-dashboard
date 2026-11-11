@@ -120,6 +120,7 @@ describe('Monitoring off school week and reachability', () => {
     dataFrom: '2026-11-04',
     hasUsageData: false,
     monitoringEnabled: false,
+    unused: false,
     thresholdsConfigured: false,
     sampleData: true,
     clockTrusted: true,

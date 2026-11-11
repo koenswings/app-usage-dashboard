@@ -55,9 +55,8 @@ export function HelpTimeline(props: HelpTimelineProps) {
         <p class="help-rules" data-testid="help-rules">
           {helpRulesText(props.thresholds ?? DEFAULT_THRESHOLDS)}
           {' '}
-          The collector does not yet report a consecutive-amber streak or an unused
-          status, so the dashboard does not invent either here. Help suggestions the
-          collector does send still appear on the fleet overview.
+          The collector computes the streak and the unused flag. The dashboard shows
+          any help suggestions it sends and does not recompute them here.
         </p>
         <Show when={props.data.events.length === 0}>
           <p>No help has been recorded for this school yet.</p>

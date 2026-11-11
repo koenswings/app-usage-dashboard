@@ -1,6 +1,6 @@
 import { For, Show } from 'solid-js';
 import type { SchoolWeekResponse, ScorecardThresholds } from '../api/types';
-import { DEFAULT_THRESHOLDS } from '../config/thresholds';
+import { DEFAULT_THRESHOLDS, unusedRuleText } from '../config/thresholds';
 import { PresenceStrip } from '../components/shared/PresenceStrip';
 import { ScorecardCard } from '../components/shared/ScorecardCard';
 import { ClockWeekWarning } from '../components/InstanceMeta';
@@ -19,12 +19,12 @@ export function SchoolWeek(props: SchoolWeekProps) {
   const census = () => props.data.census;
   const score = () => props.data.scorecard;
   const thresholds = () => props.thresholds ?? DEFAULT_THRESHOLDS;
+  const monitoringOff = () => isMonitoringOff(props.data.monitoringEnabled, undefined);
+  const unused = () => !monitoringOff() && props.data.unused === true;
   const scorecardLines = () =>
-    isMonitoringOff(props.data.monitoringEnabled, undefined)
-      ? []
-      : buildScorecardLines(props.data.scorecard, thresholds());
+    monitoringOff() ? [] : buildScorecardLines(props.data.scorecard, thresholds());
   const scorecardPill = () =>
-    buildPill(props.data.hasUsageData, scorecardLines(), props.data.monitoringEnabled);
+    buildPill(props.data.hasUsageData, scorecardLines(), props.data.monitoringEnabled, unused());
   const kpis = () => [
     {
       id: 'classes',
@@ -70,9 +70,14 @@ export function SchoolWeek(props: SchoolWeekProps) {
           {props.data.school} · {props.data.engine} · week detail
         </h2>
         <ClockWeekWarning trusted={props.data.clockTrusted} />
-        <Show when={isMonitoringOff(props.data.monitoringEnabled, undefined)}>
+        <Show when={monitoringOff()}>
           <p class="status-banner" data-testid="monitoring-off-banner" role="status">
             {MONITORING_OFF_MESSAGE}
+          </p>
+        </Show>
+        <Show when={unused()}>
+          <p class="status-banner" data-testid="unused-banner" role="status">
+            {unusedRuleText(thresholds())}
           </p>
         </Show>
         <p class="muted">
@@ -121,13 +126,14 @@ export function SchoolWeek(props: SchoolWeekProps) {
             pill={scorecardPill().pill}
             pillLabel={scorecardPill().pillLabel}
             lines={scorecardLines()}
-            headlines={isMonitoringOff(props.data.monitoringEnabled, undefined) ? [] : buildHeadlines({
+            headlines={monitoringOff() ? [] : buildHeadlines({
               classes: census().classes,
               learnersRegistered: census().learnersRegistered,
               teachers: census().teachers,
               kolibriMinutes: kolibriMinutes(),
             })}
-            message={isMonitoringOff(props.data.monitoringEnabled, undefined) ? MONITORING_OFF_MESSAGE : undefined}
+            message={monitoringOff() ? MONITORING_OFF_MESSAGE : undefined}
+            banner={unused() ? unusedRuleText(thresholds()) : undefined}
             lastPulledLabel={formatDateTime(props.data.lastPulled, props.headerTimeZone)}
             stale={showStale(props.data.stale, isMonitoringOff(props.data.monitoringEnabled, undefined))}
             dataFromLabel={formatDataFrom(props.data.dataFrom)}

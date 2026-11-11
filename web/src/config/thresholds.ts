@@ -3,13 +3,14 @@
  *
  * Comparison lives only in this module. The values here are defaults that an
  * operator can change in Settings. Effective values come from /meta.thresholds
- * or GET /api/v1/settings/thresholds when the collector serves them; otherwise
- * these defaults are used. Grey (no data / not measured) never counts as amber.
+ * (served with thresholdsConfigured: true). If that object is absent, these
+ * defaults are used. Grey (no data) never counts as amber.
+ * Tones follow the collector in PR #2 (Kid 7880247, not yet pushed).
  */
 import type { ScorecardInputs, ScorecardThresholds } from "../api/types";
 
 export type LineTone = "onTrack" | "needsHelp" | "noData" | "notMeasured";
-export type CardPill = "ok" | "help" | "noData" | "monitoringOff";
+export type CardPill = "ok" | "help" | "noData" | "monitoringOff" | "unused";
 
 export type ScorecardLineId =
   | "available"
@@ -67,6 +68,8 @@ export interface ThresholdFieldMeta {
   label: string;
   meaning: string;
   kind: ThresholdFieldKind;
+  min: number;
+  max?: number;
 }
 
 export const THRESHOLD_FIELDS: ThresholdFieldMeta[] = [
@@ -75,47 +78,56 @@ export const THRESHOLD_FIELDS: ThresholdFieldMeta[] = [
     label: "Available",
     meaning: "Kit on in school hours on at least this many school days in the week.",
     kind: "int",
+    min: 0,
+    max: 5,
   },
   {
     id: "teachingCycleMinItems",
     label: "Teaching cycle",
     meaning: "At least this many lessons or quizzes made visible or started, followed by learner sessions on assigned content.",
     kind: "int",
+    min: 0,
   },
   {
     id: "learnerSessionShareMin",
     label: "Learners operate it",
-    meaning: "Learner share of Kolibri sessions, versus coaches and admins (guests excluded).",
+    meaning: "Learner share of Kolibri sessions, versus coaches and admins (guests excluded). Not a share of minutes.",
     kind: "share",
+    min: 0,
+    max: 1,
   },
   {
     id: "nextcloudMinActions",
     label: "Nextcloud",
-    meaning: "At least this many shares, co-edits or File drop uploads (Office opens by a teacher or learner are included when the collector provides that split).",
+    meaning: "At least this many worksheet shares, co-edits, school-files shares, File drop uploads or office opens. Creating a File drop link does not count.",
     kind: "int",
+    min: 0,
   },
   {
     id: "wikipediaMinViews",
     label: "Wikipedia",
     meaning: "At least this many article views on the school's own Wikipedia (not Demo).",
     kind: "int",
+    min: 0,
   },
   {
     id: "helpAfterAmberWeeks",
     label: "Help after amber weeks",
-    meaning: "Offer help after this many consecutive school weeks with any line amber. Grey weeks never count.",
+    meaning: "Offer help after this many consecutive school weeks with any line amber. A grey week neither counts nor breaks the streak; a green week resets it. A school with no pulled data yet is offered help at once.",
     kind: "int",
+    min: 1,
   },
   {
     id: "unusedAfterHelpWeeks",
     label: "Unused after help",
-    meaning: "The school counts as unused if it is still amber with no improvement this many school weeks after help was offered.",
+    meaning: "The school counts as unused if it is still amber with no improvement this many school weeks after help was offered. Unused schools are not listed in the offer-help banner.",
     kind: "int",
+    min: 1,
   },
 ];
 
 export const SETUP_RULE_MEANING =
-  "Own Kolibri has at least one coach, at least one class, and enrolled learners; own Nextcloud has teacher and learner accounts beyond the seeds. This is a yes/no check with no number to edit.";
+  "Yes when registered learners and teachers are both more than zero. Without a Kolibri census, yes when a Nextcloud beyond-seed count is more than zero. This is a yes/no check with no number to edit.";
 
 export function cloneThresholds(value: ScorecardThresholds): ScorecardThresholds {
   return {
@@ -146,13 +158,13 @@ export function mergeThresholds(
 }
 
 /**
- * Effective thresholds: /meta.thresholds, then GET settings, then built-in defaults.
+ * Effective thresholds: /meta.thresholds when present, otherwise built-in defaults.
+ * Settings GET/PUT is only for the operator Settings page.
  */
 export function resolveEffectiveThresholds(
   metaThresholds?: Partial<ScorecardThresholds> | null,
-  settingsThresholds?: Partial<ScorecardThresholds> | null,
 ): ScorecardThresholds {
-  return mergeThresholds(DEFAULT_THRESHOLDS, settingsThresholds, metaThresholds);
+  return mergeThresholds(DEFAULT_THRESHOLDS, metaThresholds);
 }
 
 export interface ThresholdValidationFailure {
@@ -165,19 +177,30 @@ export function validateThresholdPatch(
 ): ThresholdValidationFailure | null {
   for (const key of Object.keys(patch) as string[]) {
     if (!(THRESHOLD_KEYS as readonly string[]).includes(key)) {
-      return { error: `Unknown threshold field: ${key}.`, field: key };
+      return { error: "unknown threshold", field: key };
     }
     const value = patch[key as ThresholdKey];
     const meta = THRESHOLD_FIELDS.find((item) => item.id === key);
-    if (typeof value !== "number" || !Number.isFinite(value)) {
-      return { error: `${meta?.label ?? key} must be a number.`, field: key };
-    }
     if (meta?.kind === "share") {
-      if (value < 0 || value > 1) {
-        return { error: "Learner session share must be between 0 and 1.", field: key };
+      if (typeof value !== "number" || !Number.isFinite(value) || typeof value === "boolean") {
+        return { error: "must be a number between 0 and 1", field: key };
       }
-    } else if (!Number.isInteger(value) || value < 0) {
-      return { error: `${meta?.label ?? key} must be a whole number of 0 or more.`, field: key };
+      if (value < 0 || value > 1) {
+        return { error: "must be a number between 0 and 1", field: key };
+      }
+      continue;
+    }
+    const isInt = typeof value === "number" && Number.isInteger(value);
+    if (!isInt) {
+      return { error: "must be an integer", field: key };
+    }
+    const minimum = meta?.min ?? 0;
+    const maximum = meta?.max;
+    if (value < minimum) {
+      return { error: `must be an integer >= ${minimum}`, field: key };
+    }
+    if (maximum !== undefined && value > maximum) {
+      return { error: `must be an integer <= ${maximum}`, field: key };
     }
   }
   return null;
@@ -200,10 +223,18 @@ function measuredSum(values: Array<number | null>): number | null {
 
 /** Lessons or quizzes made visible or started this week. */
 export function teachingCycleItemCount(inputs: ScorecardInputs): number | null {
-  return measuredSum([
-    inputs.teachingCycle.lessonsVisible,
-    inputs.teachingCycle.quizzesStarted,
-  ]);
+  const { lessonsVisible, quizzesStarted, lessonsCreated, quizzesCreated, learnerSessionsOnAssigned } =
+    inputs.teachingCycle;
+  if (
+    lessonsVisible === null &&
+    quizzesStarted === null &&
+    lessonsCreated === null &&
+    quizzesCreated === null &&
+    learnerSessionsOnAssigned === null
+  ) {
+    return null;
+  }
+  return (lessonsVisible ?? 0) + (quizzesStarted ?? 0);
 }
 
 /**
@@ -219,43 +250,35 @@ export function learnerSessionShare(inputs: ScorecardInputs): number | null {
   const coach = coachSessions ?? 0;
   const admin = adminSessions ?? 0;
   const total = learner + coach + admin;
-  if (total <= 0) return null;
+  if (total <= 0) return 0;
   return learner / total;
 }
 
 /**
- * Counted Nextcloud workflow actions: shares, co-edits and File drop uploads.
- * Office opens by teacher or learner are not in ScorecardInputs (only total
- * officeOpens), so they are not added here.
+ * Counted Nextcloud actions: worksheet, edit and school-files shares,
+ * File drop uploads, and office opens. File drop links are not counted.
+ * Scorecard inputs have total officeOpens, not a teacher/learner split.
  */
 export function nextcloudWorkflowActions(inputs: ScorecardInputs): number | null {
   return measuredSum([
     inputs.nextcloud.worksheetShares,
-    inputs.nextcloud.schoolFilesShares,
     inputs.nextcloud.editShares,
+    inputs.nextcloud.schoolFilesShares,
     inputs.nextcloud.fileDropUploads,
+    inputs.nextcloud.officeOpens,
   ]);
 }
 
 export function setupIsComplete(inputs: ScorecardInputs): boolean | null {
-  const { teachers, classes, learnersEnrolled, nextcloudTeacherBeyondSeed, nextcloudLearnerBeyondSeed } =
+  const { classes, learnersRegistered, teachers, nextcloudTeacherBeyondSeed, nextcloudLearnerBeyondSeed } =
     inputs.setup;
-  if (
-    teachers === null ||
-    classes === null ||
-    learnersEnrolled === null ||
-    nextcloudTeacherBeyondSeed === null ||
-    nextcloudLearnerBeyondSeed === null
-  ) {
+  if (classes !== null || learnersRegistered !== null || teachers !== null) {
+    return (learnersRegistered ?? 0) > 0 && (teachers ?? 0) > 0;
+  }
+  if (nextcloudTeacherBeyondSeed === null && nextcloudLearnerBeyondSeed === null) {
     return null;
   }
-  return (
-    teachers >= 1 &&
-    classes >= 1 &&
-    learnersEnrolled >= 1 &&
-    nextcloudTeacherBeyondSeed >= 1 &&
-    nextcloudLearnerBeyondSeed >= 1
-  );
+  return (nextcloudTeacherBeyondSeed ?? 0) > 0 || (nextcloudLearnerBeyondSeed ?? 0) > 0;
 }
 
 export function evaluateLine(
@@ -266,8 +289,11 @@ export function evaluateLine(
   switch (id) {
     case "available": {
       const days = inputs.available.schoolDaysOn;
-      if (days === null) return { id, tone: "noData", word: wordForTone("noData") };
-      const tone: LineTone = days >= thresholds.availableMinSchoolDays ? "onTrack" : "needsHelp";
+      const minutes = inputs.available.schoolHoursOnMinutes;
+      if (days === null && minutes === null) {
+        return { id, tone: "noData", word: wordForTone("noData") };
+      }
+      const tone: LineTone = (days ?? 0) >= thresholds.availableMinSchoolDays ? "onTrack" : "needsHelp";
       return { id, tone, word: wordForTone(tone) };
     }
     case "setup": {
@@ -278,15 +304,8 @@ export function evaluateLine(
     }
     case "teachingCycle": {
       const items = teachingCycleItemCount(inputs);
-      const sessions = inputs.teachingCycle.learnerSessionsOnAssigned;
-      if (items === null && sessions === null) {
-        return { id, tone: "noData", word: wordForTone("noData") };
-      }
-      if (items === null || sessions === null) {
-        if (items !== null && items < thresholds.teachingCycleMinItems) {
-          const tone: LineTone = "needsHelp";
-          return { id, tone, word: wordForTone(tone) };
-        }
+      const sessions = inputs.teachingCycle.learnerSessionsOnAssigned ?? 0;
+      if (items === null) {
         return { id, tone: "noData", word: wordForTone("noData") };
       }
       const tone: LineTone =
@@ -302,14 +321,8 @@ export function evaluateLine(
     case "nextcloud": {
       const actions = nextcloudWorkflowActions(inputs);
       if (actions === null) return { id, tone: "noData", word: wordForTone("noData") };
-      if (actions >= thresholds.nextcloudMinActions) {
-        return { id, tone: "onTrack", word: wordForTone("onTrack") };
-      }
-      const officeOpens = inputs.nextcloud.officeOpens;
-      if (officeOpens !== null && officeOpens > 0) {
-        return { id, tone: "notMeasured", word: wordForTone("notMeasured") };
-      }
-      return { id, tone: "needsHelp", word: wordForTone("needsHelp") };
+      const tone: LineTone = actions >= thresholds.nextcloudMinActions ? "onTrack" : "needsHelp";
+      return { id, tone, word: wordForTone(tone) };
     }
     case "wikipedia": {
       const views = inputs.wikipedia.pageViewsOwn;
@@ -344,8 +357,10 @@ export function pillForCard(
   hasUsageData: boolean,
   lineTones: LineTone[],
   monitoringEnabled?: boolean,
+  unused?: boolean,
 ): CardPill {
   if (monitoringEnabled === false) return "monitoringOff";
+  if (unused) return "unused";
   if (!hasUsageData) return "noData";
   if (lineTones.some((tone) => tone === "needsHelp")) return "help";
   if (lineTones.some((tone) => tone === "onTrack")) return "ok";
@@ -356,6 +371,8 @@ export function pillWord(pill: CardPill): string {
   switch (pill) {
     case "monitoringOff":
       return "Monitoring off";
+    case "unused":
+      return "Unused";
     case "noData":
       return "No data";
     case "ok":
@@ -372,7 +389,17 @@ export function helpRulesText(thresholds: ScorecardThresholds): string {
   const unusedWord = unusedAfter === 1 ? "school week" : "school weeks";
   return (
     `Help is offered after ${helpAfter} consecutive ${helpWord} with any line amber. ` +
+    "A grey week (no data) neither counts toward that streak nor breaks it; a green week resets it. " +
+    "A school with no pulled data yet is offered help at once. " +
     `A school counts as unused if it is still amber with no improvement ${unusedAfter} ${unusedWord} after help was offered. ` +
-    "Grey (no data) never counts."
+    "Unused schools are not listed in the offer-help banner."
+  );
+}
+
+export function unusedRuleText(thresholds: ScorecardThresholds): string {
+  const unusedAfter = thresholds.unusedAfterHelpWeeks;
+  const unusedWord = unusedAfter === 1 ? "school week" : "school weeks";
+  return (
+    `This school counts as unused: it is still amber with no improvement ${unusedAfter} ${unusedWord} after help was offered.`
   );
 }

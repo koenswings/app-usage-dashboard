@@ -5,14 +5,27 @@ import { mockFetch, resetMockThresholds } from '../src/mock/fetch';
 
 
 describe('validateThresholdPatch', () => {
-  it('rejects a share outside 0–1 and a negative integer', () => {
+  it('rejects values outside the collector ranges', () => {
     expect(validateThresholdPatch({ learnerSessionShareMin: 1.2 })).toEqual({
-      error: 'Learner session share must be between 0 and 1.',
+      error: 'must be a number between 0 and 1',
       field: 'learnerSessionShareMin',
     });
-    expect(validateThresholdPatch({ availableMinSchoolDays: -1 })?.field).toBe('availableMinSchoolDays');
+    expect(validateThresholdPatch({ availableMinSchoolDays: -1 })).toEqual({
+      error: 'must be an integer >= 0',
+      field: 'availableMinSchoolDays',
+    });
+    expect(validateThresholdPatch({ availableMinSchoolDays: 6 })).toEqual({
+      error: 'must be an integer <= 5',
+      field: 'availableMinSchoolDays',
+    });
+    expect(validateThresholdPatch({ helpAfterAmberWeeks: 0 })).toEqual({
+      error: 'must be an integer >= 1',
+      field: 'helpAfterAmberWeeks',
+    });
+    expect(validateThresholdPatch({ unusedAfterHelpWeeks: 0 })?.field).toBe('unusedAfterHelpWeeks');
     expect(validateThresholdPatch({ wikipediaMinViews: 1.5 })?.field).toBe('wikipediaMinViews');
     expect(validateThresholdPatch({ wikipediaMinViews: 12 })).toBeNull();
+    expect(validateThresholdPatch({ availableMinSchoolDays: 5, helpAfterAmberWeeks: 1 })).toBeNull();
   });
 });
 
@@ -36,7 +49,7 @@ describe('Settings page', () => {
     expect((getByTestId('settings-field-wikipediaMinViews').querySelector('input') as HTMLInputElement).value).toBe('12');
     expect((getByTestId('settings-field-learnerSessionShareMin').querySelector('input') as HTMLInputElement).value).toBe('50');
     expect(getByTestId('settings-setup').textContent).toMatch(/yes\/no check/i);
-    expect(getByTestId('settings-setup').textContent).toMatch(/beyond the seeds/);
+    expect(getByTestId('settings-setup').textContent).toMatch(/beyond-seed/);
   });
 
   it('saves a valid edit and resets to defaults', async () => {

@@ -201,6 +201,16 @@ h2 { font-size: 15px; margin: 22px 0 10px; color: var(--navy); }
   margin-top: 10px; font-size: 11px; color: var(--muted);
   display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap;
 }
+.scorecard-card__banner {
+  margin: 0 0 12px;
+  background: var(--alert-bg);
+  border: 1px solid #fecdd3;
+  color: var(--alert);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+  line-height: 1.4;
+}
 .scorecard-card__message {
   margin: 8px 0 0;
   font-size: 13px;
@@ -225,6 +235,7 @@ h2 { font-size: 15px; margin: 22px 0 10px; color: var(--navy); }
 .pill--noData,
 .pill--thresholdsNotSet { background: var(--nodata-bg); color: var(--nodata); }
 .pill--monitoringOff { background: #e2e8f0; color: #334155; }
+.pill--unused { background: var(--alert-bg); color: var(--alert); }
 
 .panel, .kpi {
   background: var(--card);

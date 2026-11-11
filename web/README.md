@@ -2,7 +2,7 @@
 
 Dashboard UI for the idea-hosted `app-usage-dashboard` App (Solid + Vite, static build, no CDN). Owner: Pixel, idea#415.
 
-The UI talks only to Kid's HTTP API (`/api/v1/...`). It never opens SQLite and never writes kit data. Writes are `POST /api/v1/schools/:deploymentId/help-events` (an operator records that help was offered) and the proposed `PUT /api/v1/settings/thresholds` (operator session; pending collector).
+The UI talks only to Kid's HTTP API (`/api/v1/...`). It never opens SQLite and never writes kit data. Writes are `POST /api/v1/schools/:deploymentId/help-events` (an operator records that help was offered) and `PUT /api/v1/settings/thresholds` (operator session; served by the collector in PR #2, Kid 7880247, not yet pushed).
 
 The HTTP contract is in [API.md](./API.md) and `src/api/types.ts`. `GET /api/v1/health` is public. `GET /api/v1/session` without a cookie returns `{authenticated:false}` (not a 401) so the login page can ask.
 
@@ -46,19 +46,19 @@ Sample fixtures (Nharira / healthy-looking counts, Chigonda / offer-help banner 
 | `staleAfterHours` | `48` | A card whose `lastPulled` is older than this is marked “data from &lt;date&gt;” |
 | `hourlyChartMinWeeklyViews` | `20` | Hide Wikipedia views-by-hour when that copy’s weekly page views are below this |
 
-Scorecard grade cut-offs are the U-7 starting thresholds Koen approved on idea#375 (11 Nov 09:42 Europe/Brussels). They live in `src/config/thresholds.ts` as defaults an operator can change on the Settings page (`#/settings`). Effective values come from `/meta.thresholds` or `GET /api/v1/settings/thresholds` when the collector serves them; otherwise the built-in defaults are used. If the settings endpoint is missing (`404`), Settings is read-only. Grey (no data / not measured) never counts as amber.
+Scorecard grade cut-offs are the U-7 starting thresholds Koen approved on idea#375 (11 Nov 09:42 Europe/Brussels). They live in `src/config/thresholds.ts` as defaults an operator can change on the Settings page (`#/settings`). The UI grades from `/meta.thresholds` (sent with `thresholdsConfigured: true` by the collector in PR #2, Kid 7880247, not yet pushed); if that object is absent, the built-in defaults are used. If the settings endpoint is missing (`404`), Settings is read-only. Grey (no data) never counts as amber. A school card may also show **Unused** when the collector sets `unused: true`.
 
 | Key | Default |
 |---|---|
-| `availableMinSchoolDays` | `3` |
+| `availableMinSchoolDays` | `3` (integer 0–5) |
 | `teachingCycleMinItems` | `1` |
 | `learnerSessionShareMin` | `0.5` (shown as 50%) |
 | `nextcloudMinActions` | `1` |
 | `wikipediaMinViews` | `10` |
-| `helpAfterAmberWeeks` | `3` |
-| `unusedAfterHelpWeeks` | `4` |
+| `helpAfterAmberWeeks` | `3` (integer ≥ 1) |
+| `unusedAfterHelpWeeks` | `4` (integer ≥ 1) |
 
-Set up is a yes/no check (own Kolibri has ≥1 coach, ≥1 class and enrolled learners; own Nextcloud has teacher and learner accounts beyond the seeds) and has no number.
+Set up is a yes/no check (registered learners and teachers both > 0; without a Kolibri census, a Nextcloud beyond-seed count > 0) and has no number.
 
 ## Pages against proposal §2
 

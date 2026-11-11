@@ -2,8 +2,9 @@
  * HTTP API contract for the programme dashboard (idea#415).
  *
  * Read-only GET /api/v1/... except POST /api/v1/schools/:deploymentId/help-events
- * (operator-only; Koen or Marco records that help was offered) and the proposed
- * PUT /api/v1/settings/thresholds (operator session; pending collector, idea#375 U-7).
+ * (operator-only; Koen or Marco records that help was offered) and
+ * PUT /api/v1/settings/thresholds (operator session; served by the collector
+ * in PR #2, Kid 7880247, not yet pushed).
  *
  * Derived from the merged proposal (idea PR #410):
  *   §7.5 SQLite tables, §7.6 day-summary schema, §4 scorecard inputs,
@@ -135,14 +136,14 @@ export interface MetaResponse {
   schema: ApiSchema;
   daySchema: DaySchema;
   /**
-   * Legacy flag. The UI now always has U-7 defaults (idea#375) and no longer
-   * waits on this to grade a line. Kept so older collectors still parse.
+   * True once Koen approved the U-7 defaults. The collector (PR #2, Kid 7880247)
+   * sends this as true together with `thresholds`.
    */
   thresholdsConfigured: boolean;
   /**
-   * Effective U-7 thresholds when the collector sends them (proposed,
-   * pending collector). If omitted, the UI uses GET /settings/thresholds
-   * or the built-in defaults in src/config/thresholds.ts.
+   * Effective U-7 thresholds from the collector. If omitted, the UI uses the
+   * built-in defaults in src/config/thresholds.ts. Grades are computed in the
+   * UI; the API never sends scorecard colours.
    */
   thresholds?: ScorecardThresholds;
   /** A card whose lastPulled is older than this is marked "data from <date>". */
@@ -195,7 +196,7 @@ export interface WeeksResponse {
 }
 
 // ---------------------------------------------------------------------------
-// U-7 scorecard thresholds (proposed settings endpoint, pending collector)
+// U-7 scorecard thresholds (collector PR #2, Kid 7880247, not yet pushed)
 // ---------------------------------------------------------------------------
 
 /**
@@ -213,8 +214,9 @@ export interface ScorecardThresholds {
 }
 
 /**
- * GET /api/v1/settings/thresholds and PUT /api/v1/settings/thresholds
- * (proposed, pending collector).
+ * GET /api/v1/settings/thresholds and PUT /api/v1/settings/thresholds.
+ * Both require an operator session (same as /meta). The response has no
+ * `schema` field. `updatedBy` is the operator username.
  */
 export interface ThresholdsSettingsResponse {
   thresholds: ScorecardThresholds;
@@ -229,7 +231,7 @@ export type PutThresholdsRequest =
   | { reset?: false; thresholds: Partial<ScorecardThresholds> };
 
 /**
- * 400 body for the proposed settings endpoint. This is `{ error, field }`,
+ * 400 body for the settings endpoint. This is a flat `{ error, field }`,
  * not the usual `{ error: { code, message } }` wrapper.
  */
 export interface ThresholdsSettingsError {
@@ -353,6 +355,12 @@ export interface SchoolCard {
    * `/api/v1/kits` by deploymentId if a payload omits the field.
    */
   monitoringEnabled: boolean;
+  /**
+   * True when a help event was recorded and the kit stayed amber with no
+   * improvement for unusedAfterHelpWeeks school weeks after that event.
+   * Unused kits are not included in helpSuggestions.
+   */
+  unused: boolean;
   scorecard: ScorecardInputs;
   headlines: SchoolHeadlines;
 }
@@ -420,6 +428,11 @@ export interface SchoolWeekResponse {
   dataFrom: IsoDate | null;
   hasUsageData: boolean;
   monitoringEnabled: boolean;
+  /**
+   * True when a help event was recorded and the kit stayed amber with no
+   * improvement for unusedAfterHelpWeeks school weeks after that event.
+   */
+  unused: boolean;
   thresholdsConfigured: boolean;
   sampleData: boolean;
   /**

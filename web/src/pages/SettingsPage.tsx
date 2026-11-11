@@ -5,6 +5,7 @@ import {
   SETUP_RULE_MEANING,
   THRESHOLD_FIELDS,
   cloneThresholds,
+  validateThresholdPatch,
   type ThresholdKey,
 } from '../config/thresholds';
 
@@ -60,19 +61,11 @@ export function SettingsPage(props: SettingsPageProps) {
   };
 
   const validateDraft = (): { error: string; field: string } | null => {
-    for (const field of THRESHOLD_FIELDS) {
-      if (field.kind === 'int') {
-        const value = draft()[field.id];
-        if (!Number.isInteger(value) || value < 0) {
-          return { error: `${field.label} must be a whole number of 0 or more.`, field: field.id };
-        }
-      }
-    }
     const percent = parsePercent(shareInput());
     if (percent === null || percent < 0 || percent > 100) {
       return { error: 'Learner session share must be a percentage between 0 and 100.', field: 'learnerSessionShareMin' };
     }
-    return null;
+    return validateThresholdPatch({ ...draft(), learnerSessionShareMin: percent / 100 });
   };
 
   const save = async (event: Event) => {
@@ -164,7 +157,8 @@ export function SettingsPage(props: SettingsPageProps) {
                         <Show when={item().kind === 'share'} fallback={
                           <input
                             type="number"
-                            min="0"
+                            min={item().min}
+                            max={item().max}
                             step="1"
                             value={draft()[id]}
                             disabled={!props.writable}
