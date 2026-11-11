@@ -8,15 +8,19 @@
 #   write-env  --env-file INSTANCE.env   add/replace TS_AUTHKEY from the environment
 #   remove-env --env-file INSTANCE.env   delete the TS_AUTHKEY line
 #   verify     --state-dir DIR (--status-json FILE | --socket SOCK)
+#   attempt    --env-file INSTANCE.env -- <command>
+#              write-env, run <command> once, then always remove-env
+#              (success or failure). Use this so the key does not stay in
+#              the env file after a single join attempt.
 #
-# After write-env, start the instance once (existing state empty, TS_AUTH_ONCE=true).
-# After BackendState is Running, run verify. Then remove-env and recreate/restart
-# so the container env no longer holds the consumed key. Verify again after that
-# restart so the on-disk nodekey still matches control.
+# Prefer `attempt` over a bare write-env so TS_AUTHKEY is stripped even if
+# the start fails. After BackendState is Running, run verify. Recreate or
+# restart so the container env no longer holds the consumed key, then verify
+# again so the on-disk nodekey still matches control.
 set -eu
 
 usage() {
-  sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 cmd=${1:-}
@@ -35,11 +39,13 @@ while [ $# -gt 0 ]; do
     --status-json) STATUS_JSON=$2; shift 2 ;;
     --socket) SOCKET=$2; shift 2 ;;
     -h|--help) usage; exit 0 ;;
-    *) echo "unknown option: $1" >&2; usage >&2; exit 2 ;;
+    --) shift; break ;;
+    -*) echo "unknown option: $1" >&2; usage >&2; exit 2 ;;
+    *) break ;;
   esac
 done
 
-# Refuse a key passed on argv (the original argv is $0 and the command name only).
+# Refuse a key passed on argv (remaining args are a command, not a key).
 for arg in "$@"; do
   case "$arg" in
     tskey-*|TS_AUTHKEY=*)
@@ -112,10 +118,23 @@ verify() {
   fi
 }
 
+attempt() {
+  if [ $# -eq 0 ]; then
+    echo "join-idea-hub-once: attempt requires a command (after --)" >&2
+    exit 2
+  fi
+  write_env
+  trap remove_env EXIT INT TERM
+  rc=0
+  "$@" || rc=$?
+  exit "$rc"
+}
+
 case "$cmd" in
   write-env) write_env ;;
   remove-env) remove_env ;;
   verify) verify ;;
+  attempt) attempt "$@" ;;
   ""|-h|--help) usage ;;
   *) echo "unknown command: $cmd" >&2; usage >&2; exit 2 ;;
 esac

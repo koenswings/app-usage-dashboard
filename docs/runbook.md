@@ -91,20 +91,43 @@ needed) sets the previous 100.x IPv4 in the Tailscale admin console so the
 kits' `from=` lines keep working (idea#375). The key must never be pasted
 into chat, a ticket, or git.
 
+The key must be created with **`tag:idea-hub` ticked** (the only tag) and
+`tag:idea-hub` must be listed in Tailscale ACL **`tagOwners`** for the
+identity that creates the key. Compose already passes
+`--advertise-tags=tag:idea-hub`. A key that control rejects with
+`requested tags [tag:idea-hub] are invalid or not permitted` is **burned**:
+do not retry it, even if the wrapper stopped after one attempt. Mint a new
+single-use key after fixing the tag tick and `tagOwners`.
+
+`collector/sidecar-wrap.sh` makes **exactly one** keyed join attempt. If
+`tailscale up` fails or the node is not Running and authorized within
+`TS_JOIN_TIMEOUT` seconds (default 90), the wrapper writes
+`./data/tailscale/authkey-join-blocked` and exits non-zero without looping
+or starting containerboot again with the key. Compose `restart:
+unless-stopped` may restart the container; the marker then blocks any
+further keyed start until an operator deletes that file (or moves existing
+idea-hub state into place). Delete the marker only when you are ready to
+try a **new** key.
+
 On the host that has the instance, in a shell that will not be logged:
 
 1. Export the key in that shell only: `export TS_AUTHKEY=...` (do not put
    it on a command line that will be stored in history if you can avoid it).
-2. Write it into the instance `.env` without printing the value:
+2. Write it into the instance `.env`, run the one start, and strip the key
+   from the env file afterwards — success or failure. `attempt` always
+   runs `remove-env` (via an EXIT trap):
 
 ```sh
-script/join-idea-hub-once.sh write-env --env-file /instances/<instance-id>/.env
+script/join-idea-hub-once.sh attempt --env-file /instances/<instance-id>/.env -- \
+  node engine-ctl.mjs send startInstance <instance-id> <system-disk-id>
 ```
 
-3. Start the instance **once** (`startInstance`). `TS_AUTH_ONCE=true` and
-   the wrapper allow this empty-state start because `TS_AUTHKEY` is set.
-   Do not open a login URL.
-4. When the sidecar `BackendState` is `Running` and there is no `AuthURL`,
+   (`write-env` / `remove-env` remain available if the start has to be
+   issued from another shell; then call `remove-env` yourself immediately
+   after that single attempt, whether it succeeded or failed.)
+   `TS_AUTH_ONCE=true` and the wrapper allow this empty-state start
+   because `TS_AUTHKEY` is set. Do not open a login URL.
+3. When the sidecar `BackendState` is `Running` and there is no `AuthURL`,
    verify the on-disk nodekey matches `Self.PublicKey`:
 
 ```sh
@@ -114,16 +137,15 @@ script/join-idea-hub-once.sh verify --state-dir /instances/<instance-id>/data/ta
    (`--socket` is the socket inside the sidecar; `docker exec` the
    `check-idea-hub-nodekey.py` equivalent, or write `status --json` out
    and pass `--status-json`.) Expect `match=true`.
-5. Remove the consumed key from the instance env:
-
-```sh
-script/join-idea-hub-once.sh remove-env --env-file /instances/<instance-id>/.env
-```
-
-6. Recreate or stop+start the instance so the container environment no
-   longer holds `TS_AUTHKEY`. Existing state is present, so the wrapper
+4. Recreate or stop+start the instance so the container environment no
+   longer holds `TS_AUTHKEY` (the env file was already stripped by
+   `attempt` / `remove-env`). Existing state is present, so the wrapper
    starts without a key. Verify again with the same `verify` command so
    the on-disk nodekey still matches after the restart.
+5. If the join fails, stop the instance, confirm `TS_AUTHKEY` is gone from
+   the env file, shred any temp key file on the host, and leave the
+   `authkey-join-blocked` marker in place until a new key is ready. Do not
+   retry the burned key.
 
 ## Secrets
 

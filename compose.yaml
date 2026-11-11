@@ -39,7 +39,11 @@ services:
     # containerboot forcing `tailscale up` on every start. TS_KUBE_SECRET is
     # cleared so state cannot drift to a kube store. Leave TS_AUTHKEY empty
     # when reusing existing state; do not re-auth. sidecar-wrap refuses to
-    # start with empty state unless TS_AUTHKEY is set.
+    # start with empty state unless TS_AUTHKEY is set. A keyed join runs
+    # exactly once; failure writes ./data/tailscale/authkey-join-blocked
+    # and exits without retrying. restart: unless-stopped keeps a healthy
+    # sidecar up after a host reboot; the marker blocks another keyed
+    # attempt if Docker restarts the container after a failed join.
     image: tailscale/tailscale:v1.88.3@sha256:b2a19f6b6402adc26a2aa8cb90da66afe3061e718ac67ed3f21ec3d4b366439f
     labels:
       x-app-version: "1.0"
