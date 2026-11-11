@@ -15,9 +15,11 @@ from src import db
 from src import main as mainmod
 from src import presence as presence_mod
 
+THRESHOLD = 2 * mainmod.DEFAULT_UPLINK_INTERVAL_S
 
-THRESHOLD = 600
+
 NOW = datetime(2026, 11, 11, 21, 59, tzinfo=timezone.utc)
+OUTAGE_START = datetime(2026, 11, 11, 21, 49, tzinfo=timezone.utc)
 
 
 def _conn(tmp: str):
@@ -56,7 +58,7 @@ class StartupOutageGapTests(unittest.TestCase):
         self.conn.close()
 
     def test_last_sample_10_min_ago_creates_a_closed_gap(self):
-        last = NOW - timedelta(seconds=THRESHOLD)
+        last = NOW - timedelta(seconds=mainmod.startup_gap_threshold_s())
         _insert_uplink(self.conn, last)
         reason = mainmod.record_startup_outage_gap(
             self.conn, now=NOW, threshold_s=THRESHOLD,
@@ -80,6 +82,58 @@ class StartupOutageGapTests(unittest.TestCase):
         self.assertEqual(reason, mainmod.GAP_COLLECTOR_OFFLINE)
         start = presence_mod.parse_ts(_gaps(self.conn)[0]["start"])
         self.assertEqual(start, newer)
+
+    def test_threshold_is_twice_the_configured_uplink_interval(self):
+        self.assertEqual(mainmod.DEFAULT_UPLINK_INTERVAL_S, 300)
+        saved = os.environ.get("UPLINK_INTERVAL_S")
+        try:
+            os.environ.pop("UPLINK_INTERVAL_S", None)
+            self.assertEqual(mainmod.uplink_interval_s(), 300)
+            self.assertEqual(mainmod.startup_gap_threshold_s(), 600)
+            os.environ["UPLINK_INTERVAL_S"] = "120"
+            self.assertEqual(mainmod.uplink_interval_s(), 120)
+            self.assertEqual(mainmod.startup_gap_threshold_s(), 240)
+        finally:
+            if saved is None:
+                os.environ.pop("UPLINK_INTERVAL_S", None)
+            else:
+                os.environ["UPLINK_INTERVAL_S"] = saved
+
+    def test_outage_2149_to_2159_with_configured_interval_records_a_gap(self):
+        """idea#445: last sample 21:49, startup 21:59, default UPLINK_INTERVAL_S=300."""
+        _insert_uplink(self.conn, OUTAGE_START)
+        saved = os.environ.get("UPLINK_INTERVAL_S")
+        try:
+            os.environ.pop("UPLINK_INTERVAL_S", None)
+            reason = mainmod.record_startup_outage_gap(self.conn, now=NOW)
+        finally:
+            if saved is None:
+                os.environ.pop("UPLINK_INTERVAL_S", None)
+            else:
+                os.environ["UPLINK_INTERVAL_S"] = saved
+        self.assertEqual(mainmod.startup_gap_threshold_s(), 600)
+        self.assertEqual(reason, mainmod.GAP_COLLECTOR_OFFLINE)
+        rows = _gaps(self.conn)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["reason"], "collector-offline")
+        self.assertEqual(presence_mod.parse_ts(rows[0]["start"]), OUTAGE_START)
+        self.assertEqual(presence_mod.parse_ts(rows[0]["end"]), NOW)
+
+    def test_just_under_two_intervals_records_nothing(self):
+        threshold = 2 * mainmod.DEFAULT_UPLINK_INTERVAL_S
+        last = NOW - timedelta(seconds=threshold - 1)
+        _insert_uplink(self.conn, last)
+        saved = os.environ.get("UPLINK_INTERVAL_S")
+        try:
+            os.environ.pop("UPLINK_INTERVAL_S", None)
+            reason = mainmod.record_startup_outage_gap(self.conn, now=NOW)
+        finally:
+            if saved is None:
+                os.environ.pop("UPLINK_INTERVAL_S", None)
+            else:
+                os.environ["UPLINK_INTERVAL_S"] = saved
+        self.assertIsNone(reason)
+        self.assertEqual(_gaps(self.conn), [])
 
     def test_recent_sample_creates_none(self):
         _insert_uplink(self.conn, NOW - timedelta(minutes=5))
@@ -157,7 +211,7 @@ class StartupOutageGapTests(unittest.TestCase):
             "IDEA_USAGE_KOEN_PASSWORD": "koen911!",
             "IDEA_USAGE_MARCO_PASSWORD": "marco911!",
             "IDEA_USAGE_ONCE": "1",
-            "COLLECTOR_OFFLINE_AFTER_S": "600",
+            "UPLINK_INTERVAL_S": "300",
         }
         saved = {k: os.environ.get(k) for k in env}
         os.environ.update(env)

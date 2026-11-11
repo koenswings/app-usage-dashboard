@@ -24,9 +24,11 @@ DEFAULT_TS_SOCKET = "/var/run/tailscale/tailscaled.sock"
 # Only request a sidecar restart after this long continuously un-Running / unreachable.
 DEFAULT_RESTART_AFTER_S = 600
 DEFAULT_RESTART_MIN_INTERVAL_S = 600
-# On startup, a last presence/uplink sample older than this is a whole-hub
-# outage the collector could not record while it was down (idea#414 / #445).
-DEFAULT_COLLECTOR_OFFLINE_AFTER_S = 600
+# How often the collector itself writes uplink_samples (loop, record_uplink).
+# Presence samples are pulled from kits (PULL_ONLINE_INTERVAL_S); there is no
+# collector-side presence sampling interval. The startup-gap threshold is
+# 2 * this uplink interval (idea#414 / #445).
+DEFAULT_UPLINK_INTERVAL_S = 300
 GAP_COLLECTOR_OFFLINE = "collector-offline"
 LOCALAPI_HOST = "local-tailscaled.sock"
 
@@ -34,6 +36,17 @@ LOCALAPI_HOST = "local-tailscaled.sock"
 def env_int(name: str, default: int) -> int:
     raw = os.environ.get(name)
     return int(raw) if raw else default
+
+
+def uplink_interval_s() -> int:
+    """Configured uplink sample interval, seconds (env UPLINK_INTERVAL_S)."""
+    value = env_int("UPLINK_INTERVAL_S", DEFAULT_UPLINK_INTERVAL_S)
+    return value if value > 0 else DEFAULT_UPLINK_INTERVAL_S
+
+
+def startup_gap_threshold_s() -> int:
+    """Two uplink sample intervals. A missed pair of samples is an outage."""
+    return 2 * uplink_interval_s()
 
 
 def socket_path() -> str:
@@ -143,15 +156,17 @@ def latest_sample_time(conn):
 def record_startup_outage_gap(conn, now=None, threshold_s: int | None = None) -> str | None:
     """If the last sample is older than the gap threshold, record a closed gap.
 
-    The gap runs from that last sample to ``now`` with reason
-    ``collector-offline``. Idempotent: does nothing on a fresh empty DB, when
-    the last sample is still recent, when a gap is already open (the open
-    start is backdated if it is later than the last sample), or when an
-    existing row already overlaps the interval (a quick second restart).
-    Returns the reason when a new row is inserted, else None.
+    The gap threshold is two uplink sample intervals
+    (``2 * UPLINK_INTERVAL_S``, default 2 * 300 = 600 s). Presence is
+    pulled from kits and has no collector-side sampling interval, so the
+    uplink interval is the one used. Idempotent: does nothing on a fresh
+    empty DB, when the last sample is still recent, when a gap is already
+    open (the open start is backdated if it is later than the last sample),
+    or when an existing row already overlaps the interval (a quick second
+    restart). Returns the reason when a new row is inserted, else None.
     """
     if threshold_s is None:
-        threshold_s = env_int("COLLECTOR_OFFLINE_AFTER_S", DEFAULT_COLLECTOR_OFFLINE_AFTER_S)
+        threshold_s = startup_gap_threshold_s()
     if now is None:
         now_dt = presence_mod.parse_ts(db.now_rfc3339())
     elif isinstance(now, str):
@@ -317,7 +332,7 @@ def backup_dir_from_env() -> str:
 def loop(conn, stop_event: threading.Event | None = None, pull_fn=None,
          backup_dir: str | None = None, snapshot_fn=None) -> None:
     poll_s = env_int("POLL_INTERVAL_S", 60)
-    uplink_s = env_int("UPLINK_INTERVAL_S", 300)
+    uplink_s = uplink_interval_s()
     pull_s = env_int("PULL_ONLINE_INTERVAL_S", 21600)
     restart_after_s = env_int("SIDECAR_RESTART_AFTER_S", DEFAULT_RESTART_AFTER_S)
     restart_min_interval_s = env_int("SIDECAR_RESTART_MIN_INTERVAL_S", DEFAULT_RESTART_MIN_INTERVAL_S)
