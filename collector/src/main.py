@@ -13,6 +13,7 @@ from typing import Any
 
 from . import auth
 from . import db
+from . import identity as identitymod
 from .api import serve
 from .pull import handle_pull, record_uplink
 
@@ -237,8 +238,13 @@ def loop(conn, stop_event: threading.Event | None = None, pull_fn=None,
     pull_s = env_int("PULL_ONLINE_INTERVAL_S", 21600)
     restart_after_s = env_int("SIDECAR_RESTART_AFTER_S", DEFAULT_RESTART_AFTER_S)
     restart_min_interval_s = env_int("SIDECAR_RESTART_MIN_INTERVAL_S", DEFAULT_RESTART_MIN_INTERVAL_S)
+    blip_s = env_int("IDENTITY_BLIP_S", identitymod.DEFAULT_IDENTITY_BLIP_S)
+    blip_polls = identitymod.env_blip_polls()
+    blip_poll_s = env_int("IDENTITY_BLIP_POLL_S", identitymod.DEFAULT_IDENTITY_BLIP_POLL_S)
     sock = socket_path()
     flag_path = restart_flag_path(sock)
+    state_file = identitymod.env_state_file()
+    ident = identitymod.IdentityState()
     key = os.environ.get("PULL_KEY") or "/data/keys/pull_key"
     socks = os.environ.get("TS_SOCKS5")
     pull = pull_fn or handle_pull
@@ -260,6 +266,26 @@ def loop(conn, stop_event: threading.Event | None = None, pull_fn=None,
             print("collector: daily snapshot failed: %s" % exc, file=sys.stderr, flush=True)
         status, error = localapi_status(sock)
         now = time.time()
+        ident_decision = identitymod.decide_identity(
+            status, error, now, ident,
+            blip_s=blip_s,
+            blip_polls=blip_polls,
+            stamp=identitymod.state_stamp(state_file),
+        )
+        if ident_decision.log:
+            print("collector: %s" % ident_decision.log, file=sys.stderr, flush=True)
+        if ident_decision.fail_closed:
+            if ident_decision.gap_reason:
+                open_collector_gap(conn, ident_decision.gap_reason)
+            # Fail closed: never request a restart or a join. Keep serving
+            # last-good API data. Do not close an identity / logged-out gap.
+            fail_streak += 1
+            sleep_s = poll_s
+            if stop_event is not None and stop_event.wait(sleep_s):
+                return
+            if stop_event is None:
+                time.sleep(sleep_s)
+            continue
         decision = decide_sidecar_action(
             status, error, now, bad_since, last_restart_at,
             restart_after_s=restart_after_s,
@@ -277,7 +303,10 @@ def loop(conn, stop_event: threading.Event | None = None, pull_fn=None,
             last_restart_at = now
         if not decision["running"]:
             fail_streak += 1
-            sleep_s = poll_s if not error else min(60, poll_s * (2 ** min(fail_streak - 1, 5)))
+            if ident_decision.in_blip:
+                sleep_s = max(1, blip_poll_s)
+            else:
+                sleep_s = poll_s if not error else min(60, poll_s * (2 ** min(fail_streak - 1, 5)))
             if stop_event is not None and stop_event.wait(sleep_s):
                 return
             if stop_event is None:
