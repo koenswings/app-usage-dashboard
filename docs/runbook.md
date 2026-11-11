@@ -186,9 +186,24 @@ Operator login is documented in `docs/accounts.md`. Atlas installs the matching 
 
 `timezone` is optional IANA. Without it the API labels ticks as `kit local time (UTC±offset)` from the latest presence sample.
 
+## Daily SQLite snapshots
+
+The collector writes one consistent `VACUUM INTO` copy per **UTC** day to
+`./data/backup/usage-YYYY-MM-DD.sqlite`. It decides whether today's copy is
+due by looking at that filename, so a restart on the same UTC day does not
+write a second file. The write is atomic: `VACUUM INTO` a temp file in the
+same directory, then rename. A failure is logged on stderr and never stops
+the collector loop.
+
+Only files matching `usage-YYYY-MM-DD.sqlite` are pruned. The 14 newest UTC
+dates are kept. Other files in `./data/backup` (for example
+`i431-cleanup-*.sqlite`) are left alone. Leftover `*.tmp` files from a
+crashed write are not treated as snapshots.
+
 ## Restore
 
-1. Restore `./data/usage.sqlite` from a `VACUUM INTO` snapshot under `./data/backup/` or from idea's Borg copy of App data.
+1. Restore `./data/usage.sqlite` from a daily `VACUUM INTO` snapshot
+   (`./data/backup/usage-YYYY-MM-DD.sqlite`) or from idea's Borg copy of App data.
 2. Restore `./data/keys/pull_key` only from idea's encrypted Borg. **Move** (never copy) `./data/tailscale/` into place so only one live node-key copy exists.
 3. Restart the App. The collector opens SQLite in WAL mode and keeps serving the last stored data if Tailscale is down.
 
