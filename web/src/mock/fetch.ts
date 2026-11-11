@@ -111,7 +111,12 @@ export function mockFetch(input: string, init?: RequestInit): Promise<Response> 
   const path = url.pathname.replace(/\/$/, '') || '/';
 
   if (path === '/api/v1/health' && method === 'GET') {
-    return Promise.resolve(json({ ok: true, schema: API_SCHEMA }));
+    return Promise.resolve(json({
+      ok: true,
+      schema: API_SCHEMA,
+      version: '1.0',
+      commit: 'mock0000000000000000000000000000000000000',
+    }));
   }
 
   if (path === '/api/v1/session' && method === 'GET') {
@@ -234,12 +239,13 @@ export function mockFetch(input: string, init?: RequestInit): Promise<Response> 
       }));
     }
     if (kind === 'uplink') {
-      const uplink = uplinkFor(deploymentId);
+      const uplink = uplinkFor(deploymentId, weekStart);
       return Promise.resolve(json({
         schema: API_SCHEMA,
         deploymentId,
         weekStart,
         timezone: HARARE,
+        measured: uplink.measured,
         samples: uplink.samples,
         transitions: uplink.transitions,
       }));

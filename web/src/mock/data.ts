@@ -885,7 +885,14 @@ function uplinkPair(engine: string, start: string, end: string, online: boolean,
   ];
 }
 
-export function uplinkFor(deploymentId: string): { samples: UplinkSample[]; transitions: UplinkTransition[] } {
+export function uplinkFor(deploymentId: string, weekStart?: string): {
+  measured?: boolean;
+  samples: UplinkSample[];
+  transitions: UplinkTransition[];
+} {
+  if (weekStart === PREV_WEEK) {
+    return { measured: false, samples: [], transitions: [] };
+  }
   if (deploymentId === DEP_NHARIRA) {
     const engine = 'happy-zebra';
     const samples: UplinkSample[] = [
@@ -910,11 +917,12 @@ export function uplinkFor(deploymentId: string): { samples: UplinkSample[]; tran
       { timestamp: '2026-11-06T07:03:00+02:00', engine, fromState: 'offline', toState: 'online' },
       { timestamp: '2026-11-06T12:10:00+02:00', engine, fromState: 'online', toState: 'offline' },
     ];
-    return { samples, transitions };
+    return { measured: true, samples, transitions };
   }
   if (deploymentId === DEP_CHIGONDA) {
     const engine = 'sunny-robin';
     return {
+      measured: true,
       samples: [
         { timestamp: '2026-11-02T08:04:00+02:00', engine, online: true, lastSeen: '2026-11-02T08:04:00+02:00', via: 'DERP', latencyMs: 120 },
         { timestamp: '2026-11-02T11:08:00+02:00', engine, online: false, lastSeen: '2026-11-02T11:01:00+02:00', via: null, latencyMs: null },

@@ -1,11 +1,12 @@
 import { Show, createEffect, createSignal, onCleanup, onMount } from 'solid-js';
 import { api } from './api/client';
 import { API_SCHEMA } from './api/types';
-import type { MetaResponse, SessionResponse, WeeksResponse } from './api/types';
+import type { HealthResponse, MetaResponse, SessionResponse, WeeksResponse } from './api/types';
 import { Footer, Header, SampleNote } from './components/Header';
 import { WeekPicker } from './components/WeekPicker';
 import { resolveHourlyChartMinWeeklyViews } from './config/display';
 import { parseHash, toHash, type Route } from './lib/route';
+import { healthVersionLabel } from './lib/health';
 import { formatWeekLabel, fridayOf, noDataThisWeekNote } from './lib/week';
 import { FleetOverview } from './pages/FleetOverview';
 import { HelpTimeline } from './pages/HelpTimeline';
@@ -24,6 +25,7 @@ export default function App() {
   const [meta, setMeta] = createSignal<MetaResponse | null>(null);
   const [weeks, setWeeks] = createSignal<WeeksResponse | null>(null);
   const [kits, setKits] = createSignal<{ deploymentId: string; school: string; monitoringEnabled: boolean }[]>([]);
+  const [health, setHealth] = createSignal<HealthResponse | null>(null);
 
   const week = () => route().week || weeks()?.currentWeekStart || '';
   const schoolName = (deploymentId: string) =>
@@ -46,10 +48,11 @@ export default function App() {
   };
 
   const loadShell = async () => {
-    const [nextMeta, nextWeeks, nextKits] = await Promise.all([
+    const [nextMeta, nextWeeks, nextKits, nextHealth] = await Promise.all([
       api.getMeta(),
       api.getWeeks(),
       api.getKits(),
+      api.getHealth().catch(() => null),
     ]);
     setMeta(nextMeta);
     setWeeks(nextWeeks);
@@ -58,6 +61,7 @@ export default function App() {
       school: item.school,
       monitoringEnabled: item.monitoringEnabled,
     })));
+    setHealth(nextHealth);
   };
 
   const navigate = (next: Route) => {
@@ -280,7 +284,7 @@ export default function App() {
                 school={schoolName(String(page().data?.deploymentId ?? ''))}
               />
             </Show>
-            <Footer />
+            <Footer versionLabel={healthVersionLabel(health())} />
           </div>
         </Show>
       )}
