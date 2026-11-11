@@ -121,6 +121,43 @@ const checkTailscalePersist = (text, errs) => {
   }
 };
 
+const collectorVolumeSources = (block) => {
+  const srcs = [];
+  const volRe = /^\s+-\s+(\S+):(\S+)\s*$/gm;
+  let m;
+  while ((m = volRe.exec(block)) !== null) {
+    srcs.push({ src: m[1], dest: m[2] });
+  }
+  return srcs;
+};
+
+const checkCollectorDoesNotMountState = (text, errs) => {
+  const block = serviceBlock(text, 'collector');
+  if (!block) return;
+  for (const { src, dest } of collectorVolumeSources(block)) {
+    // tmpfs short form is "- /data/tailscale:mode=0700" (dest starts with mode=),
+    // which hides the state dir; it is not a bind of ./data/tailscale.
+    if (dest.startsWith('mode=')) continue;
+    const base = src.replace(/\/$/, '');
+    if (base === './data/tailscale' || /(?:^|\/)data\/tailscale$/.test(base)) {
+      if (!base.endsWith('tailscale-run')) {
+        errs.push(
+          'collector must not mount the sidecar state dir ./data/tailscale (node key lives there); share only ./data/tailscale-run, got ' +
+            src + ':' + dest
+        );
+      }
+    }
+  }
+  const hasSocketDir = collectorVolumeSources(block).some(
+    ({ src, dest }) => src === './data/tailscale-run' || dest === '/var/run/tailscale'
+  );
+  // Only require the socket-dir share when this compose already uses the new layout.
+  if (/TS_SOCKET=/.test(block) && !hasSocketDir) {
+    errs.push('collector has TS_SOCKET but does not bind-mount the socket dir ./data/tailscale-run');
+  }
+};
+
+
 export function checkCompose(text, { tag, release } = {}) {
   const errs = [];
   if (PLACEHOLDER_RE.test(text)) {
@@ -157,6 +194,7 @@ export function checkCompose(text, { tag, release } = {}) {
   }
 
   checkTailscalePersist(text, errs);
+  checkCollectorDoesNotMountState(text, errs);
 
   if (release) {
     const image = webImage(text);

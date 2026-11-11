@@ -5,7 +5,7 @@ Never prints private keys. Prints public prefixes and match only.
 
 Usage:
   script/check-idea-hub-nodekey.py --state-dir DIR --status-json FILE
-  script/check-idea-hub-nodekey.py --state-dir DIR --socket /tmp/tailscaled.sock
+  script/check-idea-hub-nodekey.py --state-dir DIR --socket /var/run/tailscale/tailscaled.sock
 """
 
 from __future__ import annotations

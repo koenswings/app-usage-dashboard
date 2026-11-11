@@ -8,7 +8,7 @@ if [ "$need_pkgs" = 1 ]; then
   apt-get install -y --no-install-recommends openssh-client netcat-openbsd tzdata
   rm -rf /var/lib/apt/lists/*
 fi
-mkdir -p /data/keys /data/backup /data/tailscale
+mkdir -p /data/keys /data/backup /var/run/tailscale
 chmod 700 /data/keys || true
 if [ -f /data/keys/pull_key ]; then
   chmod 600 /data/keys/pull_key || true

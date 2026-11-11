@@ -57,12 +57,17 @@ services:
       - TS_STATE_DIR=/var/lib/tailscale
       - TS_USERSPACE=true
       - TS_SOCKS5_SERVER=127.0.0.1:1055
-      - TS_LOCAL_ADDR_PORT=127.0.0.1:8384
+      # LocalAPI is the unix socket below, not HTTP :8384. TS_LOCAL_ADDR_PORT
+      # in containerboot 1.88.3 only serves /healthz and /metrics when those
+      # endpoints are enabled; it is not /localapi/v0/status, so it is unset.
+      - TS_SOCKET=/var/run/tailscale/tailscaled.sock
       - TS_EXTRA_ARGS=--advertise-tags=tag:idea-hub
       - TS_HOSTNAME=${TS_HOSTNAME:-idea-hub}
       - TS_ACCEPT_DNS=false
     volumes:
       - ./data/tailscale:/var/lib/tailscale
+      # Socket dir only — shared with the collector. Not the state (node key).
+      - ./data/tailscale-run:/var/run/tailscale
       - ./collector/sidecar-wrap.sh:/sidecar-wrap.sh:ro
     entrypoint: ["/bin/sh", "/sidecar-wrap.sh"]
     # State file must exist (or TS_AUTHKEY for a one-time join). sidecar-wrap
@@ -72,7 +77,7 @@ services:
     healthcheck:
       test:
         - CMD-SHELL
-        - test -f /var/lib/tailscale/tailscaled.state && tailscale --socket=/tmp/tailscaled.sock status --json | grep -Eq '"BackendState":[[:space:]]*"Running"'
+        - test -f /var/lib/tailscale/tailscaled.state && test -S /var/run/tailscale/tailscaled.sock && tailscale --socket=/var/run/tailscale/tailscaled.sock status --json | grep -Eq '"BackendState":[[:space:]]*"Running"'
       interval: 30s
       timeout: 5s
       retries: 3
@@ -92,9 +97,10 @@ services:
       - DATA_DIR=/data
       - REGISTRY_PATH=/data/registry.json
       - PULL_KEY=/data/keys/pull_key
-      - TS_LOCALAPI=http://127.0.0.1:8384
       - TS_SOCKS5=127.0.0.1:1055
-      - TS_STATE_DIR=/data/tailscale
+      # LocalAPI over the shared unix socket (Host: local-tailscaled.sock).
+      # The collector does not mount ./data/tailscale (node key).
+      - TS_SOCKET=/var/run/tailscale/tailscaled.sock
       - COLLECTOR_BIND=0.0.0.0:8080
       - HEADER_TIMEZONE=Europe/Brussels
       - STALE_AFTER_HOURS=48
@@ -107,9 +113,19 @@ services:
       - IDEA_USAGE_KOEN_PASSWORD=${IDEA_USAGE_KOEN_PASSWORD:-koen911!}
       - IDEA_USAGE_MARCO_PASSWORD=${IDEA_USAGE_MARCO_PASSWORD:-marco911!}
       - IDEA_USAGE_SESSION_SECRET=${IDEA_USAGE_SESSION_SECRET:-}
+    # The collector keeps the image's root user: live ./data (sqlite, keys,
+    # operators) is root-owned, and entrypoint.sh may apt-get on first start.
+    # A non-root user would need a chown of that volume, which this change
+    # does not do. The socket dir is 0755 / 0660 so a later non-root user
+    # can be added without moving the node key.
     volumes:
       - ./data:/data
+      - ./data/tailscale-run:/var/run/tailscale
       - ./collector:/app:ro
+    # Hide ./data/tailscale (node key) from the collector even though ./data
+    # is mounted as a whole. This tmpfs is not the state bind.
+    tmpfs:
+      - /data/tailscale:mode=0700
     working_dir: /app
     entrypoint: ["/bin/sh", "/app/entrypoint.sh"]
 

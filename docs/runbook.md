@@ -81,7 +81,7 @@ login URL. After the sidecar is Running, confirm the on-disk nodekey still
 matches control:
 
 ```sh
-script/check-idea-hub-nodekey.py --state-dir ./data/tailscale --socket /tmp/tailscaled.sock
+script/check-idea-hub-nodekey.py --state-dir ./data/tailscale --socket /var/run/tailscale/tailscaled.sock
 ```
 
 (Use `docker exec` of the sidecar for the socket, or pass a saved
@@ -135,7 +135,7 @@ script/join-idea-hub-once.sh attempt --env-file /instances/<instance-id>/.env --
    verify the on-disk nodekey matches `Self.PublicKey`:
 
 ```sh
-script/join-idea-hub-once.sh verify --state-dir /instances/<instance-id>/data/tailscale --socket /tmp/tailscaled.sock
+script/join-idea-hub-once.sh verify --state-dir /instances/<instance-id>/data/tailscale --socket /var/run/tailscale/tailscaled.sock
 ```
 
    (`--socket` is the socket inside the sidecar; `docker exec` the
