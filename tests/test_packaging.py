@@ -172,6 +172,22 @@ services:
         finally:
             Path(path).unlink()
 
+    def test_backup_exclude_covers_keys_and_sidecar_dirs(self):
+        """x-app.backup.exclude must list keys, node state, and the socket dir."""
+        text = COMPOSE.read_text(encoding="utf-8")
+        start = text.index("  backup:")
+        rest = text[start:]
+        # Stop at the next top-level or services: block.
+        end_candidates = [rest.find("\nservices:"), rest.find("\n  services:")]
+        end = min(i for i in end_candidates if i != -1)
+        block = rest[:end]
+        names = re.findall(r"^\s+- ([^\s#]+)", block, flags=re.M)
+        self.assertEqual(
+            names,
+            ["keys", "tailscale", "tailscale-run"],
+            "x-app.backup.exclude must be keys, tailscale (node state) and tailscale-run (socket dir); got %r\n%s" % (names, block),
+        )
+
     def test_nginx_assets_return_404_and_spa_fallback_remains(self):
         text = NGINX.read_text(encoding="utf-8")
         assets = re.search(

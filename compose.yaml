@@ -25,6 +25,7 @@ x-app:
     exclude:
       - keys
       - tailscale
+      - tailscale-run
 
 services:
   tailscale:
