@@ -354,8 +354,10 @@ def main() -> int:
         os.environ["IDEA_USAGE_OPERATORS_FILE"] = os.path.join(data_dir, "operators.json")
     auth.ensure_operators()
     db_path = os.path.join(data_dir, "usage.sqlite")
-    # idea#444: if a hook-mode extract left the dump but not the live db,
-    # restore it before opening SQLite. Never overwrites an existing live db.
+    # idea#444: move leftover dated snapshots into backup/daily/ so a later
+    # hook-mode backup cannot pack the old path. Also restore a hook dump
+    # onto a missing live db, never overwriting an existing live db.
+    db.migrate_legacy_backups(data_dir)
     backup_hook.maybe_restore_hook_dump(data_dir)
     conn = db.connect(db_path)
     db.load_registry(conn, os.environ.get("REGISTRY_PATH") or os.path.join(data_dir, "registry.json"))

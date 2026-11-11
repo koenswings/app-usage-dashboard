@@ -115,19 +115,65 @@ class DailySnapshotTests(unittest.TestCase):
         self.assertTrue(os.path.isdir(db.dated_snapshot_dir(self.backup)))
         self.assertFalse(os.path.exists(os.path.join(self.backup, "usage-2026-11-04.sqlite")))
 
-    def test_migrate_moves_legacy_dated_files_into_daily(self):
+    def test_migrate_moves_all_legacy_dated_files_into_daily(self):
         os.makedirs(self.backup, exist_ok=True)
-        legacy = os.path.join(self.backup, "usage-2026-11-10.sqlite")
-        Path(legacy).write_bytes(b"legacy-dated")
+        hook = os.path.join(self.backup, "usage.sqlite")
+        Path(hook).write_bytes(b"hook-dump")
+        foreign = os.path.join(self.backup, "notes.txt")
+        Path(foreign).write_text("keep\n")
+        days = ["2026-11-08", "2026-11-09", "2026-11-10"]
+        for day in days:
+            Path(os.path.join(self.backup, "usage-%s.sqlite" % day)).write_bytes(
+                b"legacy-%s" % day.encode()
+            )
+        moved = db.migrate_dated_snapshots(self.backup)
+        dests = [
+            os.path.join(db.dated_snapshot_dir(self.backup), "usage-%s.sqlite" % day)
+            for day in days
+        ]
+        self.assertEqual(sorted(moved), sorted(dests))
+        for day, dest in zip(days, dests):
+            self.assertTrue(os.path.isfile(dest), dest)
+            self.assertEqual(Path(dest).read_bytes(), b"legacy-%s" % day.encode())
+            self.assertFalse(os.path.exists(os.path.join(self.backup, "usage-%s.sqlite" % day)))
+        self.assertEqual(Path(hook).read_bytes(), b"hook-dump")
+        self.assertEqual(Path(foreign).read_text(), "keep\n")
+        # Idempotent: a second run moves nothing and leaves the hook dump alone.
+        self.assertEqual(db.migrate_dated_snapshots(self.backup), [])
+        self.assertEqual(Path(hook).read_bytes(), b"hook-dump")
+        for dest in dests:
+            self.assertTrue(os.path.isfile(dest))
+
+    def test_migrate_does_not_overwrite_existing_daily_copy(self):
+        os.makedirs(db.dated_snapshot_dir(self.backup), exist_ok=True)
+        dest = os.path.join(db.dated_snapshot_dir(self.backup), "usage-2026-11-10.sqlite")
+        Path(dest).write_bytes(b"canonical-daily")
+        leftover = os.path.join(self.backup, "usage-2026-11-10.sqlite")
+        Path(leftover).write_bytes(b"old-path-leftover")
         hook = os.path.join(self.backup, "usage.sqlite")
         Path(hook).write_bytes(b"hook-dump")
         moved = db.migrate_dated_snapshots(self.backup)
-        dest = os.path.join(db.dated_snapshot_dir(self.backup), "usage-2026-11-10.sqlite")
+        self.assertEqual(moved, [])
+        self.assertEqual(Path(dest).read_bytes(), b"canonical-daily")
+        # Leftover is gone so a backup cannot pack the old path.
+        self.assertFalse(os.path.exists(leftover))
+        self.assertEqual(Path(hook).read_bytes(), b"hook-dump")
+
+    def test_migrate_legacy_backups_uses_data_dir_backup(self):
+        data_dir = self.tmp
+        backup = os.path.join(data_dir, "backup")
+        os.makedirs(backup, exist_ok=True)
+        Path(os.path.join(backup, "usage-2026-11-11.sqlite")).write_bytes(b"legacy")
+        Path(os.path.join(backup, "usage.sqlite")).write_bytes(b"hook")
+        moved = db.migrate_legacy_backups(data_dir)
+        dest = os.path.join(backup, "daily", "usage-2026-11-11.sqlite")
         self.assertEqual(moved, [dest])
         self.assertTrue(os.path.isfile(dest))
-        self.assertEqual(Path(dest).read_bytes(), b"legacy-dated")
-        self.assertFalse(os.path.exists(legacy))
-        self.assertEqual(Path(hook).read_bytes(), b"hook-dump")
+        self.assertFalse(os.path.exists(os.path.join(backup, "usage-2026-11-11.sqlite")))
+        self.assertEqual(Path(os.path.join(backup, "usage.sqlite")).read_bytes(), b"hook")
+        self.assertEqual(db.migrate_legacy_backups(data_dir), [])
+        # Missing backup dir is fine.
+        self.assertEqual(db.migrate_legacy_backups(os.path.join(self.tmp, "no-such")), [])
 
     def test_error_is_non_fatal(self):
         def boom(_conn, _dest):

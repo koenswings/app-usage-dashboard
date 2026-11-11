@@ -199,8 +199,12 @@ def snapshot_path(backup_dir: str, day: str) -> str:
 def migrate_dated_snapshots(backup_dir: str) -> list[str]:
     """Move leftover ``usage-YYYY-MM-DD.sqlite`` files into ``backup/daily/``.
 
-    Files already at the hook-dump name (``usage.sqlite``) or any other name
-    stay put. If the destination already exists, the source is left alone.
+    Every dated file in the parent is considered, so a live tree that still
+    writes the old path does not leave packable leftovers. The hook dump
+    (``usage.sqlite``) and any other name stay put. Idempotent: a second
+    run is a no-op. If ``daily/<name>`` already exists, that copy is kept
+    (never overwritten) and the leftover parent file is removed so a
+    backup cannot pack it.
     """
     if not os.path.isdir(backup_dir):
         return []
@@ -215,10 +219,21 @@ def migrate_dated_snapshots(backup_dir: str) -> list[str]:
         os.makedirs(dest_dir, exist_ok=True)
         dest = os.path.join(dest_dir, name)
         if os.path.exists(dest):
+            if os.path.samefile(src, dest):
+                continue
+            try:
+                os.remove(src)
+            except OSError:
+                pass
             continue
         os.replace(src, dest)
         moved.append(dest)
     return moved
+
+
+def migrate_legacy_backups(data_dir: str) -> list[str]:
+    """Migrate dated snapshots under ``<data_dir>/backup``. Missing dir is fine."""
+    return migrate_dated_snapshots(os.path.join(data_dir, "backup"))
 
 
 def list_snapshot_files(backup_dir: str) -> list[tuple[str, str]]:

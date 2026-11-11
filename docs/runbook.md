@@ -279,8 +279,12 @@ instance-relative and is not auto-prefixed with `data/` (write
 `data/backup/daily`, not `backup/daily`). The dated files therefore live
 under `./data/backup/daily/`, always excluded as that path. They are
 redundant with the hook dump on a successful hook run, and on
-`HOOK_FALLBACK` the live db is packed instead. On start, leftover dated
-files at the old path are moved into `daily/`.
+`HOOK_FALLBACK` the live db is packed instead. On collector start, and
+again at the start of the preHook (so a backup never packs the old path
+even if the collector has not restarted), leftover dated files at the
+old path are moved into `daily/`. The move is idempotent, never
+overwrites an existing `daily/` copy, never touches the hook dump, and
+removes a leftover parent file when the daily copy is already present.
 
 `./data/operators.json` is written with a temp file plus `os.replace`, so
 it is packed as-is. `./data/registry.json` is only read by the collector

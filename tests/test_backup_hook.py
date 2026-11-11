@@ -156,6 +156,94 @@ class HookDumpTests(unittest.TestCase):
         self.assertFalse(os.path.samefile(self.live, dest))
 
 
+class LegacyMigrateInHookAndStartupTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.backup = os.path.join(self.tmp, "backup")
+        os.makedirs(self.backup, exist_ok=True)
+        for day in ("2026-11-09", "2026-11-10"):
+            Path(os.path.join(self.backup, "usage-%s.sqlite" % day)).write_bytes(
+                b"legacy-%s" % day.encode()
+            )
+        Path(os.path.join(self.backup, "usage.sqlite")).write_bytes(b"old-hook-dump")
+
+    def _assert_migrated(self):
+        daily = os.path.join(self.backup, "daily")
+        for day in ("2026-11-09", "2026-11-10"):
+            dest = os.path.join(daily, "usage-%s.sqlite" % day)
+            self.assertTrue(os.path.isfile(dest), dest)
+            self.assertEqual(Path(dest).read_bytes(), b"legacy-%s" % day.encode())
+            self.assertFalse(os.path.exists(os.path.join(self.backup, "usage-%s.sqlite" % day)))
+
+    def test_pre_hook_migrates_legacy_files_before_the_dump(self):
+        _seed_db(self.tmp)
+        dest = backup_hook.write_hook_dump(self.tmp)
+        self._assert_migrated()
+        backup_hook.check_integrity(dest)
+        # Hook dump was rewritten as the consistent dump, not left as the sentinel.
+        self.assertNotEqual(Path(dest).read_bytes(), b"old-hook-dump")
+        # Dated files stay in daily/ next to the hook dump, not in the parent.
+        self.assertTrue(os.path.isfile(os.path.join(self.backup, "usage.sqlite")))
+
+    def test_pre_hook_migrates_even_when_the_dump_fails(self):
+        # No live db: dump fails, but leftovers must still be moved so a
+        # HOOK_FALLBACK backup cannot pack them.
+        with self.assertRaises(FileNotFoundError):
+            backup_hook.write_hook_dump(self.tmp)
+        self._assert_migrated()
+        self.assertEqual(
+            Path(os.path.join(self.backup, "usage.sqlite")).read_bytes(),
+            b"old-hook-dump",
+        )
+
+    def test_snapshot_script_migrates_legacy_files(self):
+        _seed_db(self.tmp)
+        result = _run_script(SNAPSHOT_SH, self.tmp)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self._assert_migrated()
+        backup_hook.check_integrity(backup_hook.hook_dump_path(self.tmp))
+
+    def test_main_migrates_legacy_files_at_startup(self):
+        _seed_db(self.tmp)
+        env = {
+            "DATA_DIR": self.tmp,
+            "COLLECTOR_BIND": "127.0.0.1:0",
+            "IDEA_USAGE_KOEN_PASSWORD": "koen911!",
+            "IDEA_USAGE_MARCO_PASSWORD": "marco911!",
+            "IDEA_USAGE_ONCE": "1",
+        }
+        saved = {k: os.environ.get(k) for k in env}
+        os.environ.update(env)
+        served = {}
+
+        def fake_serve(conn, bind):
+            served["opened"] = True
+
+            class _Srv:
+                def serve_forever(self):
+                    return None
+
+            return _Srv()
+
+        orig_serve = mainmod.serve
+        mainmod.serve = fake_serve
+        try:
+            self.assertEqual(mainmod.main(), 0)
+            self.assertTrue(served.get("opened"))
+            self._assert_migrated()
+            self.assertEqual(
+                Path(os.path.join(self.backup, "usage.sqlite")).read_bytes(),
+                b"old-hook-dump",
+            )
+        finally:
+            mainmod.serve = orig_serve
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
+
 class CleanupTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()

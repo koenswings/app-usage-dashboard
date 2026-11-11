@@ -78,11 +78,16 @@ def write_hook_dump(data_dir: str, vacuum=None) -> str:
     Never copies the live db file. Raises on any failure (unlike
     ``maybe_daily_snapshot``, which swallows errors). The destination is
     overwritten when a leftover dump is present.
+
+    Migrates leftover ``usage-YYYY-MM-DD.sqlite`` files into ``backup/daily/``
+    first, so a backup never packs the old path even if the collector has
+    not restarted (and even if this dump later fails).
     """
+    backup_dir = os.path.join(data_dir, "backup")
+    db.migrate_dated_snapshots(backup_dir)
     live = live_db_path(data_dir)
     if not os.path.isfile(live):
         raise FileNotFoundError("live database %s is missing" % live)
-    backup_dir = os.path.join(data_dir, "backup")
     os.makedirs(backup_dir, exist_ok=True)
     dest = hook_dump_path(data_dir)
     fd, tmp = tempfile.mkstemp(prefix=HOOK_TMP_PREFIX, suffix=HOOK_TMP_SUFFIX, dir=backup_dir)
