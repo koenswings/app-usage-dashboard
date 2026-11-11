@@ -216,26 +216,103 @@ Operator login is documented in `docs/accounts.md`. Atlas installs the matching 
 
 `timezone` is optional IANA. Without it the API labels ticks as `kit local time (UTC±offset)` from the latest presence sample.
 
+## Engine backup (idea#444 hook)
+
+The App declares `x-app.backup.method: hook` so a Backup Disk run can
+snapshot the collector without stopping the compose project (the idea-hub
+sidecar stays up). Field names follow the Engine contract in
+[agent-engine-dev#325](https://github.com/koenswings/agent-engine-dev/pull/325)
+(tip `646e4bf`): `method`, `fallback: stop|fail` (default `stop`),
+`hookTimeout` (default 300), and `preHook`/`postHook` as
+`{service, command, optional user}`. `command` is a string (one argv) or
+a YAML list; there is no `sh -c`. The Engine runs, from the instance
+directory:
+
+`timeout --signal=TERM --kill-after=10s <hookTimeout> docker compose exec -T [--user U] -- collector <argv...>`
+
+- `hookTimeout` is 300 seconds. `fallback: stop` is the default: if the
+  preHook fails or times out, the Engine falls back to a short stop (that
+  *would* take idea-hub down for the length of `borg create`) and packs
+  the live `usage.sqlite` directly (the live-db excludes are dropped for
+  that run). A postHook failure after a good `borg create` is only a
+  warning; the backup is still Done.
+- `preHook` / `postHook` run in the `collector` service as
+  `/app/scripts/backup-snapshot.sh` and `/app/scripts/backup-cleanup.sh`
+  (on the `./collector` bind, read-only at `/app`). The preHook writes a
+  fresh consistent dump to `./data/backup/usage.sqlite` with SQLite
+  `VACUUM INTO` (temp file, integrity check, atomic rename). It never
+  `cp`s the live db. A failure exits non-zero. The postHook removes only
+  that dump and the hook's temp files; a missing dump is fine. Dated daily
+  copies are not deleted.
+- `x-app.backup.exclude` lists `keys`, `tailscale`, `tailscale-run` (secrets
+  and the LocalAPI socket dir), the live `usage.sqlite` plus `-wal`/`-shm`
+  (a mid-write copy must not be what restore applies), and
+  `data/backup/daily` (the dated daily copies). The hook dump
+  `data/backup/usage.sqlite` stays in the archive.
+
+Dated daily copies used to live next to the hook dump as
+`./data/backup/usage-YYYY-MM-DD.sqlite`. `#325` / helper v8
+`parseBackupExcludeList` still rejects globs (`*`, `?`, `[]`), so an
+entry such as `backup/usage-*.sqlite` would fail the backup closed. A
+bare name becomes `data/<name>`; a path that already contains a slash
+is instance-relative and is not auto-prefixed with `data/`. The dated
+files therefore live under `./data/backup/daily/`, excluded as the
+supported path `data/backup/daily`. They are redundant with the hook
+dump on a successful hook run, and on `HOOK_FALLBACK` the Engine packs
+the (now stopped) live db, so they are left out of the archive. On
+start, leftover dated files at the old path are moved into `daily/`.
+
+`./data/operators.json` is written with a temp file plus `os.replace`, so
+it is packed as-is. `./data/registry.json` is only read by the collector
+(it seeds the kits table); the App does not write it. It is packed as-is.
+Neither file has to be transactionally consistent with the dump; a torn
+operator edit mid-copy is covered by the next night's run (Steve, idea#444).
+`.env` stays in the archive (Steve, idea#443). Excluded secrets come back
+from idea's encrypted Borg / the path below, not from this Backup Disk.
+
+Until the Engine hook path exists, a normal `backupApp` still stops the
+instance. Do not use that path against the live idea-hub instance.
+
 ## Daily SQLite snapshots
 
-The collector writes one consistent `VACUUM INTO` copy per **UTC** day to
-`./data/backup/usage-YYYY-MM-DD.sqlite`. It decides whether today's copy is
-due by looking at that filename, so a restart on the same UTC day does not
-write a second file. The write is atomic: `VACUUM INTO` a temp file in the
-same directory, then rename. A failure is logged on stderr and never stops
-the collector loop.
+The collector also writes one consistent `VACUUM INTO` copy per **UTC**
+day to `./data/backup/daily/usage-YYYY-MM-DD.sqlite`. It decides whether
+today's copy is due by looking at that filename, so a restart on the same
+UTC day does not write a second file. The write is atomic: `VACUUM INTO` a
+temp file in the same directory, then rename. A failure is logged on
+stderr and never stops the collector loop. This job is not the backup
+hook: it skips if today's file already exists, and it does not fail the
+caller.
 
-Only files matching `usage-YYYY-MM-DD.sqlite` are pruned. The 14 newest UTC
-dates are kept. Other files in `./data/backup` (for example
+Only files matching `usage-YYYY-MM-DD.sqlite` under `daily/` are pruned.
+The 14 newest UTC dates are kept. The hook dump at
+`./data/backup/usage.sqlite` does not match that pattern and is never
+pruned. Other files in `./data/backup` (for example
 `i431-cleanup-*.sqlite`) are left alone. Leftover `*.tmp` files from a
 crashed write are not treated as snapshots.
 
 ## Restore
 
-1. Restore `./data/usage.sqlite` from a daily `VACUUM INTO` snapshot
-   (`./data/backup/usage-YYYY-MM-DD.sqlite`) or from idea's Borg copy of App data.
-2. Restore `./data/keys/pull_key` only from idea's encrypted Borg. **Move** (never copy) `./data/tailscale/` into place so only one live node-key copy exists.
-3. Restart the App. The collector opens SQLite in WAL mode and keeps serving the last stored data if Tailscale is down.
+A hook-mode extract puts `./data/backup/usage.sqlite` in the instance
+folder and omits the live db. On start, if `./data/usage.sqlite` is
+absent and that dump is present, the collector integrity-checks the dump,
+copies it into place, removes any stale `-wal`/`-shm`, and logs the
+restore. It never overwrites an existing live db. A corrupt dump fails
+the start (it will not open an empty db instead).
+
+1. For a Backup Disk restore, extract the archive into the instance
+   folder (never over a live idea-hub tree). Start the App; the
+   collector reapplies `./data/backup/usage.sqlite` when the live db is
+   missing.
+2. To restore by hand from a dated daily copy, copy
+   `./data/backup/daily/usage-YYYY-MM-DD.sqlite` onto
+   `./data/usage.sqlite` only when the live db is absent (or after moving
+   the broken live file aside).
+3. Restore `./data/keys/pull_key` only from idea's encrypted Borg. **Move**
+   (never copy) `./data/tailscale/` into place so only one live node-key
+   copy exists.
+4. Restart the App if you restored by hand. The collector opens SQLite in
+   WAL mode and keeps serving the last stored data if Tailscale is down.
 
 ## Known limits
 

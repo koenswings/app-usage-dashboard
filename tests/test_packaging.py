@@ -172,21 +172,59 @@ services:
         finally:
             Path(path).unlink()
 
-    def test_backup_exclude_covers_keys_and_sidecar_dirs(self):
-        """x-app.backup.exclude must list keys, node state, and the socket dir."""
+    def _backup_block(self):
         text = COMPOSE.read_text(encoding="utf-8")
         start = text.index("  backup:")
         rest = text[start:]
         # Stop at the next top-level or services: block.
         end_candidates = [rest.find("\nservices:"), rest.find("\n  services:")]
         end = min(i for i in end_candidates if i != -1)
-        block = rest[:end]
+        return rest[:end]
+
+    def test_backup_exclude_covers_secrets_live_db_and_daily_snapshots(self):
+        """Hook-mode exclude: secrets, live db, and dated daily copies."""
+        block = self._backup_block()
         names = re.findall(r"^\s+- ([^\s#]+)", block, flags=re.M)
         self.assertEqual(
             names,
-            ["keys", "tailscale", "tailscale-run"],
-            "x-app.backup.exclude must be keys, tailscale (node state) and tailscale-run (socket dir); got %r\n%s" % (names, block),
+            [
+                "keys",
+                "tailscale",
+                "tailscale-run",
+                "usage.sqlite",
+                "usage.sqlite-wal",
+                "usage.sqlite-shm",
+                "data/backup/daily",
+            ],
+            "unexpected x-app.backup.exclude: %r\n%s" % (names, block),
         )
+        # The hook dump itself must stay in the archive (not excluded).
+        self.assertNotIn("data/backup/usage.sqlite", names)
+        self.assertNotIn("backup/usage.sqlite", names)
+        self.assertNotIn("backup", names)
+
+    def test_backup_declares_hook_method_and_collector_hooks(self):
+        """idea#444 compose fields: method hook, fallback stop, hooks on collector."""
+        block = self._backup_block()
+        self.assertRegex(block, r"(?m)^    method:\s*hook\s*$", msg=block)
+        self.assertRegex(block, r"(?m)^    hookTimeout:\s*300\s*$", msg=block)
+        self.assertRegex(block, r"(?m)^    fallback:\s*stop\s*$", msg=block)
+        self.assertRegex(block, r"(?m)^    preHook:", msg=block)
+        self.assertRegex(block, r"(?m)^    postHook:", msg=block)
+        self.assertIn("service: collector", block)
+        self.assertIn("command: /app/scripts/backup-snapshot.sh", block)
+        self.assertIn("command: /app/scripts/backup-cleanup.sh", block)
+        pre = block.split("preHook:", 1)[1].split("postHook:", 1)[0]
+        post = block.split("postHook:", 1)[1]
+        self.assertIn("service: collector", pre)
+        self.assertIn("/app/scripts/backup-snapshot.sh", pre)
+        self.assertIn("service: collector", post)
+        self.assertIn("/app/scripts/backup-cleanup.sh", post)
+        self.assertTrue((REPO / "collector" / "scripts" / "backup-snapshot.sh").is_file())
+        self.assertTrue((REPO / "collector" / "scripts" / "backup-cleanup.sh").is_file())
+        # Scripts are on the ./collector bind (read-only at /app).
+        compose = COMPOSE.read_text(encoding="utf-8")
+        self.assertIn("./collector:/app:ro", compose)
 
     def test_nginx_assets_return_404_and_spa_fallback_remains(self):
         text = NGINX.read_text(encoding="utf-8")

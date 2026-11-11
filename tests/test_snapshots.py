@@ -79,6 +79,8 @@ class DailySnapshotTests(unittest.TestCase):
         self.assertEqual(days[-1], "2026-10-22")
         self.assertFalse(os.path.exists(os.path.join(self.backup, "usage-2026-10-20.sqlite")))
         self.assertFalse(os.path.exists(os.path.join(self.backup, "usage-2026-10-21.sqlite")))
+        self.assertFalse(os.path.exists(db.snapshot_path(self.backup, "2026-10-20")))
+        self.assertFalse(os.path.exists(db.snapshot_path(self.backup, "2026-10-21")))
 
     def test_prune_leaves_foreign_files_untouched(self):
         foreign = os.path.join(self.backup, "i431-cleanup-dep-idea03.sqlite")
@@ -96,6 +98,37 @@ class DailySnapshotTests(unittest.TestCase):
         self.assertEqual(Path(other).read_text(), "keep\n")
         self.assertEqual(len(db.list_snapshot_files(self.backup)), 14)
 
+    def test_prune_leaves_hook_dump_untouched(self):
+        """backup/usage.sqlite does not match usage-YYYY-MM-DD.sqlite."""
+        hook = os.path.join(self.backup, "usage.sqlite")
+        os.makedirs(self.backup, exist_ok=True)
+        Path(hook).write_bytes(b"hook-dump-sentinel")
+        start = datetime(2026, 10, 20, 12, tzinfo=timezone.utc)
+        for i in range(16):
+            db.take_daily_snapshot(
+                self.conn, self.backup, now=start + timedelta(days=i), keep=14,
+            )
+        self.assertTrue(os.path.isfile(hook))
+        self.assertEqual(Path(hook).read_bytes(), b"hook-dump-sentinel")
+        self.assertEqual(len(db.list_snapshot_files(self.backup)), 14)
+        # Dated files landed in backup/daily/, not next to the hook dump.
+        self.assertTrue(os.path.isdir(db.dated_snapshot_dir(self.backup)))
+        self.assertFalse(os.path.exists(os.path.join(self.backup, "usage-2026-11-04.sqlite")))
+
+    def test_migrate_moves_legacy_dated_files_into_daily(self):
+        os.makedirs(self.backup, exist_ok=True)
+        legacy = os.path.join(self.backup, "usage-2026-11-10.sqlite")
+        Path(legacy).write_bytes(b"legacy-dated")
+        hook = os.path.join(self.backup, "usage.sqlite")
+        Path(hook).write_bytes(b"hook-dump")
+        moved = db.migrate_dated_snapshots(self.backup)
+        dest = os.path.join(db.dated_snapshot_dir(self.backup), "usage-2026-11-10.sqlite")
+        self.assertEqual(moved, [dest])
+        self.assertTrue(os.path.isfile(dest))
+        self.assertEqual(Path(dest).read_bytes(), b"legacy-dated")
+        self.assertFalse(os.path.exists(legacy))
+        self.assertEqual(Path(hook).read_bytes(), b"hook-dump")
+
     def test_error_is_non_fatal(self):
         def boom(_conn, _dest):
             raise RuntimeError("disk full")
@@ -105,9 +138,13 @@ class DailySnapshotTests(unittest.TestCase):
         )
         self.assertIsNone(result)
         self.assertEqual(db.list_snapshot_files(self.backup), [])
-        # No leftover temp from the failed attempt.
+        # No leftover temp from the failed attempt (temps live in backup/daily/).
         leftovers = [n for n in os.listdir(self.backup) if n.endswith(".tmp")]
         self.assertEqual(leftovers, [])
+        daily = db.dated_snapshot_dir(self.backup)
+        if os.path.isdir(daily):
+            leftovers = [n for n in os.listdir(daily) if n.endswith(".tmp")]
+            self.assertEqual(leftovers, [])
 
     def test_failed_vacuum_removes_temp_and_does_not_create_dest(self):
         def boom(_conn, dest):
@@ -121,6 +158,10 @@ class DailySnapshotTests(unittest.TestCase):
         self.assertFalse(os.path.exists(dest))
         leftovers = [n for n in os.listdir(self.backup) if n.endswith(".tmp")]
         self.assertEqual(leftovers, [])
+        daily = db.dated_snapshot_dir(self.backup)
+        if os.path.isdir(daily):
+            leftovers = [n for n in os.listdir(daily) if n.endswith(".tmp")]
+            self.assertEqual(leftovers, [])
 
 
 class SnapshotLoopTests(unittest.TestCase):

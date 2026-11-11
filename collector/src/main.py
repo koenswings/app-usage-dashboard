@@ -12,6 +12,7 @@ from datetime import date, timedelta
 from typing import Any
 
 from . import auth
+from . import backup_hook
 from . import db
 from . import identity as identitymod
 from .api import serve
@@ -353,6 +354,9 @@ def main() -> int:
         os.environ["IDEA_USAGE_OPERATORS_FILE"] = os.path.join(data_dir, "operators.json")
     auth.ensure_operators()
     db_path = os.path.join(data_dir, "usage.sqlite")
+    # idea#444: if a hook-mode extract left the dump but not the live db,
+    # restore it before opening SQLite. Never overwrites an existing live db.
+    backup_hook.maybe_restore_hook_dump(data_dir)
     conn = db.connect(db_path)
     db.load_registry(conn, os.environ.get("REGISTRY_PATH") or os.path.join(data_dir, "registry.json"))
     bind = os.environ.get("COLLECTOR_BIND") or "0.0.0.0:8080"

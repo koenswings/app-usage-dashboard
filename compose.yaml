@@ -21,11 +21,38 @@ x-app:
   migrationNote: >
     First release. The collector creates SQLite on first start under ./data.
   snapshotExclude: []
+  # idea#444 hook fields, as parsed by agent-engine-dev#325 (tip 646e4bf):
+  # method hook|stop, fallback stop|fail (default stop), hookTimeout
+  # (default 300), preHook/postHook {service, command, optional user}.
+  # command is a string (one argv) or a YAML list; no sh -c. The Engine
+  # runs: timeout --signal=TERM --kill-after=10s <hookTimeout>
+  #   docker compose exec -T [--user U] -- collector <argv...>
   backup:
+    method: hook
+    hookTimeout: 300
+    fallback: stop
+    preHook:
+      service: collector
+      command: /app/scripts/backup-snapshot.sh
+    postHook:
+      service: collector
+      command: /app/scripts/backup-cleanup.sh
     exclude:
       - keys
       - tailscale
       - tailscale-run
+      - usage.sqlite
+      - usage.sqlite-wal
+      - usage.sqlite-shm
+      # Dated daily copies. #325 / helper v8 parseBackupExcludeList
+      # rejects globs (* ? []), so backup/usage-*.sqlite would fail the
+      # backup closed. Bare names become data/<name>; a slash path is
+      # instance-relative (not auto-prefixed). The dated files therefore
+      # live under data/backup/daily/, excluded as that path. The hook
+      # dump data/backup/usage.sqlite is not listed and stays in the
+      # archive. On HOOK_FALLBACK the Engine packs the live db directly
+      # (drops the usage.sqlite / -wal / -shm excludes).
+      - data/backup/daily
 
 services:
   tailscale:
