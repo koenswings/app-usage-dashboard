@@ -1,5 +1,8 @@
 """idea#445: script/verify-service-tar.sh (verify_service_tar.py) on fixture tars.
 
+Every row of the Engine's checkServiceTarPin (agent-engine-dev #327 tip 1f9ff92,
+src/data/ImageRef.ts:217-287) has a test here; the verdicts must stay identical.
+
 Fixture tars are built in temp dirs with the same layout a containerd-store
 `docker save repo:tag` writes: oci-layout, index.json (top-level entry named with
 io.containerd.image.name), manifest.json (RepoTags) and blobs/sha256/<hex>.
@@ -161,195 +164,212 @@ class VerifyTarTests(unittest.TestCase):
     def tar(self, *a, **kw):
         return write_tar(str(self.dir / "t.tar"), *a, **kw)
 
+    def raw_tar(self, files):
+        path = str(self.dir / "raw.tar")
+        with tarfile.open(path, "w") as tf:
+            for name, data in files.items():
+                info = tarfile.TarInfo(name)
+                info.size = len(data)
+                tf.addfile(info, io.BytesIO(data))
+        return path
+
     def run_cli(self, *args):
         return subprocess.run([str(SCRIPT), *args], capture_output=True, text=True, cwd=str(REPO))
 
-    # --- index layout ---
+    def assertState(self, tar, ref, state, layout=None, reason=None, code=None):
+        got, digest, got_layout, why = v.verify_tar(tar, ref)
+        self.assertEqual(got, state, why)
+        if layout is not None:
+            self.assertEqual(got_layout, layout)
+        if reason is not None:
+            self.assertIn(reason, why or "")
+        if code is not None:
+            r = self.run_cli("--tar", tar, "--image", ref)
+            self.assertEqual(r.returncode, code, r.stdout + r.stderr)
+            self.assertTrue(r.stdout.startswith(state + " "), r.stdout)
+        return digest
 
-    def test_matching_index_tar_passes(self):
+    # --- (a) named image index: ImageRef.ts:277-279 ---
+
+    def test_a_named_index_equal_to_pin_matches(self):
         t = self.tar([self.img.entry(self.name)], [self.img], [self.name])
-        ok, layout, msgs = v.verify_tar(t, self.ref)
-        self.assertTrue(ok, msgs)
-        self.assertEqual(layout, "index")
-        r = self.run_cli("--tar", t, "--image", self.ref)
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertIn("PASS", r.stdout)
-        self.assertIn("layout=index", r.stdout)
+        self.assertState(t, self.ref, v.MATCH, layout="index", code=0)
 
-    def test_wrong_digest_fails(self):
+    def test_a_named_index_not_equal_to_pin_is_mismatch(self):
         other = Image("two")
         t = self.tar([other.entry(self.name)], [other], [self.name])
-        ok, layout, msgs = v.verify_tar(t, self.ref)
-        self.assertFalse(ok)
-        self.assertIn("digest mismatch", " ".join(m for _, m in msgs))
-        r = self.run_cli("--tar", t, "--image", self.ref)
-        self.assertEqual(r.returncode, 1)
-        self.assertIn("FAIL", r.stdout)
-        self.assertIn(other.index, r.stdout)
-        self.assertIn(self.img.index, r.stdout)
+        d = self.assertState(t, self.ref, v.MISMATCH, layout="index", code=1)
+        self.assertEqual(d, other.index)
 
-    def test_stale_ef48_style_tar_against_new_pin_fails(self):
+    def test_a_atlas_real_layout_for_9b5501f0_matches(self):
+        """The layout Atlas reads on idea03: an OCI index entry for 9b5501f0 named
+        with io.containerd.image.name, plus manifest.json RepoTags."""
+        index = (FIX / "index.json").read_bytes()
+        manifest = (FIX / "arm64-manifest.json").read_bytes()
+        config = (FIX / "config.json").read_bytes()
+        self.assertEqual(sha(index), REAL_PIN)
+        files = {"oci-layout": jbytes({"imageLayoutVersion": "1.0.0"})}
+        for data in (index, manifest, config):
+            files["blobs/sha256/" + sha(data).split(":", 1)[1]] = data
+        files["index.json"] = jbytes({"schemaVersion": 2, "mediaType": OCI_INDEX, "manifests": [{
+            "mediaType": OCI_INDEX, "digest": REAL_PIN, "size": len(index),
+            "annotations": {"io.containerd.image.name": self.name, "org.opencontainers.image.ref.name": "1.0"}}]})
+        files["manifest.json"] = jbytes([{"Config": "blobs/sha256/" + sha(config).split(":", 1)[1],
+                                          "RepoTags": [self.name], "Layers": []}])
+        t = self.raw_tar(files)
+        ref = "%s@%s" % (self.name, REAL_PIN)
+        self.assertState(t, ref, v.MATCH, layout="index", code=0)
+        self.assertIn(ref, (REPO / "compose.yaml").read_text(encoding="utf-8"))
+
+    # --- (a) extra: bare image-index index.json hashing to the pin: ImageRef.ts:242-245 ---
+
+    def test_a_extra_bare_index_json_hashing_to_pin_matches(self):
+        index = (FIX / "index.json").read_bytes()  # the published 9b5501f0 index, no name annotations
+        t = self.raw_tar({"index.json": index, "manifest.json": jbytes([{"RepoTags": []}])})
+        self.assertState(t, "%s@%s" % (self.name, REAL_PIN), v.MATCH, layout="index", reason="bare index.json", code=0)
+
+    def test_a_extra_bare_index_json_with_other_digest_is_unreadable(self):
+        index = (FIX / "index.json").read_bytes()
+        t = self.raw_tar({"index.json": index, "manifest.json": jbytes([{"RepoTags": []}])})
+        self.assertState(t, self.ref, v.UNREADABLE, reason="does not name", code=3)
+
+    # --- (b) named single manifest: ImageRef.ts:281-282 ---
+
+    def test_b_named_single_manifest_equal_to_pin_matches(self):
+        single = Image("single", with_index=False)
+        ref = "%s@%s" % (self.name, single.manifest)
+        t = self.tar([single.entry(self.name, top="manifest")], [single], [self.name])
+        self.assertState(t, ref, v.MATCH, layout="manifest", code=0)
+
+    # --- (c) platform-manifest-only, other pin: ImageRef.ts:283-284, always refused ---
+
+    def test_c_platform_manifest_only_is_mismatch(self):
+        t = self.tar([self.img.entry(self.name, top="manifest")], [self.img], [self.name], drop=[self.img.index])
+        d = self.assertState(t, self.ref, v.MISMATCH, layout="manifest", reason="platform-manifest only", code=1)
+        self.assertEqual(d, self.img.manifest)
+
+    def test_c_stale_ef48_style_tar_against_new_pin_is_mismatch(self):
         """The idea03 case: a single-manifest tar of the old pin, compose now pins a new index."""
         old = Image("old", with_index=False)
         t = self.tar([old.entry(self.name, top="manifest")], [old], [self.name])
-        ok, layout, msgs = v.verify_tar(t, self.ref)
-        self.assertFalse(ok)
-        self.assertEqual(layout, "manifest")
-        self.assertIn("platform-manifest only", " ".join(m for _, m in msgs))
+        self.assertState(t, self.ref, v.MISMATCH, layout="manifest", code=1)
 
-    def test_wrong_name_in_index_fails(self):
-        t = self.tar([self.img.entry(WEB + ":0.9")], [self.img], [WEB + ":0.9"])
-        ok, _, msgs = v.verify_tar(t, self.ref)
-        self.assertFalse(ok)
-        self.assertIn("image name mismatch", " ".join(m for _, m in msgs))
+    def test_c_has_no_platform_digest_escape_hatch(self):
+        t = self.tar([self.img.entry(self.name, top="manifest")], [self.img], [self.name], drop=[self.img.index])
+        r = self.run_cli("--tar", t, "--image", self.ref, "--platform-digest", self.img.manifest)
+        self.assertEqual(r.returncode, 2)  # unknown option
+        src = (REPO / "script" / "verify_service_tar.py").read_text(encoding="utf-8")
+        self.assertNotIn("platform_digest", src)
+        self.assertNotIn("WARN", src)
 
-    def test_wrong_name_in_manifest_json_fails(self):
-        t = self.tar([self.img.entry(self.name)], [self.img], ["usage-dashboard-web:local-abc"])
-        ok, _, msgs = v.verify_tar(t, self.ref)
-        self.assertFalse(ok)
-        self.assertIn("manifest.json RepoTags", " ".join(m for _, m in msgs))
+    # --- (d) unreadable: ImageRef.ts:219-268, 286 ---
 
-    def test_missing_tar_fails_with_exit_1(self):
-        sdir = self.dir / "services"
-        sdir.mkdir()
-        compose = self.dir / "compose.yaml"
-        compose.write_text(compose_text(self.ref), encoding="utf-8")
-        r = self.run_cli(str(compose), str(sdir))
-        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
-        self.assertIn("tar not found", r.stdout)
-        self.assertIn("ghcr.io_koenswings_usage-dashboard-web:1.0.tar", r.stdout)
-        self.assertIn("SKIP collector python:3.12-slim-bookworm: not digest-pinned", r.stdout)
-        self.assertIn("summary: 1 checked, 0 passed, 1 failed", r.stdout)
+    def _base_files(self):
+        files = {"index.json": jbytes({"schemaVersion": 2, "manifests": [self.img.entry(self.name)]}),
+                 "manifest.json": jbytes([{"RepoTags": [self.name]}])}
+        for d, data in self.img.blobs.items():
+            files["blobs/sha256/" + d.split(":", 1)[1]] = data
+        return files
 
-    def test_services_dir_pass(self):
-        sdir = self.dir / "services"
-        sdir.mkdir()
-        write_tar(str(sdir / "ghcr.io_koenswings_usage-dashboard-web:1.0.tar"), [self.img.entry(self.name)], [self.img], [self.name])
-        compose = self.dir / "compose.yaml"
-        compose.write_text(compose_text(self.ref), encoding="utf-8")
-        r = self.run_cli(str(compose), str(sdir))
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertIn("summary: 1 checked, 1 passed, 0 failed", r.stdout)
+    def test_d_unreadable_rows(self):
+        cases = {
+            "no index.json": lambda f: f.pop("index.json"),
+            "index.json is not JSON": lambda f: f.__setitem__("index.json", b"{nope"),
+            "no manifest.json": lambda f: f.pop("manifest.json"),
+            "manifest.json is not JSON": lambda f: f.__setitem__("manifest.json", b"[nope"),
+            "index.json lists no manifests": lambda f: f.__setitem__("index.json", jbytes({"manifests": []})),
+            "index.json does not name": lambda f: f.__setitem__("index.json", jbytes({"manifests": [self.img.entry(WEB + ":0.9")]})),
+            "manifest.json RepoTags do not include": lambda f: f.__setitem__("manifest.json", jbytes([{"RepoTags": ["usage-dashboard-web:local-abc"]}])),
+            "is not in the tar": lambda f: f.pop("blobs/sha256/" + self.img.index.split(":", 1)[1]),
+            "hashes to": lambda f: f.__setitem__("blobs/sha256/" + self.img.index.split(":", 1)[1], b"{}"),
+            "has no sha256 digest": lambda f: f.__setitem__("index.json", jbytes({"manifests": [
+                {"mediaType": OCI_INDEX, "digest": "md5:x", "annotations": {"io.containerd.image.name": self.name}}]})),
+        }
+        for reason, mutate in cases.items():
+            with self.subTest(reason=reason):
+                files = self._base_files()
+                mutate(files)
+                self.assertState(self.raw_tar(files), self.ref, v.UNREADABLE, reason=reason, code=3)
 
-    def test_legacy_digest_named_tar_is_called_out(self):
-        sdir = self.dir / "services"
-        sdir.mkdir()
-        write_tar(str(sdir / v.legacy_service_image_tar_name(self.ref)), [self.img.entry(self.name)], [self.img], [self.name])
-        compose = self.dir / "compose.yaml"
-        compose.write_text(compose_text(self.ref), encoding="utf-8")
-        r = self.run_cli(str(compose), str(sdir))
-        self.assertEqual(r.returncode, 1)
-        self.assertIn("pre-#322 digest-named tar", r.stdout)
+    def test_d_duplicate_name_on_different_digests_is_unreadable(self):
+        other = Image("two")
+        t = self.tar([other.entry(self.name), self.img.entry(self.name)], [other, self.img], [self.name])
+        self.assertState(t, self.ref, v.UNREADABLE, reason="duplicate name", code=3)
+
+    def test_d_unknown_media_type_is_unreadable(self):
+        junk = jbytes({"neither": "index nor manifest"})
+        d = sha(junk)
+        files = {"index.json": jbytes({"manifests": [{"digest": d, "annotations": {"io.containerd.image.name": self.name}}]}),
+                 "manifest.json": jbytes([{"RepoTags": [self.name]}]),
+                 "blobs/sha256/" + d.split(":", 1)[1]: junk}
+        self.assertState(self.raw_tar(files), self.ref, v.UNREADABLE, reason="unknown top-level media type", code=3)
+
+    def test_d_not_a_tar_is_unreadable(self):
+        path = self.dir / "junk.tar"
+        path.write_bytes(b"not a tar at all")
+        self.assertState(str(path), self.ref, v.UNREADABLE, code=3)
+
+    # --- naming details shared with the Engine ---
+
+    def test_unnamed_single_entry_relies_on_manifest_json(self):
+        t = self.tar([self.img.entry(None)], [self.img], [self.name])
+        self.assertState(t, self.ref, v.MATCH, layout="index")
+
+    def test_repo_like_oci_ref_name_counts_as_the_name(self):
+        e = self.img.entry(None)
+        e["annotations"] = {"org.opencontainers.image.ref.name": self.name}
+        other = Image("x")
+        t = self.tar([other.entry(WEB + ":0.9"), e], [other, self.img], [self.name])
+        self.assertState(t, self.ref, v.MATCH)
+        # A bare tag-only ref.name ("1.0") is not a name.
+        e["annotations"] = {"org.opencontainers.image.ref.name": "1.0"}
+        t = self.tar([other.entry(WEB + ":0.9"), e], [other, self.img], [self.name])
+        self.assertState(t, self.ref, v.UNREADABLE, reason="does not name")
 
     def test_multi_manifest_tar_checks_the_named_entry(self):
         other = Image("python")
         entries = [other.entry("docker.io/library/python:3.12-slim-bookworm"), self.img.entry(self.name)]
         t = self.tar(entries, [other, self.img], ["python:3.12-slim-bookworm", self.name])
-        ok, _, msgs = v.verify_tar(t, self.ref)
-        self.assertTrue(ok, msgs)
-        self.assertIn("index.json has 2 entries", " ".join(m for _, m in msgs))
-        # The other image in the same tar is found by its normalised docker.io name.
-        ok2, _, msgs2 = v.verify_tar(t, "python:3.12-slim-bookworm@" + other.index)
-        self.assertTrue(ok2, msgs2)
+        self.assertState(t, self.ref, v.MATCH)
+        self.assertState(t, "python:3.12-slim-bookworm@" + other.index, v.MATCH)
 
-    def test_multi_manifest_tar_same_name_two_digests_is_ambiguous(self):
-        other = Image("two")
-        entries = [other.entry(self.name), self.img.entry(self.name)]
-        t = self.tar(entries, [other, self.img], [self.name])
-        ok, _, msgs = v.verify_tar(t, self.ref)
-        self.assertFalse(ok)
-        self.assertIn("ambiguous", " ".join(m for _, m in msgs))
+    # --- services-dir mode, exit codes ---
 
-    def test_index_without_arm64_content_fails(self):
-        t = self.tar([self.img.entry(self.name)], [self.img], [self.name], drop=[self.img.layer])
-        ok, _, msgs = v.verify_tar(t, self.ref)
-        self.assertFalse(ok)
-        self.assertIn("would not load offline", " ".join(m for _, m in msgs))
-        t = self.tar([self.img.entry(self.name)], [self.img], [self.name], drop=[self.img.manifest])
-        ok, _, msgs = v.verify_tar(t, self.ref)
-        self.assertFalse(ok)
-        self.assertIn("blob not in the tar", " ".join(m for _, m in msgs))
+    def _compose(self, ref):
+        compose = self.dir / "compose.yaml"
+        compose.write_text(compose_text(ref), encoding="utf-8")
+        sdir = self.dir / "services"
+        sdir.mkdir(exist_ok=True)
+        return compose, sdir
 
-    def test_amd64_only_index_fails(self):
-        amd = Image("amd", arch="amd64")
-        ref = "%s@%s" % (self.name, amd.index)
-        t = self.tar([amd.entry(self.name)], [amd], [self.name])
-        ok, _, msgs = v.verify_tar(t, ref)
-        self.assertFalse(ok)
-        self.assertIn("no linux/arm64 manifest", " ".join(m for _, m in msgs))
+    def test_missing_tar_exit_4(self):
+        compose, sdir = self._compose(self.ref)
+        r = self.run_cli(str(compose), str(sdir))
+        self.assertEqual(r.returncode, 4, r.stdout + r.stderr)
+        self.assertIn("MISSING web", r.stdout)
+        self.assertIn("ghcr.io_koenswings_usage-dashboard-web:1.0.tar", r.stdout)
+        self.assertIn("SKIP collector python:3.12-slim-bookworm: not digest-pinned", r.stdout)
+        self.assertIn("summary: 1 checked, 0 match, 0 mismatch, 0 unreadable, 1 missing", r.stdout)
 
-    def test_corrupt_top_level_blob_fails(self):
-        bad = {"blobs/sha256/" + self.img.index.split(":", 1)[1]: b"{}"}
-        t = self.tar([self.img.entry(self.name)], [self.img], [self.name], extra=bad)
-        ok, _, msgs = v.verify_tar(t, self.ref)
-        self.assertFalse(ok)
-        self.assertIn("corrupt", " ".join(m for _, m in msgs))
-
-    def test_classic_layout_without_index_json_fails(self):
-        t = self.tar([], [self.img], [self.name], no_index=True)
-        ok, _, msgs = v.verify_tar(t, self.ref)
-        self.assertFalse(ok)
-        self.assertIn("no index.json", " ".join(m for _, m in msgs))
-
-    def test_unnamed_single_entry_relies_on_manifest_json(self):
-        t = self.tar([self.img.entry(None)], [self.img], [self.name])
-        ok, _, msgs = v.verify_tar(t, self.ref)
-        self.assertTrue(ok, msgs)
-
-    # --- manifest-only layout ---
-
-    def test_single_platform_image_pinned_by_manifest_passes(self):
-        single = Image("single", with_index=False)
-        ref = "%s@%s" % (self.name, single.manifest)
-        t = self.tar([single.entry(self.name, top="manifest")], [single], [self.name])
-        ok, layout, msgs = v.verify_tar(t, ref)
-        self.assertTrue(ok, msgs)
-        self.assertEqual(layout, "manifest")
-
-    def test_platform_manifest_only_tar_fails_by_default(self):
-        # Same image, but the tar only carries the arm64 manifest (docker save --platform).
-        t = self.tar([self.img.entry(self.name, top="manifest")], [self.img], [self.name], drop=[self.img.index])
-        ok, layout, msgs = v.verify_tar(t, self.ref)
-        self.assertFalse(ok)
-        self.assertEqual(layout, "manifest")
-        r = self.run_cli("--tar", t, "--image", self.ref)
-        self.assertEqual(r.returncode, 1)
-        self.assertIn("platform-manifest only", r.stdout)
-        self.assertIn("--export-tar", r.stdout)
-
-    def test_platform_manifest_only_tar_accepted_with_matching_platform_digest(self):
-        t = self.tar([self.img.entry(self.name, top="manifest")], [self.img], [self.name], drop=[self.img.index])
-        r = self.run_cli("--tar", t, "--image", self.ref, "--platform-digest", self.img.manifest)
+    def test_services_dir_match_exit_0(self):
+        compose, sdir = self._compose(self.ref)
+        write_tar(str(sdir / "ghcr.io_koenswings_usage-dashboard-web:1.0.tar"), [self.img.entry(self.name)], [self.img], [self.name])
+        r = self.run_cli(str(compose), str(sdir))
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertIn("WARN", r.stdout)
-        self.assertIn("refuses", r.stdout)
-        r = self.run_cli("--tar", t, "--image", self.ref, "--platform-digest", "sha256:" + "c" * 64)
-        self.assertEqual(r.returncode, 1)
-        self.assertIn("does not match it either", r.stdout)
+        self.assertIn("summary: 1 checked, 1 match, 0 mismatch, 0 unreadable, 0 missing", r.stdout)
 
-    # --- the real published pin ---
+    def test_worst_state_wins(self):
+        self.assertEqual(v.worst([v.MATCH, v.MISSING, v.UNREADABLE, v.MISMATCH]), 1)
+        self.assertEqual(v.worst([v.MATCH, v.MISSING, v.UNREADABLE]), 3)
+        self.assertEqual(v.worst([v.MATCH, v.MISSING]), 4)
+        self.assertEqual(v.worst([v.MATCH]), 0)
 
-    def test_real_9b5501f0_index_layout_passes(self):
-        index = (FIX / "index.json").read_bytes()
-        manifest = (FIX / "arm64-manifest.json").read_bytes()
-        config = (FIX / "config.json").read_bytes()
-        self.assertEqual(sha(index), REAL_PIN)
-        files = {}
-        for data in (index, manifest, config):
-            files["blobs/sha256/" + sha(data).split(":", 1)[1]] = data
-        for layer in json.loads(manifest)["layers"]:
-            files["blobs/sha256/" + layer["digest"].split(":", 1)[1]] = b"stand-in"
-        entry = {"mediaType": OCI_INDEX, "digest": REAL_PIN, "size": len(index),
-                 "annotations": {"io.containerd.image.name": self.name, "org.opencontainers.image.ref.name": "1.0"}}
-        t = write_tar(str(self.dir / "real.tar"), [entry], [], [self.name], extra=files)
-        ref = "%s@%s" % (self.name, REAL_PIN)
-        ok, layout, msgs = v.verify_tar(t, ref)
-        self.assertTrue(ok, msgs)
-        self.assertEqual(layout, "index")
-        # And the compose pin on this branch is that digest.
-        self.assertIn(ref, (REPO / "compose.yaml").read_text(encoding="utf-8"))
-
-    # --- usage ---
+    def test_legacy_digest_named_tar_is_called_out(self):
+        compose, sdir = self._compose(self.ref)
+        write_tar(str(sdir / v.legacy_service_image_tar_name(self.ref)), [self.img.entry(self.name)], [self.img], [self.name])
+        r = self.run_cli(str(compose), str(sdir))
+        self.assertEqual(r.returncode, 4)
+        self.assertIn("pre-#322 digest-named tar", r.stdout)
 
     def test_usage_errors_exit_2(self):
         self.assertEqual(self.run_cli().returncode, 2)

@@ -187,7 +187,8 @@ System Disk or <diskRoot>/services on an App Disk:
        mv <services>/$tarname /home/pi/kid-quarantine/<run>/
   2. Export a fresh tar of the pin (never a local build):
        script/publish-web-image.sh --export-tar <services> --pin $PIN
-  3. Verify it:
+  3. Verify it (every pinned image must say MATCH; exit 1 = MISMATCH, still
+     stale; exit 3 = UNREADABLE, inspect by hand):
        script/verify-service-tar.sh compose.yaml <services>
   4. Point the local tag at the pin:
        docker tag $repo@$digest $name

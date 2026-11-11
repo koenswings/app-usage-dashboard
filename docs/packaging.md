@@ -175,44 +175,41 @@ the web pin that is `ghcr.io_koenswings_usage-dashboard-web:1.0.tar`.
 ## Verify a service tar
 
 ```sh
-script/verify-service-tar.sh <compose.yaml> <services-dir> [--service web] [--platform-digest sha256:…]
+script/verify-service-tar.sh <compose.yaml> <services-dir> [--service web]
 script/verify-service-tar.sh --tar <file.tar> --image <repo:tag@sha256:…>
 ```
 
 It is read-only and needs no Docker: it opens the tar with Python's `tarfile`
-and reads `index.json`, `manifest.json` and the blobs it needs, without
+and reads `index.json`, `manifest.json` and the top-level blob, without
 extracting anything. For every digest-pinned compose image it checks
 `<services-dir>/<serviceImageTarName>`. Images pinned by tag only are skipped
 (`SKIP`).
 
-A tar passes only if all of these hold:
+The verdict is a line-for-line port of the Engine's pre-load check,
+`checkServiceTarPin` in agent-engine-dev `src/data/ImageRef.ts` (#327), so
+the script and the Engine always agree. The **named entry** is the
+`index.json` descriptor whose `io.containerd.image.name` (or a repo-like
+`org.opencontainers.image.ref.name`, one containing `/` or `:`) equals
+`repo:tag`, with `docker.io/library/` normalised. A single unnamed entry
+counts as named. `manifest.json` `RepoTags` must also name `repo:tag`.
 
-- An `index.json` entry is named `repo:tag` (`io.containerd.image.name`; an
-  unnamed single entry falls back to `manifest.json`). Two entries with that
-  name and different digests is a failure (ambiguous). Other images in a
-  multi-image tar are ignored.
-- `manifest.json` `RepoTags` names `repo:tag`. `docker.io/library/` prefixes
-  are normalised, the same way as the Engine's `normRepo`.
-- The top-level blob is in the tar and hashes to its digest.
-- The top-level digest matches the pin under one of the layouts below.
-- The linux/arm64 manifest, its config and its layer blobs are all in the
-  tar, so it can be loaded offline.
-
-Layouts (the type of the top-level `index.json` entry):
-
-| Layout | Pass when | Note |
+| State | When | Engine on start |
 |---|---|---|
-| `layout=index` (OCI index / manifest list) | its digest == the pin | The normal case for our buildx pushes (`9b5501f0` is an index of a linux/arm64 manifest plus an attestation) and for official multi-arch images. |
-| `layout=manifest`, digest == pin | always | A single-platform image with no index, pinned by its manifest digest (the old `ef48f1fa` pin). The idea#322 Engine check accepts it through RepoDigests. |
-| `layout=manifest`, digest != pin | **fails** by default | The tar only holds a platform manifest while the pin is an index. `docker save --platform` or a classic-store save writes this. After a load, `repo:tag@<index>` doesn't resolve offline and the Engine refuses the start. |
-| …with `--platform-digest <d>` == the tar's manifest digest | passes with a `WARN` | An explicit opt-in for an offline USB disk where the tar is the only source. Today's Engine still refuses such a tar at start. Whether it may be accepted is Axle's #445 rule, and this option must follow that rule. |
+| `MATCH` `layout=index` | the named entry is an image index and its digest == the pin; **or** a bare `index.json` that is itself an image index, with no name annotation, whose bytes hash to the pin | loads it (if the pin isn't already local) |
+| `MATCH` `layout=manifest` | the named entry is a single manifest whose digest == the pin (a one-platform image with no index, such as the old `ef48f1fa`) | loads it |
+| `MISMATCH` `layout=index` | the named image index has another digest (a stale tar) | **quarantines** it, never loads it |
+| `MISMATCH` `layout=manifest` | the tar holds only a platform manifest while the pin is something else (usually the index); e.g. `docker save --platform` or a classic-store save. **Always refused** (Steve's idea#445 decision): after `docker load`, `repo:tag@<index>` doesn't resolve offline | **quarantines** it |
+| `UNREADABLE` | no `index.json` or `manifest.json`, or not JSON; no entries; no entry named `repo:tag`; `RepoTags` without `repo:tag`; the same name on two different digests; no sha256 digest; a top-level blob that's missing or doesn't hash to its digest; an unknown media type; not a tar | doesn't quarantine it; fails the start only if the pin isn't local |
+| `MISSING` | no tar under that name (a pre-#322 digest-named tar is called out) | warns, continues |
 
-Missing `index.json` (the classic pre-OCI `docker save` layout) fails,
-because there's no way to tell which digest the tar holds.
+There's no override for `MISMATCH`.
 
-Exit codes: `0` all checked tars pass, `1` at least one failed (a missing tar
-counts), `2` usage or compose error. Each image prints one `PASS`/`FAIL`/`SKIP`
-line, then a `summary:` line.
+Exit codes, worst state first: `1` = a `MISMATCH`, `3` = an `UNREADABLE`
+tar, `4` = a `MISSING` tar, `0` = all `MATCH`, `2` = usage or compose error.
+Each image prints one `STATE …` line (with `layout=` and `digest=` when
+known), then a `summary:` line with the counts. For operators: `1` means the
+Engine will quarantine that tar, so re-export it. `3` means look at the tar
+by hand, because the Engine leaves it in place.
 
 **Docker 29, containerd image store.** Plain `docker save repo:tag` on idea03
 (Docker 29.4.0, `io.containerd.snapshotter.v1`) writes an OCI layout. Its
@@ -237,7 +234,10 @@ App Disk that already has this App, inside a fleet claim, with `<services>`
    `mv <services>/ghcr.io_koenswings_usage-dashboard-web:1.0.tar /home/pi/kid-quarantine/<run>/`
 2. **Export a fresh tar of the pin**:
    `script/publish-web-image.sh --export-tar <services> --pin <pin>`
-3. **Verify it**: `script/verify-service-tar.sh compose.yaml <services>`
+3. **Verify it**: `script/verify-service-tar.sh compose.yaml <services>`.
+   Every pinned image must say `MATCH` (exit 0). Exit 1 (`MISMATCH`) means
+   it's still stale: go back to step 1. Exit 3 (`UNREADABLE`) means inspect
+   the tar.
 4. **Point the local tag at the pin**:
    `docker tag <repo>@sha256:<digest> <repo>:<tag>`
 5. **Do one Engine-driven start** (Console start or `startInstance`, not
@@ -260,8 +260,8 @@ The Engine side (agent-engine-dev, Axle) makes a stale tar harmless:
 - `installApp` compares an existing tar with the pin instead of skipping it with "already exists".
 - copyApp, moveApp and restoreApp name tars with `serviceImageTarName`, the same as install. Until then, they silently skip pinned `@sha256` refs.
 
-The layout rules above must match Axle's #445 rule for index and
-platform-manifest digests.
+`verify-service-tar.sh` mirrors that pre-load check (`checkServiceTarPin`,
+agent-engine-dev #327). If the Engine rule changes, change the script with it.
 
 ## Fallback: ship a docker-save tar on the App Disk
 

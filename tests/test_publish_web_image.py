@@ -83,7 +83,7 @@ class PublishExportTests(unittest.TestCase):
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         self.assertFalse((self.out / TARNAME).exists())
         self.assertTrue((self.out / (TARNAME + ".partial")).is_file())
-        self.assertIn("digest mismatch", r.stdout)
+        self.assertIn("MISMATCH ", r.stdout)
         self.assertIn("not renamed", r.stderr)
 
     def test_existing_matching_tar_is_left_alone(self):

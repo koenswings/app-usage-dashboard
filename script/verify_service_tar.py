@@ -13,22 +13,31 @@ Tar naming follows agent-engine-dev main src/data/ImageRef.ts:
 e.g. ghcr.io/koenswings/usage-dashboard-web:1.0@sha256:... ->
      ghcr.io_koenswings_usage-dashboard-web:1.0.tar
 
-Layouts (what the top-level entry in the tar's index.json is):
-  index     an OCI image index / Docker manifest list. Its digest must equal the pin,
-            and the linux/arm64 manifest, its config and its layers must be in the tar.
-  manifest  a single image manifest (no index above it in the tar).
-            * digest == pin: the image has no index (single-platform image pinned by
-              its manifest digest, e.g. ef48f1fa). Pass. This matches the Engine's
-              idea#322 checkLoadedDigest (RepoDigests carry repo@<manifest digest>).
-            * digest != pin: the tar holds only a platform manifest while the pin is
-              something else (typically the index). FAIL by default: after a load,
-              repo:tag@<index> does not resolve offline and the Engine refuses the
-              start. Accepted only with --platform-digest equal to the tar's manifest
-              digest, which is flagged as a warning (see docs; pending Axle's #445
-              rule for offline USB disks).
+The verdict mirrors the Engine's pre-load check exactly: agent-engine-dev PR #327
+(tip 1f9ff92) src/data/ImageRef.ts checkServiceTarPin (l.217-287). The "named
+entry" is the index.json descriptor whose io.containerd.image.name (or a repo-like
+org.opencontainers.image.ref.name) equals repo:tag; manifest.json RepoTags must
+name repo:tag too.
 
-Exit codes: 0 all checked tars pass; 1 at least one check failed (including a
-missing tar); 2 usage or compose errors.
+  MATCH       (a) named image index, digest == pin                        (l.277-278)
+              (a') bare index.json that is itself an image index whose
+                   bytes hash to the pin, with no name annotation         (l.242-245)
+              (b) named single manifest, digest == pin (one-platform
+                   image with no index, e.g. the old ef48f1fa)            (l.281-282)
+  MISMATCH    (a) named image index, digest != pin                        (l.279)
+              (c) platform-manifest-only entry, digest != pin. Always
+                   refused (Steve, idea#445): after docker load,
+                   repo:tag@<index> does not resolve offline.             (l.283-284)
+              The Engine quarantines a MISMATCH tar.
+  UNREADABLE  (d) no index.json / manifest.json or not JSON, no entries,
+                   name not found, duplicate name on different digests,
+                   no digest, missing or corrupt top-level blob, unknown
+                   media type                                             (l.224-268, 286)
+              The Engine does not quarantine an UNREADABLE tar.
+  MISSING     no tar under serviceImageTarName (Engine state 'missing').
+
+Exit codes (the worst state wins, in this order): 1 a MISMATCH, 3 an UNREADABLE,
+4 a MISSING tar, 0 all MATCH; 2 usage or compose errors.
 """
 import argparse
 import hashlib
@@ -47,7 +56,6 @@ MANIFEST_TYPES = {
     "application/vnd.oci.image.manifest.v1+json",
     "application/vnd.docker.distribution.manifest.v2+json",
 }
-ENGINE_PLATFORM = ("linux", "arm64")
 
 
 class UsageError(Exception):
@@ -145,10 +153,6 @@ class TarView:
     def close(self):
         self.tf.close()
 
-    def has(self, name):
-        m = self.members.get(name)
-        return m is not None and m.isfile()
-
     def read(self, name):
         m = self.members.get(name)
         if m is None or not m.isfile():
@@ -165,19 +169,6 @@ class TarView:
     def blob_name(self, digest):
         return "blobs/sha256/" + digest.split(":", 1)[1]
 
-    def blob_sha256(self, digest):
-        m = self.members.get(self.blob_name(digest))
-        if m is None or not m.isfile():
-            return None, None
-        h = hashlib.sha256()
-        fh = self.tf.extractfile(m)
-        while True:
-            chunk = fh.read(1 << 20)
-            if not chunk:
-                break
-            h.update(chunk)
-        return "sha256:" + h.hexdigest(), m.size
-
 
 def entry_name(entry):
     ann = entry.get("annotations") or {}
@@ -190,165 +181,139 @@ def entry_name(entry):
     return None
 
 
-def verify_tar(tar_path, ref, platform_digest=None):
-    """Return (ok, layout, messages). messages is a list of (level, text)."""
-    msgs = []
+MATCH, MISMATCH, UNREADABLE, MISSING = "MATCH", "MISMATCH", "UNREADABLE", "MISSING"
+EXIT = {MISMATCH: 1, UNREADABLE: 3, MISSING: 4}
+
+
+def norm_image_name(name):
+    """ImageRef.ts normImageName: parse, normRepo(repo), keep :tag."""
+    try:
+        p = parse_image_ref(name)
+    except UsageError:
+        return name.strip()
+    return "%s:%s" % (norm_name(p["repo"]), p["tag"]) if p["tag"] else norm_name(p["repo"])
+
+
+def verify_tar(tar_path, ref):
+    """Return (state, digest, layout, reason); state is MATCH/MISMATCH/UNREADABLE/MISSING."""
     p = parse_image_ref(ref)
     if not p["digest"]:
         raise UsageError("%s is not digest-pinned; nothing to verify" % ref)
-    pin = p["digest"]
-    want_name = save_name(ref)
     if not Path(tar_path).is_file():
-        return False, None, [("FAIL", "tar not found: %s" % tar_path)]
+        return MISSING, None, None, "tar not found: %s" % tar_path
     try:
         tv = TarView(tar_path)
     except (tarfile.TarError, OSError) as exc:
-        return False, None, [("FAIL", "cannot read %s as a tar: %s" % (tar_path, exc))]
+        return UNREADABLE, None, None, "cannot read %s as a tar: %s" % (tar_path, exc)
     try:
-        return _verify_open(tv, ref, pin, want_name, platform_digest, msgs)
+        return check_service_tar_pin(ref, tv)
     finally:
         tv.close()
 
 
-def _verify_open(tv, ref, pin, want_name, platform_digest, msgs):
+def _json(data):
     try:
-        index = tv.json("index.json")
-        manifest = tv.json("manifest.json")
-    except (ValueError, UnicodeDecodeError) as exc:
-        return False, None, [("FAIL", "index.json or manifest.json is not valid JSON: %s" % exc)]
-    if index is None:
-        return False, None, [("FAIL", "no index.json (classic pre-OCI docker save layout); cannot tell which digest it holds")]
-    if manifest is None:
-        return False, None, [("FAIL", "no manifest.json; not a docker save tar")]
+        return json.loads(data.decode("utf-8")), True
+    except (ValueError, UnicodeDecodeError):
+        return None, False
 
-    entries = [e for e in (index.get("manifests") or []) if isinstance(e, dict)]
+
+def check_service_tar_pin(ref, tv):
+    """Line-for-line port of checkServiceTarPin (agent-engine-dev #327 ImageRef.ts:217)."""
+    p = parse_image_ref(ref)
+    pin = p["digest"]
+    want = save_name(ref)
+
+    index_bytes = tv.read("index.json")
+    if index_bytes is None:
+        return UNREADABLE, None, None, "no index.json"
+    index, ok = _json(index_bytes)
+    if not ok:
+        return UNREADABLE, None, None, "index.json is not JSON"
+
+    manifest_bytes = tv.read("manifest.json")
+    if manifest_bytes is None:
+        return UNREADABLE, None, None, "no manifest.json"
+    manifest, ok = _json(manifest_bytes)
+    if not ok:
+        return UNREADABLE, None, None, "manifest.json is not JSON"
+
+    raw = index.get("manifests") if isinstance(index, dict) else None
+    entries = [e for e in raw if isinstance(e, dict)] if isinstance(raw, list) else []
     if not entries:
-        return False, None, [("FAIL", "index.json lists no manifests")]
+        return UNREADABLE, None, None, "index.json lists no manifests"
 
-    # Name check, index.json side.
-    named = [e for e in entries if entry_name(e) and norm_name(entry_name(e)) == norm_name(want_name)]
-    names_seen = sorted({entry_name(e) for e in entries if entry_name(e)})
+    named = [e for e in entries if entry_name(e) is not None and norm_image_name(entry_name(e)) == norm_image_name(want)]
+    chosen = named
     if not named:
+        # (a) extra: index.json itself is the image index and hashes to the pin.
+        file_digest = "sha256:" + hashlib.sha256(index_bytes).hexdigest()
+        if file_digest == pin and (index.get("mediaType") in INDEX_TYPES or any(e.get("platform") for e in entries)):
+            return MATCH, file_digest, "index", "bare index.json is the pinned image index"
         if len(entries) == 1 and entry_name(entries[0]) is None:
-            named = entries  # unnamed single entry; manifest.json must name it below
-            msgs.append(("INFO", "index.json entry has no name annotation; relying on manifest.json RepoTags"))
+            chosen = entries
         else:
-            return False, None, [("FAIL", "image name mismatch: index.json names %s, expected %s"
-                                  % (", ".join(names_seen) or "(none)", want_name))]
-    digests = sorted({e.get("digest") for e in named})
+            return UNREADABLE, None, None, "image name mismatch: index.json does not name %s" % want
+    digests = sorted({e.get("digest") for e in chosen if isinstance(e.get("digest"), str) and DIGEST_RE.match(e.get("digest"))})
     if len(digests) > 1:
-        return False, None, [("FAIL", "%d index.json entries named %s with different digests (%s); ambiguous"
-                              % (len(named), want_name, ", ".join(digests)))]
-    if len(entries) > 1:
-        msgs.append(("INFO", "index.json has %d entries (%s); checking the one named %s"
-                     % (len(entries), ", ".join(names_seen) or "unnamed", want_name)))
-    top = named[0]
+        return UNREADABLE, None, None, "duplicate name %s with different digests (%s)" % (want, ", ".join(digests))
+    top = chosen[0]
+    top_digest = top.get("digest")
+    if not (isinstance(top_digest, str) and DIGEST_RE.match(top_digest)):
+        return UNREADABLE, None, None, "index.json entry has no sha256 digest"
 
-    # Name check, manifest.json side.
     tags = []
-    for item in manifest if isinstance(manifest, list) else []:
-        tags.extend((item or {}).get("RepoTags") or [])
-    if not any(norm_name(t) == norm_name(want_name) for t in tags):
-        return False, None, [("FAIL", "image name mismatch: manifest.json RepoTags %s, expected %s"
-                              % (", ".join(tags) or "(none)", want_name))]
+    if isinstance(manifest, list):
+        for item in manifest:
+            if isinstance(item, dict):
+                tags.extend(str(t) for t in (item.get("RepoTags") or []))
+    if not any(norm_image_name(t) == norm_image_name(want) for t in tags):
+        return UNREADABLE, top_digest, None, "image name mismatch: manifest.json RepoTags do not include %s" % want
 
-    top_digest = top.get("digest") or ""
-    if not DIGEST_RE.match(top_digest):
-        return False, None, [("FAIL", "index.json entry has no sha256 digest: %r" % top_digest)]
-
-    # Top-level blob must be present and hash to its digest.
-    got, size = tv.blob_sha256(top_digest)
-    if got is None:
-        return False, None, [("FAIL", "top-level blob %s is not in the tar" % top_digest)]
+    blob = tv.read(tv.blob_name(top_digest))
+    if blob is None:
+        return UNREADABLE, top_digest, None, "top-level blob %s is not in the tar" % top_digest
+    got = "sha256:" + hashlib.sha256(blob).hexdigest()
     if got != top_digest:
-        return False, None, [("FAIL", "top-level blob for %s hashes to %s (corrupt tar)" % (top_digest, got))]
-    if top.get("size") is not None and int(top["size"]) != size:
-        return False, None, [("FAIL", "top-level blob %s size %s, index.json says %s" % (top_digest, size, top["size"]))]
-    try:
-        top_doc = json.loads(tv.read(tv.blob_name(top_digest)).decode("utf-8"))
-    except (ValueError, UnicodeDecodeError):
-        return False, None, [("FAIL", "top-level blob %s is not JSON" % top_digest)]
-    media = top.get("mediaType") or top_doc.get("mediaType") or ""
+        return UNREADABLE, top_digest, None, "top-level blob %s hashes to %s" % (top_digest, got)
+
+    media = top.get("mediaType") if isinstance(top.get("mediaType"), str) else ""
     if media not in INDEX_TYPES and media not in MANIFEST_TYPES:
-        media = "application/vnd.oci.image.index.v1+json" if "manifests" in top_doc else (
-            "application/vnd.oci.image.manifest.v1+json" if "config" in top_doc else media)
-
+        doc, ok = _json(blob)
+        if ok and isinstance(doc, dict):
+            if isinstance(doc.get("manifests"), list):
+                media = "application/vnd.oci.image.index.v1+json"
+            elif doc.get("config"):
+                media = "application/vnd.oci.image.manifest.v1+json"
     if media in INDEX_TYPES:
-        layout = "index"
-        if top_digest != pin:
-            return False, layout, msgs + [("FAIL", "digest mismatch: tar index is %s, compose pins %s" % (top_digest, pin))]
-        plat = [m for m in (top_doc.get("manifests") or [])
-                if ((m.get("platform") or {}).get("os"), (m.get("platform") or {}).get("architecture")) == ENGINE_PLATFORM]
-        if not plat:
-            return False, layout, msgs + [("FAIL", "index %s lists no linux/arm64 manifest" % pin)]
-        pm = plat[0]["digest"]
-        ok, why = _check_manifest_content(tv, pm)
-        if not ok:
-            return False, layout, msgs + [("FAIL", "index %s: linux/arm64 manifest %s: %s; the tar would not load offline" % (pin, pm, why))]
-        msgs.append(("INFO", "layout=index digest=%s linux/arm64=%s" % (top_digest, pm)))
-        return True, layout, msgs
-
-    if media in MANIFEST_TYPES:
-        layout = "manifest"
-        ok, why = _check_manifest_content(tv, top_digest, verified=True)
-        if not ok:
-            return False, layout, msgs + [("FAIL", "manifest %s: %s" % (top_digest, why))]
         if top_digest == pin:
-            msgs.append(("INFO", "layout=manifest digest=%s (single-platform image, no index; pin is its manifest digest)" % top_digest))
-            return True, layout, msgs
-        if platform_digest and platform_digest == top_digest:
-            msgs.append(("WARN", "layout=manifest: tar holds only platform manifest %s, compose pins %s. "
-                         "Accepted because --platform-digest matches. The idea#322 Engine check refuses "
-                         "this tar at start (repo:tag@<pin> does not resolve offline); see docs/packaging.md "
-                         "and Axle's idea#445 rule." % (top_digest, pin)))
-            return True, layout, msgs
-        hint = ""
-        if platform_digest:
-            hint = " (--platform-digest %s does not match it either)" % platform_digest
-        return False, layout, msgs + [("FAIL", "platform-manifest only: tar top-level entry is manifest %s, compose pins %s%s. "
-                                       "A `docker save --platform` or a classic-store save writes this layout; re-export "
-                                       "with script/publish-web-image.sh --export-tar" % (top_digest, pin, hint))]
-
-    return False, None, msgs + [("FAIL", "unknown top-level media type %r" % media)]
-
-
-def _check_manifest_content(tv, digest, verified=False):
-    if not verified:
-        got, _ = tv.blob_sha256(digest)
-        if got is None:
-            return False, "blob not in the tar"
-        if got != digest:
-            return False, "blob hashes to %s" % got
-    try:
-        doc = json.loads(tv.read(tv.blob_name(digest)).decode("utf-8"))
-    except (ValueError, UnicodeDecodeError, AttributeError):
-        return False, "blob is not JSON"
-    cfg = (doc.get("config") or {}).get("digest")
-    if not cfg or not tv.has(tv.blob_name(cfg)):
-        return False, "config blob %s missing" % cfg
-    missing = [l.get("digest") for l in (doc.get("layers") or []) if not tv.has(tv.blob_name(l.get("digest") or "sha256:x"))]
-    if missing:
-        return False, "%d layer blob(s) missing (first %s)" % (len(missing), missing[0])
-    try:
-        conf = json.loads(tv.read(tv.blob_name(cfg)).decode("utf-8"))
-        osarch = (conf.get("os"), conf.get("architecture"))
-        if all(osarch) and osarch != ENGINE_PLATFORM:
-            return False, "config platform is %s/%s, the Engine needs linux/arm64" % osarch
-    except (ValueError, UnicodeDecodeError):
-        pass
-    return True, ""
+            return MATCH, top_digest, "index", "named image index equals the pin"
+        return MISMATCH, top_digest, "index", "tar index is %s, compose pins %s" % (top_digest, pin)
+    if media in MANIFEST_TYPES:
+        if top_digest == pin:
+            return MATCH, top_digest, "manifest", "named single manifest equals the pin (no index)"
+        # (c) refused, no override (Steve, idea#445)
+        return MISMATCH, top_digest, "manifest", ("platform-manifest only: tar top-level entry is manifest %s, compose pins %s. "
+                                                  "Re-export with script/publish-web-image.sh --export-tar" % (top_digest, pin))
+    return UNREADABLE, top_digest, None, "unknown top-level media type %s" % (media or "(none)")
 
 
 # --- CLI ---------------------------------------------------------------------
 
-def report(label, ok, msgs, out):
-    for level, text in msgs:
-        if level == "FAIL":
-            continue
-        print("  %s %s" % (level, text), file=out)
-    status = "PASS" if ok else "FAIL"
-    fails = [t for lvl, t in msgs if lvl == "FAIL"]
-    print("%s %s%s" % (status, label, (": " + "; ".join(fails)) if fails else ""), file=out)
+def report(label, state, digest, layout, reason, out):
+    detail = []
+    if layout:
+        detail.append("layout=%s" % layout)
+    if digest:
+        detail.append("digest=%s" % digest)
+    print("%s %s%s%s" % (state, label, (" " + " ".join(detail)) if detail else "", (": " + reason) if reason else ""), file=out)
+
+
+def worst(states):
+    for s in (MISMATCH, UNREADABLE, MISSING):
+        if s in states:
+            return EXIT[s]
+    return 0
 
 
 def main(argv=None):
@@ -361,7 +326,6 @@ def main(argv=None):
     ap.add_argument("--tar", help="check this one tar file instead of a services dir (needs --image)")
     ap.add_argument("--image", help="the pinned ref the --tar must match (repo:tag@sha256:...)")
     ap.add_argument("--service", action="append", default=[], help="only check these compose services")
-    ap.add_argument("--platform-digest", help="accept a platform-manifest-only tar whose manifest digest is this (flagged WARN)")
     ap.add_argument("--print-tar-name", metavar="REF", help="print serviceImageTarName(REF) and exit")
     ap.add_argument("--print-save-name", metavar="REF", help="print saveName(REF) (repo:tag) and exit")
     args = ap.parse_args(argv)
@@ -373,14 +337,12 @@ def main(argv=None):
         if args.print_tar_name:
             print(service_image_tar_name(args.print_tar_name))
             return 0
-        if args.platform_digest and not DIGEST_RE.match(args.platform_digest):
-            raise UsageError("--platform-digest must be sha256:<64 hex>")
         if args.tar:
             if not args.image or args.compose or args.services_dir:
                 raise UsageError("--tar needs --image and no compose/services-dir arguments")
-            ok, _, msgs = verify_tar(args.tar, args.image, args.platform_digest)
-            report("%s (%s)" % (args.tar, args.image), ok, msgs, sys.stdout)
-            return 0 if ok else 1
+            state, digest, layout, reason = verify_tar(args.tar, args.image)
+            report("%s (%s)" % (args.tar, args.image), state, digest, layout, reason, sys.stdout)
+            return worst([state])
         if not args.compose or not args.services_dir:
             raise UsageError("usage: verify-service-tar.sh <compose.yaml> <services-dir> | --tar FILE --image REF")
         if not Path(args.compose).is_file():
@@ -393,7 +355,7 @@ def main(argv=None):
             if s not in known:
                 raise UsageError("unknown service %s (compose has %s)" % (s, ", ".join(sorted(known))))
         sdir = Path(args.services_dir)
-        checked = failed = 0
+        states = []
         for svc, ref in services:
             if args.service and svc not in args.service:
                 continue
@@ -401,16 +363,16 @@ def main(argv=None):
                 print("SKIP %s %s: not digest-pinned" % (svc, ref))
                 continue
             tar_path = sdir / service_image_tar_name(ref)
+            state, digest, layout, reason = verify_tar(str(tar_path), ref)
             legacy = sdir / legacy_service_image_tar_name(ref)
-            checked += 1
-            ok, _, msgs = verify_tar(str(tar_path), ref, args.platform_digest)
-            if not tar_path.is_file() and legacy.is_file():
-                msgs.append(("FAIL", "only the pre-#322 digest-named tar %s exists; it loads without a name" % legacy.name))
-            report("%s %s -> %s" % (svc, ref, tar_path), ok, msgs, sys.stdout)
-            if not ok:
-                failed += 1
-        print("summary: %d checked, %d passed, %d failed" % (checked, checked - failed, failed))
-        return 1 if failed else 0
+            if state == MISSING and legacy.is_file():
+                reason += "; only the pre-#322 digest-named tar %s exists (it loads without a name)" % legacy.name
+            report("%s %s -> %s" % (svc, ref, tar_path), state, digest, layout, reason, sys.stdout)
+            states.append(state)
+        counts = {k: states.count(k) for k in (MATCH, MISMATCH, UNREADABLE, MISSING)}
+        print("summary: %d checked, %d match, %d mismatch, %d unreadable, %d missing"
+              % (len(states), counts[MATCH], counts[MISMATCH], counts[UNREADABLE], counts[MISSING]))
+        return worst(states)
     except UsageError as exc:
         print("ERROR: %s" % exc, file=sys.stderr)
         return 2

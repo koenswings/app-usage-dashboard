@@ -36,8 +36,9 @@ still has the old tar under the same name
 (`services/ghcr.io_koenswings_usage-dashboard-web:1.0.tar`). Follow the
 pin-change runbook in `docs/packaging.md`, which `pin-web-digest.sh` prints:
 quarantine the old tar, run `publish-web-image.sh --export-tar`, run
-`verify-service-tar.sh`, `docker tag repo@pin repo:tag`, then do one
-Engine-driven start.
+`verify-service-tar.sh` (it must say `MATCH`), `docker tag repo@pin repo:tag`,
+then do one Engine-driven start. A platform-manifest-only tar is always a
+`MISMATCH` (Steve, idea#445); there is no override.
 
 The tar-fallback e2e test (`script/e2e-tar-fallback.sh`) and the host-side
 export ingest (`script/ingest-usage-export.py`) are documented in

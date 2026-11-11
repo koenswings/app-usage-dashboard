@@ -251,8 +251,8 @@ services:
             result, digest, tmpdir, dest = self._pin("--services-dir", sdir)
             try:
                 # No tar there yet: the verify step must fail and say why.
-                self.assertEqual(result.returncode, 1, result.stderr + result.stdout)
-                self.assertIn("tar not found", result.stdout)
+                self.assertEqual(result.returncode, 4, result.stderr + result.stdout)
+                self.assertIn("MISSING web", result.stdout)
                 self.assertIn("ghcr.io_koenswings_usage-dashboard-web:1.0.tar", result.stdout)
             finally:
                 dest.unlink()
@@ -279,9 +279,9 @@ services:
             "## Pin-change runbook",
             "script/verify-service-tar.sh",
             "--export-tar",
-            "--platform-digest",
-            "layout=index",
-            "layout=manifest",
+            "MISMATCH",
+            "UNREADABLE",
+            "checkServiceTarPin",
         ):
             self.assertIn(needle, docs)
 
