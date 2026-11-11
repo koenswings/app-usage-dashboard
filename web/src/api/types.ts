@@ -63,7 +63,11 @@ export interface KitTimezone {
    * registry has no name; the UI then falls back to `label` / `utcOffset`.
    */
   timeZone: string;
-  /** Offset from the latest presence sample's RFC 3339 timestamp, e.g. "+02:00". */
+  /**
+   * Offset at Monday 00:00 of the requested week, derived from the registry
+   * IANA `timeZone` (e.g. "+01:00"). Falls back to the latest presence sample's
+   * RFC 3339 offset, then to "+00:00", when the registry has no IANA name.
+   */
   utcOffset: string;
   /**
    * Operator-facing label. With a registry name:
@@ -285,10 +289,12 @@ export interface SchoolCard {
   dataFrom: IsoDate | null;
   hasUsageData: boolean;
   /**
-   * Optional on the overview card. When omitted the UI joins
-   * `/api/v1/kits` by deploymentId. School-week responses always send it.
+   * This kit's current monitoring flag. Each overview card is one kit
+   * (`engine` + `deploymentId`); the value is not an any-of aggregate.
+   * The collector always sends it from f2d4adc. The UI still joins
+   * `/api/v1/kits` by deploymentId if a payload omits the field.
    */
-  monitoringEnabled?: boolean;
+  monitoringEnabled: boolean;
   scorecard: ScorecardInputs;
   headlines: SchoolHeadlines;
 }

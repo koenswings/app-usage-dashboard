@@ -67,9 +67,8 @@ describe('Monitoring off fleet card', () => {
   it('joins monitoringEnabled from /kits when the overview card omits the field', () => {
     const overview = overviewFor(SAMPLE_WEEK);
     const cards = overview.cards.map((card) => {
-      const copy = { ...card };
-      delete copy.monitoringEnabled;
-      return copy;
+      const { monitoringEnabled: _ignored, ...rest } = card;
+      return rest as typeof card;
     });
     const { container } = render(() => (
       <FleetOverview

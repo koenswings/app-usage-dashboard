@@ -92,11 +92,11 @@ Week paths use `weekStart`: the Monday of the school week as `YYYY-MM-DD`. A non
 |---|---|---|
 | `GET` | `/api/v1/weeks/{weekStart}/overview` | `OverviewResponse` |
 
-Contains one `SchoolCard` per deployment: scorecard **inputs** (raw counts), headline census (`classes`, `learnersRegistered`, `teachers`, `kolibriMinutes`), per-card `lastPulled`, `stale`, `dataFrom`, and `hasUsageData`. `monitoringEnabled` is **optional** on the overview card. When the collector sends it, the UI uses that value (Kid: true if any of the school's kits has monitoring on). When the field is omitted, the UI joins `GET /api/v1/kits` by `deploymentId`. School-week responses always include `monitoringEnabled`.
+Contains one `SchoolCard` per kit (`engine` + `deploymentId`): scorecard **inputs** (raw counts), headline census (`classes`, `learnersRegistered`, `teachers`, `kolibriMinutes`), per-card `lastPulled`, `stale`, `dataFrom`, `hasUsageData`, and `monitoringEnabled`. A school with several kits has one card per kit; `monitoringEnabled` is that kit's current flag, not an any-of aggregate. The collector always sends the field (from f2d4adc). If a payload omits it, the UI joins `GET /api/v1/kits` by `deploymentId`. School-week responses also include `monitoringEnabled`.
 
 `helpSuggestions` is an optional, **server-owned** list of banner items (kits that look idle or dark). Each `message` is already phrased as "offer help". The UI renders these verbatim and does not invent cut-offs or retractions. Empty when the collector has nothing to flag.
 
-When `thresholdsConfigured` is `false`, the UI shows the pill and every data-bearing scorecard line as **Thresholds not set**. A card with no pulled usage data shows **No data** (never the word "Grey"). A card whose `monitoringEnabled` is `false` (from the card or the kits join) shows a **Monitoring off** pill and the sentence "Usage monitoring is switched off on this kit." in place of the scorecard lines. A monitoring-off kit is never flagged as stale.
+When `thresholdsConfigured` is `false`, the UI shows the pill and every data-bearing scorecard line as **Thresholds not set**. A card with no pulled usage data shows **No data** (never the word "Grey"). A card whose `monitoringEnabled` is `false` shows a **Monitoring off** pill and the sentence "Usage monitoring is switched off on this kit." in place of the scorecard lines. A monitoring-off kit is never flagged as stale.
 
 ### School week (page 2)
 
@@ -113,9 +113,9 @@ Presence segments (also the standalone presence endpoint):
 { state: 'on' | 'off' | 'gapUnknown' | 'collectorGap', start, end, lengthKnown }
 ```
 
-The presence block also carries `timezone: { timeZone, utcOffset, label }` so ticks render in **kit local time**, labelled as such (the page header uses Brussels time). `timeZone` is the optional IANA name from idea's `registry.json` for that kit — not a value the kit itself reports. `utcOffset` comes from the latest presence sample's RFC 3339 offset. When the registry has no IANA name, `timeZone` is `""` and `label` is `kit local time (UTC±n)`.
+The presence block also carries `timezone: { timeZone, utcOffset, label }` so ticks render in **kit local time**, labelled as such (the page header uses Brussels time). `timeZone` is the optional IANA name from idea's `registry.json` for that kit — not a value the kit itself reports. `utcOffset` is the kit's offset at Monday 00:00 of the requested week, derived from that registry IANA name via zoneinfo, whether or not the kit has stored samples. If the registry has no IANA name, `utcOffset` falls back to the latest presence sample's RFC 3339 offset, then to `+00:00`; `timeZone` is `""` and `label` is `kit local time (UTC±n)`. If a week spans a DST change, both endpoints are still local midnights (the window may be 5 days ± 1 hour); the single `utcOffset` is the week-start offset, and segment timestamps carry their own RFC 3339 offsets.
 
-School-week presence segments cover Monday 00:00 through Saturday 00:00 (the end of `weekEnd`, Friday) in the kit's offset. They are contiguous, non-overlapping, and sum to that 5-day length. Unmeasured stretches arrive as `off`, `collectorGap`, or `gapUnknown` — the UI does not invent those pieces. `lengthKnown` is true for measured `on`/`off` and for a collector gap that has both ends; it is false for `gapUnknown` and for an open-ended collector outage.
+School-week presence segments cover Monday 00:00 through Saturday 00:00 (the end of `weekEnd`, Friday) in kit-local time. They are contiguous, non-overlapping, and sum to that window. Unmeasured stretches arrive as `off`, `collectorGap`, or `gapUnknown` — the UI does not invent those pieces. `collectorGap` is only used for an idea-side sidecar outage while monitoring was known to be on. A kit that has never had monitoring enabled has a week of all `gapUnknown`, with no `collectorGap`. Periods covered by `disabled` polls, and time before the first successful pull, also stay `gapUnknown`. `lengthKnown` is true for measured `on`/`off` and for a collector gap that has both ends; it is false for `gapUnknown` and for an open-ended collector outage.
 
 `presence.summary` is a short plain sentence such as `On 4 of 5 school days, 31 h in school hours`, built from `presence_days` school-hour totals. It is `null` when those roll-ups are missing, never an empty string. The UI shows it under the strip when it is non-null.
 
@@ -206,7 +206,7 @@ Threshold comparison, if it is ever enabled, lives in one UI module (`src/config
 | `deploymentId` on responses | Idea's mapping of `(engine, day)` → deployment; not stored on the kit |
 | `lastPulled`, `stale`, `dataFrom`, `staleAfterHours` | Per-card freshness (accepted UI change 2) |
 | `monitoringEnabled`, `hasUsageData` | Distinguish "monitoring off" / "never pulled" from a zero week |
-| `KitTimezone` (`timeZone`, `utcOffset`, `label`) | `timeZone` from the idea registry (optional IANA); `utcOffset` from the latest presence sample |
+| `KitTimezone` (`timeZone`, `utcOffset`, `label`) | `timeZone` from the idea registry (optional IANA); `utcOffset` is the offset at Monday 00:00 of the requested week from that zone, falling back to the latest sample, then `+00:00` |
 | `headerTimeZone`, `hourlyChartMinWeeklyViews`, `sampleData` | Header clock, chart-hiding threshold, mock/sample banner |
 | `note` on a school card | Subtitle ("own apps + Demo", "Not installed yet") |
 | `headlines` | Fleet-card census strip (classes / learners / teachers / Kolibri minutes) |
