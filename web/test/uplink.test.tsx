@@ -72,7 +72,7 @@ describe('mock uplink measured case', () => {
     const res = await mockFetch('/api/v1/session', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: 'admin', password: 'mock-operator' }),
+      body: JSON.stringify({ username: 'koen', password: 'mock-operator' }),
     });
     expect(res.status).toBe(200);
   }

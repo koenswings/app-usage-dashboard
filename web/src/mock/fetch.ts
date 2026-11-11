@@ -1,5 +1,17 @@
 import { API_SCHEMA, weekClockTrusted } from '../api/types';
-import type { CreateHelpEventRequest, HelpEvent, HelpEventsResponse } from '../api/types';
+import type {
+  CreateHelpEventRequest,
+  HelpEvent,
+  HelpEventsResponse,
+  PutThresholdsRequest,
+  ScorecardThresholds,
+} from '../api/types';
+import {
+  DEFAULT_THRESHOLDS,
+  cloneThresholds,
+  mergeThresholds,
+  validateThresholdPatch,
+} from '../config/thresholds';
 import { fridayOf, isMonday } from '../lib/week';
 import {
   DEP_CHIGONDA,
@@ -31,10 +43,36 @@ function clockTrustedFor(deploymentId: string, weekStart: string): boolean {
 }
 
 const SESSION_COOKIE = 'idea_usage_session';
-const MOCK_USER = 'admin';
+/** Mock-only operators (U-9). Not the production seed convention. */
+const MOCK_OPERATORS = ['koen', 'marco'] as const;
 const MOCK_PASSWORD = 'mock-operator';
 
+type MockOperator = (typeof MOCK_OPERATORS)[number];
+
+function emptyOperatorPasswords(): Record<MockOperator, string> {
+  return { koen: MOCK_PASSWORD, marco: MOCK_PASSWORD };
+}
+
+let operatorPasswords: Record<MockOperator, string> = emptyOperatorPasswords();
+
+function isMockOperator(value: string): value is MockOperator {
+  return (MOCK_OPERATORS as readonly string[]).includes(value);
+}
+
 const helpStore = new Map<string, HelpEvent[]>();
+
+let currentThresholds: ScorecardThresholds = cloneThresholds(DEFAULT_THRESHOLDS);
+let thresholdsUpdatedAt: string | null = null;
+let thresholdsUpdatedBy: string | null = null;
+
+function thresholdsPayload() {
+  return {
+    thresholds: cloneThresholds(currentThresholds),
+    defaults: cloneThresholds(DEFAULT_THRESHOLDS),
+    updatedAt: thresholdsUpdatedAt,
+    updatedBy: thresholdsUpdatedBy,
+  };
+}
 
 function json(data: unknown, status = 200, headers?: Record<string, string>): Response {
   return new Response(JSON.stringify(data), {
@@ -74,7 +112,9 @@ function clearSessionCookie(): void {
 
 function sessionUser(token: string | null): { username: string; role: 'operator' } | null {
   if (!token || !token.startsWith('op-')) return null;
-  return { username: token.slice(3), role: 'operator' };
+  const username = token.slice(3);
+  if (!isMockOperator(username)) return null;
+  return { username, role: 'operator' };
 }
 
 function requireAuth(): Response | { username: string; role: 'operator' } {
@@ -133,8 +173,8 @@ export function mockFetch(input: string, init?: RequestInit): Promise<Response> 
     if (!body?.username || !body.password) {
       return Promise.resolve(error(400, 'validation', 'Username and password are required.'));
     }
-    if (body.username !== MOCK_USER || body.password !== MOCK_PASSWORD) {
-      return Promise.resolve(error(401, 'unauthorized', 'Invalid username or password.'));
+    if (!isMockOperator(body.username) || operatorPasswords[body.username] !== body.password) {
+      return Promise.resolve(error(401, 'unauthorized', 'Unknown operator or wrong password'));
     }
     setSessionCookie(`op-${body.username}`);
     return Promise.resolve(json({
@@ -156,8 +196,58 @@ export function mockFetch(input: string, init?: RequestInit): Promise<Response> 
   const auth = requireAuth();
   if (auth instanceof Response) return Promise.resolve(auth);
 
+  if (path === '/api/v1/session/password' && method === 'PUT') {
+    const body = parseBody<{ currentPassword?: string; newPassword?: string }>(init);
+    const current = body?.currentPassword ?? '';
+    const next = body?.newPassword ?? '';
+    if (!isMockOperator(auth.username) || operatorPasswords[auth.username] !== current) {
+      return Promise.resolve(error(401, 'unauthorized', 'Unknown operator or wrong password'));
+    }
+    if (!next || next.length < 8) {
+      return Promise.resolve(error(400, 'validation', 'New password must be at least 8 characters'));
+    }
+    operatorPasswords[auth.username] = next;
+    return Promise.resolve(json({
+      schema: API_SCHEMA,
+      authenticated: true,
+      user: { username: auth.username, role: 'operator' },
+    }));
+  }
+
   if (path === '/api/v1/meta' && method === 'GET') {
-    return Promise.resolve(json(meta));
+    return Promise.resolve(json({
+      ...meta,
+      thresholdsConfigured: true,
+      thresholds: cloneThresholds(currentThresholds),
+    }));
+  }
+
+  if (path === '/api/v1/settings/thresholds' && method === 'GET') {
+    return Promise.resolve(json(thresholdsPayload()));
+  }
+
+  if (path === '/api/v1/settings/thresholds' && method === 'PUT') {
+    const body = parseBody<PutThresholdsRequest>(init);
+    if (!body) {
+      return Promise.resolve(json({ error: 'Request body is required.', field: 'thresholds' }, 400));
+    }
+    if (body.reset) {
+      currentThresholds = cloneThresholds(DEFAULT_THRESHOLDS);
+      thresholdsUpdatedAt = '2026-11-11T09:42:00+01:00';
+      thresholdsUpdatedBy = auth.username;
+      return Promise.resolve(json(thresholdsPayload()));
+    }
+    if (!body.thresholds || typeof body.thresholds !== 'object') {
+      return Promise.resolve(json({ error: 'thresholds is required unless reset is true.', field: 'thresholds' }, 400));
+    }
+    const failure = validateThresholdPatch(body.thresholds);
+    if (failure) {
+      return Promise.resolve(json(failure, 400));
+    }
+    currentThresholds = mergeThresholds(currentThresholds, body.thresholds);
+    thresholdsUpdatedAt = '2026-11-11T09:42:00+01:00';
+    thresholdsUpdatedBy = auth.username;
+    return Promise.resolve(json(thresholdsPayload()));
   }
 
   if (path === '/api/v1/kits' && method === 'GET') {
@@ -204,7 +294,8 @@ export function mockFetch(input: string, init?: RequestInit): Promise<Response> 
       dataFrom: card.dataFrom,
       hasUsageData: card.hasUsageData,
       monitoringEnabled: deploymentId !== 'dep-kind-panda',
-      thresholdsConfigured: false,
+      unused: card.unused === true,
+      thresholdsConfigured: true,
       sampleData: true,
       clockTrusted: clockTrustedFor(deploymentId, weekStart),
       timezone: HARARE,
@@ -324,4 +415,14 @@ export function mockFetch(input: string, init?: RequestInit): Promise<Response> 
 
 export function resetMockHelpEvents(): void {
   helpStore.clear();
+}
+
+export function resetMockThresholds(): void {
+  currentThresholds = cloneThresholds(DEFAULT_THRESHOLDS);
+  thresholdsUpdatedAt = null;
+  thresholdsUpdatedBy = null;
+}
+
+export function resetMockOperators(): void {
+  operatorPasswords = emptyOperatorPasswords();
 }

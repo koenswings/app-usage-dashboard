@@ -1,5 +1,6 @@
 import { For, Show, createSignal } from 'solid-js';
-import type { HelpEvent, HelpEventsResponse } from '../api/types';
+import type { HelpEvent, HelpEventsResponse, ScorecardThresholds } from '../api/types';
+import { DEFAULT_THRESHOLDS, helpRulesText } from '../config/thresholds';
 import { SchoolNav } from '../components/SchoolNav';
 import { formatPercent } from '../lib/format';
 import { formatWeekLabel, fridayOf } from '../lib/week';
@@ -9,6 +10,7 @@ interface HelpTimelineProps {
   week: string;
   school: string;
   data: HelpEventsResponse;
+  thresholds?: ScorecardThresholds;
   onCreate: (input: { offeredOn: string; tutorialChapters: string[]; note: string }) => Promise<void>;
 }
 
@@ -49,6 +51,12 @@ export function HelpTimeline(props: HelpTimelineProps) {
         <p class="muted">
           Record when help was offered. The dashboard never invents an event and never
           decides to move a kit. Wording stays “offer help”.
+        </p>
+        <p class="help-rules" data-testid="help-rules">
+          {helpRulesText(props.thresholds ?? DEFAULT_THRESHOLDS)}
+          {' '}
+          The collector computes the streak and the unused flag. The dashboard shows
+          any help suggestions it sends and does not recompute them here.
         </p>
         <Show when={props.data.events.length === 0}>
           <p>No help has been recorded for this school yet.</p>

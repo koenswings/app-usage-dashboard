@@ -1,7 +1,7 @@
 import { For, Show, type JSX } from 'solid-js';
 
-export type ScorecardTone = 'onTrack' | 'needsHelp' | 'noData' | 'thresholdsNotSet';
-export type ScorecardPill = 'ok' | 'help' | 'noData' | 'thresholdsNotSet' | 'monitoringOff';
+export type ScorecardTone = 'onTrack' | 'needsHelp' | 'noData' | 'notMeasured';
+export type ScorecardPill = 'ok' | 'help' | 'noData' | 'monitoringOff' | 'unused';
 
 export interface ScorecardLineView {
   id: string;
@@ -31,6 +31,8 @@ export interface ScorecardCardProps {
   dataFromLabel: string | null;
   /** When set, replaces the scorecard lines (and headlines) with one sentence. */
   message?: string;
+  /** Shown above the lines without hiding them (e.g. the unused rule). */
+  banner?: string;
   href?: string;
   selected?: boolean;
 }
@@ -58,6 +60,13 @@ export function ScorecardCard(props: ScorecardCardProps) {
           {props.pillLabel}
         </span>
       </div>
+      <Show when={props.banner}>
+        {(text) => (
+          <p class="scorecard-card__banner" data-testid="unused-message" role="status">
+            {text()}
+          </p>
+        )}
+      </Show>
       <Show
         when={props.message}
         fallback={

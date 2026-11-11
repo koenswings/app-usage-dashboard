@@ -60,7 +60,8 @@ describe('Monitoring off fleet card', () => {
       MONITORING_OFF_MESSAGE,
     );
     // Enabled kits still use the existing wording.
-    expect(getAllByText('Thresholds not set').length).toBeGreaterThan(0);
+    expect(getAllByText('On track').length).toBeGreaterThan(0);
+    expect(queryByText('Thresholds not set')).toBeNull();
     expect(queryByText('Grey')).toBeNull();
   });
 
@@ -85,7 +86,7 @@ describe('Monitoring off fleet card', () => {
   it('does not show the stale marker on a monitoring-off card even if stale is true', () => {
     const card = cardsByWeek[SAMPLE_WEEK].find((item) => item.deploymentId === DEP_PANDA);
     if (!card) throw new Error('missing panda');
-    const pill = buildPill(card.hasUsageData, false, false);
+    const pill = buildPill(card.hasUsageData, [], false);
     const { queryByTestId } = render(() => (
       <ScorecardCard
         school={card.school}
@@ -119,6 +120,7 @@ describe('Monitoring off school week and reachability', () => {
     dataFrom: '2026-11-04',
     hasUsageData: false,
     monitoringEnabled: false,
+    unused: false,
     thresholdsConfigured: false,
     sampleData: true,
     clockTrusted: true,

@@ -1,12 +1,14 @@
-import type { ScorecardInputs, SchoolHeadlines } from '../api/types';
+import type { ScorecardInputs, ScorecardThresholds, SchoolHeadlines } from '../api/types';
 import {
   SCORECARD_LINE_IDS,
   SCORECARD_LINE_LABELS,
-  lineHasData,
+  evaluateLine,
   pillForCard,
   pillWord,
-  toneForLine,
-  wordForTone,
+  setupIsComplete,
+  teachingCycleItemCount,
+  learnerSessionShare,
+  nextcloudWorkflowActions,
   type CardPill,
   type ScorecardLineId,
 } from '../config/thresholds';
@@ -18,47 +20,64 @@ export function lineDetail(id: ScorecardLineId, inputs: ScorecardInputs): string
     case 'available': {
       const { schoolDaysOn, schoolDaysExpected } = inputs.available;
       if (schoolDaysOn === null) return '—';
-      return `${schoolDaysOn} / ${schoolDaysExpected} days`;
+      return `${schoolDaysOn} / ${schoolDaysExpected} school days on`;
     }
     case 'setup': {
-      const { classes, learnersRegistered } = inputs.setup;
-      if (classes === null && learnersRegistered === null) return '—';
-      return `${formatCount(classes)} classes · ${formatCount(learnersRegistered)} registered`;
+      const complete = setupIsComplete(inputs);
+      const { teachers, learnersRegistered, nextcloudTeacherBeyondSeed, nextcloudLearnerBeyondSeed } =
+        inputs.setup;
+      if (complete === null) return '—';
+      if (learnersRegistered !== null || teachers !== null) {
+        return `${formatCount(learnersRegistered)} learners registered · ${formatCount(teachers)} teachers`;
+      }
+      return (
+        `Nextcloud beyond seed: ${formatCount(nextcloudTeacherBeyondSeed)} teachers, ` +
+        `${formatCount(nextcloudLearnerBeyondSeed)} learners`
+      );
     }
     case 'teachingCycle': {
-      const { lessonsCreated, lessonsVisible, learnerSessionsOnAssigned } = inputs.teachingCycle;
-      if (lessonsCreated === null) return '—';
-      return `${formatCount(lessonsCreated)} lessons · ${formatCount(lessonsVisible)} visible · ${formatUnit(learnerSessionsOnAssigned, 'assigned learner visit', 'assigned learner visits')}`;
+      const items = teachingCycleItemCount(inputs);
+      const sessions = inputs.teachingCycle.learnerSessionsOnAssigned;
+      if (items === null && sessions === null) return '—';
+      return (
+        `${formatUnit(items, 'lesson or quiz visible or started', 'lessons or quizzes visible or started')} · ` +
+        `${formatUnit(sessions, 'assigned learner visit', 'assigned learner visits')}`
+      );
     }
     case 'learnersOperate': {
-      if (inputs.learnersOperate.learnerShareOfMinutes === null) return '—';
-      return `${formatPercent(inputs.learnersOperate.learnerShareOfMinutes)} learner minutes`;
+      const share = learnerSessionShare(inputs);
+      if (share === null) return '—';
+      return `${formatPercent(share)} of Kolibri sessions (learners vs coaches and admins)`;
     }
     case 'nextcloud': {
-      const { worksheetShares, fileDropUploads, officeOpens, officeDistinctDocuments } = inputs.nextcloud;
-      if (worksheetShares === null && fileDropUploads === null && officeOpens === null) return '—';
-      return `${formatUnit(worksheetShares, 'worksheet share', 'worksheet shares')} · ${formatUnit(fileDropUploads, 'file-drop upload', 'file-drop uploads')} · ${formatUnit(officeDistinctDocuments, 'distinct document across own Nextclouds', 'distinct documents across own Nextclouds')}`;
+      const actions = nextcloudWorkflowActions(inputs);
+      if (actions === null) return '—';
+      return `${formatUnit(actions, 'counted Nextcloud action', 'counted Nextcloud actions')}`;
     }
     case 'wikipedia': {
       if (inputs.wikipedia.pageViewsOwn === null) return '—';
-      return `${formatCount(inputs.wikipedia.pageViewsOwn)} views`;
+      return `${formatCount(inputs.wikipedia.pageViewsOwn)} views on the school's own Wikipedia`;
     }
   }
 }
 
 export function buildScorecardLines(
   inputs: ScorecardInputs,
-  thresholdsConfigured: boolean,
+  thresholds: ScorecardThresholds,
 ): ScorecardLineView[] {
   return SCORECARD_LINE_IDS.map((id) => {
-    const hasData = lineHasData(id, inputs);
-    const tone = toneForLine(hasData, thresholdsConfigured);
+    const evaluation = evaluateLine(id, inputs, thresholds);
+    const hasDetail = evaluation.tone !== 'noData' && evaluation.tone !== 'notMeasured';
     return {
       id,
       label: SCORECARD_LINE_LABELS[id],
-      tone,
-      word: wordForTone(tone),
-      detail: hasData ? lineDetail(id, inputs) : '—',
+      tone: evaluation.tone,
+      word: evaluation.word,
+      detail: hasDetail || evaluation.tone === 'needsHelp' || evaluation.tone === 'onTrack'
+        ? lineDetail(id, inputs)
+        : evaluation.tone === 'notMeasured'
+          ? 'Not measured yet'
+          : '—',
       barPercent: null,
     };
   });
@@ -66,13 +85,19 @@ export function buildScorecardLines(
 
 export function buildPill(
   hasUsageData: boolean,
-  thresholdsConfigured: boolean,
+  lines: ScorecardLineView[],
   monitoringEnabled?: boolean,
+  unused?: boolean,
 ): {
   pill: CardPill;
   pillLabel: string;
 } {
-  const pill = pillForCard(hasUsageData, thresholdsConfigured, monitoringEnabled);
+  const pill = pillForCard(
+    hasUsageData,
+    lines.map((line) => line.tone),
+    monitoringEnabled,
+    unused,
+  );
   return { pill, pillLabel: pillWord(pill) };
 }
 

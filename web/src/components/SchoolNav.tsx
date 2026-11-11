@@ -17,6 +17,7 @@ const LINKS: Array<{ id: PageName; label: string }> = [
   { id: 'help', label: 'Help' },
   { id: 'uplink', label: 'Reachability' },
   { id: 'instances', label: 'Apps' },
+  { id: 'settings', label: 'Settings' },
 ];
 
 export function SchoolNav(props: SchoolNavProps) {
@@ -30,7 +31,9 @@ export function SchoolNav(props: SchoolNavProps) {
           const href = () =>
             id === 'overview'
               ? `#/?week=${props.week}`
-              : schoolHref(props.deploymentId, props.week, id);
+              : id === 'settings'
+                ? (props.week ? `#/settings?week=${props.week}` : '#/settings')
+                : schoolHref(props.deploymentId, props.week, id);
           return (
             <a href={href()} aria-current={props.current === id ? 'page' : undefined}>
               {link()?.label}
@@ -42,10 +45,12 @@ export function SchoolNav(props: SchoolNavProps) {
   );
 }
 
-export function FleetNav(props: { week: string }) {
+export function FleetNav(props: { week: string; current?: 'overview' | 'settings' }) {
+  const current = () => props.current ?? 'overview';
   return (
     <nav class="nav" aria-label="Dashboard">
-      <a href={`#/?week=${props.week}`} aria-current="page">Fleet</a>
+      <a href={`#/?week=${props.week}`} aria-current={current() === 'overview' ? 'page' : undefined}>Fleet</a>
+      <a href={props.week ? `#/settings?week=${props.week}` : '#/settings'} aria-current={current() === 'settings' ? 'page' : undefined}>Settings</a>
     </nav>
   );
 }

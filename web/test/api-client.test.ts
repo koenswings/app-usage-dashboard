@@ -1,7 +1,7 @@
 import { createApiClient } from '../src/api/client';
 
 describe('API client methods', () => {
-  it('uses GET for reads and POST only for help events besides session auth', async () => {
+  it('uses GET for reads and writes only for help events, session auth and settings', async () => {
     const calls: Array<{ method: string; url: string }> = [];
     const fetcher = async (url: string, init?: RequestInit) => {
       const method = (init?.method ?? 'GET').toUpperCase();
@@ -16,7 +16,7 @@ describe('API client methods', () => {
                 offeredOn: '2026-11-06',
                 tutorialChapters: ['4'],
                 note: 'followed up',
-                createdBy: 'admin',
+                createdBy: 'koen',
                 createdAt: '2026-11-10T13:45:00+01:00',
               }
             : { schema: 'idea-usage-api/1', ok: true },
@@ -40,8 +40,11 @@ describe('API client methods', () => {
     await client.getKiwix('2026-11-02', 'dep-nharira');
     await client.getInstances('2026-11-02', 'dep-nharira');
     await client.getHelpEvents('dep-nharira');
-    await client.login('admin', 'mock-operator');
+    await client.login('koen', 'mock-operator');
+    await client.changePassword('mock-operator', 'mock-operator-2');
     await client.logout();
+    await client.getThresholds();
+    await client.putThresholds({ thresholds: { wikipediaMinViews: 12 } });
     await client.createHelpEvent('dep-nharira', {
       offeredOn: '2026-11-06',
       tutorialChapters: ['4'],
@@ -52,6 +55,8 @@ describe('API client methods', () => {
       (call) => call.method !== 'GET' && !call.url.endsWith('/api/v1/session'),
     );
     expect(dataWrites).toEqual([
+      { method: 'PUT', url: '/api/v1/session/password' },
+      { method: 'PUT', url: '/api/v1/settings/thresholds' },
       { method: 'POST', url: '/api/v1/schools/dep-nharira/help-events' },
     ]);
     expect(calls.filter((call) => call.url.endsWith('/api/v1/session')).map((call) => call.method).sort()).toEqual([

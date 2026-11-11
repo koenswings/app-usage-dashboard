@@ -1,5 +1,6 @@
 import { For, Show } from 'solid-js';
-import type { OverviewResponse } from '../api/types';
+import type { OverviewResponse, ScorecardThresholds } from '../api/types';
+import { DEFAULT_THRESHOLDS, unusedRuleText } from '../config/thresholds';
 import { ScorecardCard } from '../components/shared/ScorecardCard';
 import { FleetNav } from '../components/SchoolNav';
 import { isMonitoringOff, MONITORING_OFF_MESSAGE, showStale } from '../lib/monitoring';
@@ -12,11 +13,13 @@ interface FleetOverviewProps {
   headerTimeZone: string;
   /** monitoringEnabled from GET /api/v1/kits, keyed by deploymentId. */
   monitoringByDeployment?: Record<string, boolean>;
+  thresholds?: ScorecardThresholds;
 }
 
 export function FleetOverview(props: FleetOverviewProps) {
   const cardIds = () => props.overview.cards.map((card) => card.deploymentId);
   const suggestionIds = () => props.overview.helpSuggestions.map((item) => item.deploymentId);
+  const thresholds = () => props.thresholds ?? DEFAULT_THRESHOLDS;
 
   return (
     <>
@@ -43,10 +46,14 @@ export function FleetOverview(props: FleetOverviewProps) {
                   {(item) => {
                     const fromKit = () => (props.monitoringByDeployment ?? {})[item().deploymentId];
                     const monitoringOff = () => isMonitoringOff(item().monitoringEnabled, fromKit());
+                    const unused = () => !monitoringOff() && item().unused === true;
+                    const lines = () =>
+                      monitoringOff() ? [] : buildScorecardLines(item().scorecard, thresholds());
                     const pill = () => buildPill(
                       item().hasUsageData,
-                      props.overview.thresholdsConfigured,
+                      lines(),
                       monitoringOff() ? false : item().monitoringEnabled ?? fromKit(),
+                      unused(),
                     );
                     return (
                       <ScorecardCard
@@ -55,9 +62,10 @@ export function FleetOverview(props: FleetOverviewProps) {
                         note={item().note}
                         pill={pill().pill}
                         pillLabel={pill().pillLabel}
-                        lines={monitoringOff() ? [] : buildScorecardLines(item().scorecard, props.overview.thresholdsConfigured)}
+                        lines={lines()}
                         headlines={monitoringOff() ? [] : buildHeadlines(item().headlines)}
                         message={monitoringOff() ? MONITORING_OFF_MESSAGE : undefined}
+                        banner={unused() ? unusedRuleText(thresholds()) : undefined}
                         lastPulledLabel={formatDateTime(item().lastPulled, props.headerTimeZone)}
                         stale={showStale(item().stale, monitoringOff())}
                         dataFromLabel={formatDataFrom(item().dataFrom)}

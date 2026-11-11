@@ -1,10 +1,11 @@
 import { Show, createEffect, createSignal, onCleanup, onMount } from 'solid-js';
 import { api } from './api/client';
 import { API_SCHEMA } from './api/types';
-import type { HealthResponse, MetaResponse, SessionResponse, WeeksResponse } from './api/types';
+import type { HealthResponse, MetaResponse, ScorecardThresholds, SessionResponse, ThresholdsSettingsResponse, WeeksResponse } from './api/types';
 import { Footer, Header, SampleNote } from './components/Header';
 import { WeekPicker } from './components/WeekPicker';
 import { resolveHourlyChartMinWeeklyViews } from './config/display';
+import { DEFAULT_THRESHOLDS, resolveEffectiveThresholds } from './config/thresholds';
 import { parseHash, toHash, type Route } from './lib/route';
 import { healthVersionLabel } from './lib/health';
 import { formatWeekLabel, fridayOf, noDataThisWeekNote } from './lib/week';
@@ -16,6 +17,7 @@ import { LoginPage } from './pages/LoginPage';
 import { NextcloudPage } from './pages/NextcloudPage';
 import { SchoolWeek } from './pages/SchoolWeek';
 import { UplinkHistory } from './pages/UplinkHistory';
+import { SettingsPage } from './pages/SettingsPage';
 import { WikipediaPage } from './pages/WikipediaPage';
 
 
@@ -26,8 +28,12 @@ export default function App() {
   const [weeks, setWeeks] = createSignal<WeeksResponse | null>(null);
   const [kits, setKits] = createSignal<{ deploymentId: string; school: string; monitoringEnabled: boolean }[]>([]);
   const [health, setHealth] = createSignal<HealthResponse | null>(null);
+  const [thresholdSettings, setThresholdSettings] = createSignal<ThresholdsSettingsResponse | null>(null);
+  const [settingsWritable, setSettingsWritable] = createSignal(false);
 
   const week = () => route().week || weeks()?.currentWeekStart || '';
+  const effectiveThresholds = (): ScorecardThresholds =>
+    resolveEffectiveThresholds(meta()?.thresholds);
   const schoolName = (deploymentId: string) =>
     kits().find((item) => item.deploymentId === deploymentId)?.school ?? deploymentId;
 
@@ -62,6 +68,14 @@ export default function App() {
       monitoringEnabled: item.monitoringEnabled,
     })));
     setHealth(nextHealth);
+    try {
+      const settings = await api.getThresholds();
+      setThresholdSettings(settings);
+      setSettingsWritable(true);
+    } catch {
+      setThresholdSettings(null);
+      setSettingsWritable(false);
+    }
   };
 
   const navigate = (next: Route) => {
@@ -113,6 +127,12 @@ export default function App() {
     let cancelled = false;
     if (!authed || name === 'login') {
       setPage({ kind: 'none' });
+      setPageLoading(false);
+      setPageError(false);
+      return;
+    }
+    if (name === 'settings') {
+      setPage({ kind: 'settings' as const });
       setPageLoading(false);
       setPageError(false);
       return;
@@ -231,12 +251,14 @@ export default function App() {
                 overview={page().data}
                 headerTimeZone={meta()?.headerTimeZone ?? 'Europe/Brussels'}
                 monitoringByDeployment={monitoringByDeployment()}
+                thresholds={effectiveThresholds()}
               />
             </Show>
             <Show when={!pageLoading() && !pageError() && page().kind === 'school'}>
               <SchoolWeek
                 data={page().data}
                 headerTimeZone={meta()?.headerTimeZone ?? 'Europe/Brussels'}
+                thresholds={effectiveThresholds()}
               />
             </Show>
             <Show when={!pageLoading() && !pageError() && page().kind === 'kolibri'}>
@@ -264,6 +286,7 @@ export default function App() {
                 week={week()}
                 school={schoolName(route().deploymentId ?? '')}
                 data={page().data}
+                thresholds={effectiveThresholds()}
                 onCreate={async (input) => {
                   await api.createHelpEvent(route().deploymentId ?? '', input);
                   setReloadToken((value) => value + 1);
@@ -282,6 +305,32 @@ export default function App() {
               <InstanceBreakdown
                 data={page().data}
                 school={schoolName(String(page().data?.deploymentId ?? ''))}
+              />
+            </Show>
+            <Show when={!pageLoading() && !pageError() && page().kind === 'settings'}>
+              <SettingsPage
+                week={week()}
+                thresholds={effectiveThresholds()}
+                defaults={thresholdSettings()?.defaults ?? DEFAULT_THRESHOLDS}
+                updatedAt={thresholdSettings()?.updatedAt ?? null}
+                updatedBy={thresholdSettings()?.updatedBy ?? null}
+                writable={settingsWritable()}
+                username={session()?.user?.username ?? undefined}
+                onSave={async (thresholds) => {
+                  const result = await api.putThresholds({ thresholds });
+                  setThresholdSettings(result);
+                  setMeta((current) => current ? { ...current, thresholds: result.thresholds, thresholdsConfigured: true } : current);
+                  return result;
+                }}
+                onReset={async () => {
+                  const result = await api.putThresholds({ reset: true });
+                  setThresholdSettings(result);
+                  setMeta((current) => current ? { ...current, thresholds: result.thresholds, thresholdsConfigured: true } : current);
+                  return result;
+                }}
+                onChangePassword={async (currentPassword, newPassword) => {
+                  await api.changePassword(currentPassword, newPassword);
+                }}
               />
             </Show>
             <Footer versionLabel={healthVersionLabel(health())} />

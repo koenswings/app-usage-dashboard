@@ -2,7 +2,9 @@
  * HTTP API contract for the programme dashboard (idea#415).
  *
  * Read-only GET /api/v1/... except POST /api/v1/schools/:deploymentId/help-events
- * (operator-only; Koen or Marco records that help was offered).
+ * (operator-only; Koen or Marco records that help was offered) and
+ * PUT /api/v1/settings/thresholds (operator session; served by the collector
+ * in PR #2, Kid 7880247, not yet pushed).
  *
  * Derived from the merged proposal (idea PR #410):
  *   §7.5 SQLite tables, §7.6 day-summary schema, §4 scorecard inputs,
@@ -12,10 +14,11 @@
  *   { state: 'on' | 'off' | 'gapUnknown' | 'collectorGap', start, end, lengthKnown }
  * lastPulled is returned on every kit / school card.
  *
- * Scorecard thresholds are a Koen item (idea#375) and are not set yet.
- * The API returns raw counts; it never invents cut-offs. When
- * thresholdsConfigured is false the UI shows "Thresholds not set"
- * rather than Help / OK grades.
+ * Scorecard thresholds: Koen approved starting defaults on idea#375 U-7
+ * (11 Nov 09:42 Europe/Brussels). The API still returns raw counts, never a
+ * grade. The UI compares those counts to effective thresholds (defaults, or
+ * values from /meta.thresholds / GET /api/v1/settings/thresholds). Grey
+ * (no data / not measured) never counts as amber.
  *
  * Schema version: idea-usage-api/1 (this HTTP API).
  * Day-file version: idea-usage-day/1 (§7.6).
@@ -112,6 +115,12 @@ export interface LoginRequest {
   password: string;
 }
 
+/** `PUT /api/v1/session/password` (operator session, Kid e4c15dd). */
+export interface ChangePasswordRequest {
+  currentPassword: string;
+  newPassword: string;
+}
+
 /**
  * `GET /api/v1/health` — public, no cookie.
  * Engine healthCheck probes this on `${port}`.
@@ -132,8 +141,17 @@ export interface HealthResponse {
 export interface MetaResponse {
   schema: ApiSchema;
   daySchema: DaySchema;
-  /** False until Koen sets scorecard cut-offs (idea#375). */
+  /**
+   * True once Koen approved the U-7 defaults. The collector (PR #2, Kid 7880247)
+   * sends this as true together with `thresholds`.
+   */
   thresholdsConfigured: boolean;
+  /**
+   * Effective U-7 thresholds from the collector. If omitted, the UI uses the
+   * built-in defaults in src/config/thresholds.ts. Grades are computed in the
+   * UI; the API never sends scorecard colours.
+   */
+  thresholds?: ScorecardThresholds;
   /** A card whose lastPulled is older than this is marked "data from <date>". */
   staleAfterHours: number;
   /**
@@ -181,6 +199,50 @@ export interface WeeksResponse {
   todayWeekStart: WeekStart;
   /** True when at least one stored week exists. */
   currentWeekHasData: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// U-7 scorecard thresholds (collector PR #2, Kid 7880247, not yet pushed)
+// ---------------------------------------------------------------------------
+
+/**
+ * Numeric U-7 cut-offs. Set up is a yes/no check and has no number.
+ * `learnerSessionShareMin` is a 0–1 share (shown as a percentage in Settings).
+ */
+export interface ScorecardThresholds {
+  availableMinSchoolDays: number;
+  teachingCycleMinItems: number;
+  learnerSessionShareMin: number;
+  nextcloudMinActions: number;
+  wikipediaMinViews: number;
+  helpAfterAmberWeeks: number;
+  unusedAfterHelpWeeks: number;
+}
+
+/**
+ * GET /api/v1/settings/thresholds and PUT /api/v1/settings/thresholds.
+ * Both require an operator session (same as /meta). The response has no
+ * `schema` field. `updatedBy` is the operator username.
+ */
+export interface ThresholdsSettingsResponse {
+  thresholds: ScorecardThresholds;
+  defaults: ScorecardThresholds;
+  updatedAt: IsoDateTime | null;
+  updatedBy: string | null;
+}
+
+/** PUT body: a partial `thresholds` object, or `{ reset: true }` to restore defaults. */
+export type PutThresholdsRequest =
+  | { reset: true; thresholds?: never }
+  | { reset?: false; thresholds: Partial<ScorecardThresholds> };
+
+/**
+ * 400 body for the settings endpoint. This is a flat `{ error, field }`,
+ * not the usual `{ error: { code, message } }` wrapper.
+ */
+export interface ThresholdsSettingsError {
+  error: string;
+  field: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -238,11 +300,39 @@ export interface ScorecardLearnersOperateInputs {
 
 export interface ScorecardNextcloudInputs {
   worksheetShares: number | null;
+  /**
+   * Worksheet shares by a teacher or learner (`workflows.byGroup.worksheetShares`,
+   * Kid 10a1cc5, idea#431). Null when no own instance this week had that
+   * byGroup (old day files). A null split counts as 0 toward nextcloudMinActions.
+   */
+  worksheetSharesTeacherLearner: number | null;
+  /** Worksheet shares by an admin. Does not count toward the Nextcloud threshold. */
+  worksheetSharesAdmin: number | null;
   editShares: number | null;
+  editSharesTeacherLearner: number | null;
+  editSharesAdmin: number | null;
+  /** Unsplit. Creating a File drop link does not count toward nextcloudMinActions. */
   fileDropLinks: number | null;
   fileDropUploads: number | null;
+  fileDropUploadsTeacherLearner: number | null;
+  fileDropUploadsAdmin: number | null;
   schoolFilesShares: number | null;
+  schoolFilesSharesTeacherLearner: number | null;
+  schoolFilesSharesAdmin: number | null;
   officeOpens: number | null;
+  /**
+   * Office opens by a teacher or learner (`office.byGroup.teacher` +
+   * `office.byGroup.learner`), summed across the school's own Nextclouds
+   * (Kid 34bb193). Null when no instance this week had a byGroup split
+   * (old day files). A null split counts as 0 toward nextcloudMinActions.
+   */
+  officeOpensTeacherLearner: number | null;
+  /**
+   * Office opens by an admin (`office.byGroup.admin`). Null under the same
+   * conditions as officeOpensTeacherLearner. Does not count toward the
+   * Nextcloud threshold.
+   */
+  officeOpensAdmin: number | null;
   /**
    * Sum of each own Nextcloud instance's last-ok-day `office.distinctDocuments`.
    * Document ids are salted per instance, so two own Nextclouds hold different
@@ -299,6 +389,12 @@ export interface SchoolCard {
    * `/api/v1/kits` by deploymentId if a payload omits the field.
    */
   monitoringEnabled: boolean;
+  /**
+   * True when a help event was recorded and the kit stayed amber with no
+   * improvement for unusedAfterHelpWeeks school weeks after that event.
+   * Unused kits are not included in helpSuggestions.
+   */
+  unused: boolean;
   scorecard: ScorecardInputs;
   headlines: SchoolHeadlines;
 }
@@ -366,6 +462,11 @@ export interface SchoolWeekResponse {
   dataFrom: IsoDate | null;
   hasUsageData: boolean;
   monitoringEnabled: boolean;
+  /**
+   * True when a help event was recorded and the kit stayed amber with no
+   * improvement for unusedAfterHelpWeeks school weeks after that event.
+   */
+  unused: boolean;
   thresholdsConfigured: boolean;
   sampleData: boolean;
   /**
