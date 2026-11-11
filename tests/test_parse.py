@@ -33,6 +33,27 @@ class ParseTests(unittest.TestCase):
         with self.assertRaises(InvalidExport):
             interpret_export(10, "{}\n", "disabled\n")
 
+    def test_disabled_ignores_ssh_known_hosts_warning(self):
+        stderr = (
+            "Warning: Permanently added '100.108.39.45' (ED25519) "
+            "to the list of known hosts.\n"
+            "disabled\n"
+        )
+        with self.assertRaises(DisabledExport):
+            interpret_export(10, "", stderr)
+        # `disabled` as the last non-empty line, with a trailing warning, also counts.
+        with self.assertRaises(DisabledExport):
+            interpret_export(10, "", "disabled\nWarning: Permanently added 'x' (ED25519) to the list of known hosts.\n")
+
+    def test_exit_10_warning_without_disabled_still_rejected(self):
+        with self.assertRaises(InvalidExport):
+            interpret_export(
+                10,
+                "",
+                "Warning: Permanently added '100.108.39.45' (ED25519) "
+                "to the list of known hosts.\n",
+            )
+
     def test_invalid_json(self):
         with self.assertRaises(InvalidExport):
             parse_since_stream('{"type":"day"}\nnot-json\n{"type":"end"}\n')

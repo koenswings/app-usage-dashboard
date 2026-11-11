@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 SCHOOL_HOUR_START = 7
 SCHOOL_HOUR_END = 16
@@ -30,19 +31,93 @@ def normalize_offset(offset: str | None) -> str:
     return raw
 
 
-def week_bounds(week_start: str, utc_offset: str | None, week_end: str | None = None) -> tuple[datetime, datetime]:
-    """Monday 00:00 to Saturday 00:00 (end of Friday) in kit-local offset.
+def zoneinfo_tz(name: str | None):
+    if not name:
+        return None
+    try:
+        return ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError, OSError):
+        return None
+
+
+def local_midnight(day: str, tz) -> datetime:
+    return datetime.combine(date.fromisoformat(day), datetime.min.time(), tzinfo=tz)
+
+
+def offset_string(dt: datetime) -> str:
+    off = dt.utcoffset()
+    if off is None:
+        return "+00:00"
+    total = int(off.total_seconds())
+    sign = "+" if total >= 0 else "-"
+    total = abs(total)
+    hours, rem = divmod(total, 3600)
+    minutes = rem // 60
+    return "%s%02d:%02d" % (sign, hours, minutes)
+
+
+def offset_at(iana: str | None, day: str | None = None) -> str | None:
+    """Numeric UTC offset of an IANA zone at local midnight of `day`, or now."""
+    tz = zoneinfo_tz(iana)
+    if tz is None:
+        return None
+    when = local_midnight(day, tz) if day else datetime.now(tz)
+    return offset_string(when)
+
+
+def week_bounds(
+    week_start: str,
+    utc_offset: str | None = None,
+    week_end: str | None = None,
+    time_zone: str | None = None,
+) -> tuple[datetime, datetime]:
+    """Monday 00:00 to Saturday 00:00 (end of Friday) in kit-local time.
 
     Matches Pixel's PresenceStrip: origin = weekStartT00:00:00offset,
     end = (weekEnd+1)T00:00:00offset, where weekEnd is Friday.
+
+    When `time_zone` is a valid IANA name, both endpoints are local midnights
+    in that zone (so a DST change inside the window does not shift Saturday
+    by reusing Monday's numeric offset). Otherwise both ends use utc_offset.
     """
-    offset = normalize_offset(utc_offset)
     if week_end is None:
         week_end = (date.fromisoformat(week_start) + timedelta(days=4)).isoformat()
-    start = parse_ts("%sT00:00:00%s" % (week_start, offset))
     end_day = (date.fromisoformat(week_end) + timedelta(days=1)).isoformat()
+    tz = zoneinfo_tz(time_zone)
+    if tz is not None:
+        return local_midnight(week_start, tz), local_midnight(end_day, tz)
+    offset = normalize_offset(utc_offset)
+    start = parse_ts("%sT00:00:00%s" % (week_start, offset))
     end = parse_ts("%sT00:00:00%s" % (end_day, offset))
     return start, end
+
+
+def clip_gaps_to_windows(
+    gaps: list[dict[str, Any]],
+    windows: list[tuple[datetime, datetime | None]],
+) -> list[dict[str, Any]]:
+    """Keep only the parts of collector_gaps that overlap monitoring-on windows."""
+    out: list[dict[str, Any]] = []
+    for gap in gaps:
+        g0 = parse_ts(gap["start"])
+        raw_end = gap.get("end")
+        g1 = parse_ts(raw_end) if raw_end else None
+        for w0, w1 in windows:
+            start = max(g0, w0)
+            if g1 is None and w1 is None:
+                end = None
+            elif g1 is None:
+                end = w1
+            elif w1 is None:
+                end = g1
+            else:
+                end = min(g1, w1)
+            if end is None or end > start:
+                out.append({
+                    "start": rfc3339(start),
+                    "end": rfc3339(end) if end is not None else None,
+                })
+    return out
 
 
 def in_bounds(ts: str | datetime, start: datetime, end: datetime) -> bool:

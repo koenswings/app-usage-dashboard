@@ -260,6 +260,7 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(overview["weekEnd"], "2026-11-13")
         card = overview["cards"][0]
         self.assertTrue(card["hasUsageData"])
+        self.assertTrue(card["monitoringEnabled"])
         self.assertEqual(card["headlines"]["classes"], 2)
         status, weeks = self.call("GET", "/api/v1/weeks")
         self.assertEqual(status, 200)
@@ -281,6 +282,7 @@ class ApiTests(unittest.TestCase):
         status, school = self.call("GET", "/api/v1/weeks/%s/schools/dep-nharira" % WEEK)
         self.assertEqual(status, 200, school)
         self.assertEqual(school["census"]["classes"], 2)
+        self.assertTrue(school["monitoringEnabled"])
         self.assertEqual(school["timezone"]["timeZone"], "Africa/Harare")
         self.assertTrue(school["clockTrusted"])
         self.assertNotIn("clockTrustworthy", school)
@@ -398,6 +400,95 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(status, 200, pres)
         self.assertEqual({item["state"] for item in pres["segments"]}, states)
         self.assertEqual(sum((parse_ts(item["end"]) - parse_ts(item["start"])).total_seconds() for item in pres["segments"]), 5 * 86400)
+
+    def test_overview_monitoring_and_never_enabled_kit(self):
+        self.conn.execute(
+            """INSERT INTO kits(engine, tailscale_name, school, deployment_id, timezone,
+               monitoring_enabled, last_pulled, note, created_at)
+               VALUES ('idea04', 'idea04', 'Pool Pi 4', 'dep-idea04', 'Europe/Brussels',
+                       0, NULL, '', ?)""",
+            (db.now_rfc3339(),),
+        )
+        # Production-like: a first-connect rejected row plus later disabled polls.
+        self.conn.execute(
+            """INSERT INTO pull_log(engine, started_at, finished_at, ok, kind, since_day, message)
+               VALUES ('idea04', '2026-11-11T00:54:03+01:00', '2026-11-11T00:54:03+01:00',
+                       0, 'rejected', '2026-10-28', 'exit 10 with unexpected stderr')"""
+        )
+        self.conn.execute(
+            """INSERT INTO pull_log(engine, started_at, finished_at, ok, kind, since_day, message)
+               VALUES ('idea04', '2026-11-11T00:54:17+01:00', '2026-11-11T00:54:17+01:00',
+                       1, 'disabled', '2026-10-28', 'disabled')"""
+        )
+        # Sidecar outage inside this school week. Must not become collectorGap
+        # on a never-enabled kit (and with utcOffset +00:00 it would also have
+        # been drawn as late Tuesday 23:48).
+        self.conn.execute(
+            "INSERT INTO collector_gaps(start, end, reason) VALUES (?, ?, ?)",
+            ("2026-11-11T00:48:00+01:00", "2026-11-11T00:54:00+01:00", "sidecar-offline"),
+        )
+        self.conn.commit()
+        self.login()
+        status, overview = self.call("GET", "/api/v1/weeks/%s/overview" % WEEK)
+        self.assertEqual(status, 200, overview)
+        by_engine = {card["engine"]: card for card in overview["cards"]}
+        self.assertTrue(by_engine["happy-zebra"]["monitoringEnabled"])
+        self.assertFalse(by_engine["idea04"]["monitoringEnabled"])
+        status, school = self.call("GET", "/api/v1/weeks/%s/schools/dep-idea04" % WEEK)
+        self.assertEqual(status, 200, school)
+        self.assertFalse(school["monitoringEnabled"])
+        self.assertEqual(school["timezone"]["timeZone"], "Europe/Brussels")
+        self.assertEqual(school["timezone"]["utcOffset"], "+01:00")
+        status, pres = self.call("GET", "/api/v1/weeks/%s/schools/dep-idea04/presence" % WEEK)
+        self.assertEqual(status, 200, pres)
+        self.assertEqual(pres["timezone"]["utcOffset"], "+01:00")
+        self.assertEqual(pres["timezone"]["timeZone"], "Europe/Brussels")
+        states = {item["state"] for item in pres["segments"]}
+        self.assertEqual(states, {"gapUnknown"})
+        self.assertNotIn("collectorGap", states)
+        self.assertEqual(pres["segments"][0]["start"], "2026-11-09T00:00:00+01:00")
+        self.assertEqual(pres["segments"][-1]["end"], "2026-11-14T00:00:00+01:00")
+        from src.presence import parse_ts
+        total = sum((parse_ts(s["end"]) - parse_ts(s["start"])).total_seconds() for s in pres["segments"])
+        self.assertEqual(total, 5 * 86400)
+
+    def test_disabled_after_enabled_hides_later_collector_gaps(self):
+        self.conn.execute(
+            """INSERT INTO kits(engine, tailscale_name, school, deployment_id, timezone,
+               monitoring_enabled, last_pulled, note, created_at)
+               VALUES ('was-on', 'was-on', 'Toggled', 'dep-toggled', 'Africa/Harare',
+                       0, '2026-11-03T18:00:00+02:00', '', ?)""",
+            (db.now_rfc3339(),),
+        )
+        self.conn.execute(
+            """INSERT INTO pull_log(engine, started_at, finished_at, ok, kind, since_day, message)
+               VALUES ('was-on', '2026-11-03T08:00:00+02:00', '2026-11-03T08:00:00+02:00',
+                       1, 'success', '2026-10-20', 'ok')"""
+        )
+        self.conn.execute(
+            """INSERT INTO pull_log(engine, started_at, finished_at, ok, kind, since_day, message)
+               VALUES ('was-on', '2026-11-04T12:00:00+02:00', '2026-11-04T12:00:00+02:00',
+                       1, 'disabled', '2026-10-20', 'disabled')"""
+        )
+        self.conn.execute(
+            "INSERT INTO collector_gaps(start, end, reason) VALUES (?, ?, ?)",
+            ("2026-11-02T12:00:00+02:00", "2026-11-02T14:00:00+02:00", "before-enable"),
+        )
+        self.conn.execute(
+            "INSERT INTO collector_gaps(start, end, reason) VALUES (?, ?, ?)",
+            ("2026-11-03T10:00:00+02:00", "2026-11-03T12:00:00+02:00", "while-on"),
+        )
+        self.conn.commit()
+        self.login()
+        status, pres = self.call("GET", "/api/v1/weeks/%s/schools/dep-toggled/presence" % FOUR_STATE_WEEK)
+        self.assertEqual(status, 200, pres)
+        gaps = [item for item in pres["segments"] if item["state"] == "collectorGap"]
+        self.assertEqual(len(gaps), 1, gaps)
+        self.assertEqual(gaps[0]["start"], "2026-11-03T10:00:00+02:00")
+        self.assertEqual(gaps[0]["end"], "2026-11-03T12:00:00+02:00")
+        # The fixture's Nov 5 sidecar gap and the pre-enable gap must not appear.
+        self.assertFalse(any(item["start"].startswith("2026-11-02T12:") for item in gaps))
+        self.assertFalse(any(item["start"].startswith("2026-11-05T") for item in gaps))
 
     def test_help_event(self):
         self.login()

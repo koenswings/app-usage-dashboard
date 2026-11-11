@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "collector"))
 
 from src import db
 from src.parse import DisabledExport, interpret_export
-from src.pull import store_export
+from src.pull import ssh_base, store_export
 
 
 class PullStoreTests(unittest.TestCase):
@@ -60,6 +60,19 @@ class PullStoreTests(unittest.TestCase):
     def test_disabled_exit_is_not_invalid(self):
         with self.assertRaises(DisabledExport):
             interpret_export(10, "", "disabled")
+
+    def test_ssh_base_uses_error_loglevel_and_persistent_known_hosts(self):
+        os.environ["DATA_DIR"] = self.tmp
+        os.environ.pop("IDEA_USAGE_KNOWN_HOSTS", None)
+        cmd = ssh_base("idea04", "/data/keys/pull_key")
+        joined = " ".join(cmd)
+        self.assertIn("LogLevel=ERROR", joined)
+        self.assertIn("UserKnownHostsFile=%s" % os.path.join(self.tmp, "known_hosts"), joined)
+        self.assertIn("StrictHostKeyChecking=accept-new", joined)
+        os.environ["IDEA_USAGE_KNOWN_HOSTS"] = "/tmp/custom_hosts"
+        cmd = ssh_base("idea04", "/data/keys/pull_key")
+        self.assertIn("UserKnownHostsFile=/tmp/custom_hosts", " ".join(cmd))
+        os.environ.pop("IDEA_USAGE_KNOWN_HOSTS", None)
 
 
 if __name__ == "__main__":

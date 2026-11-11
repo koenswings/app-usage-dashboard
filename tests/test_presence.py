@@ -5,7 +5,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "collector"))
 
-from src.presence import cover_week, derive_segments, overlay_collector_gaps, parse_ts, rollup_day, week_bounds
+from src.presence import (
+    clip_gaps_to_windows,
+    cover_week,
+    derive_segments,
+    overlay_collector_gaps,
+    parse_ts,
+    rollup_day,
+    week_bounds,
+)
 
 
 def sample(ts, boot, uptime, synced=True):
@@ -161,6 +169,37 @@ class PresenceTests(unittest.TestCase):
         roll = rollup_day(segs, "2026-11-09", tz)
         self.assertEqual(roll["onMinutes"], 600)
         self.assertEqual(roll["schoolHoursOnMinutes"], 540)  # 07:00-16:00
+
+    def test_week_bounds_from_iana_zone(self):
+        start, end = week_bounds("2026-11-09", time_zone="Europe/Brussels")
+        self.assertEqual(start.isoformat(timespec="seconds"), "2026-11-09T00:00:00+01:00")
+        self.assertEqual(end.isoformat(timespec="seconds"), "2026-11-14T00:00:00+01:00")
+        start, end = week_bounds("2026-07-06", time_zone="Europe/Brussels")
+        self.assertEqual(start.isoformat(timespec="seconds"), "2026-07-06T00:00:00+02:00")
+        self.assertEqual(end.isoformat(timespec="seconds"), "2026-07-11T00:00:00+02:00")
+        # DST changed on Sunday 2026-10-25, outside the Mon-Sat school window.
+        start, end = week_bounds("2026-10-19", time_zone="Europe/Brussels")
+        self.assertEqual(start.isoformat(timespec="seconds"), "2026-10-19T00:00:00+02:00")
+        self.assertEqual(end.isoformat(timespec="seconds"), "2026-10-24T00:00:00+02:00")
+        start, end = week_bounds("2026-10-26", time_zone="Europe/Brussels")
+        self.assertEqual(start.isoformat(timespec="seconds"), "2026-10-26T00:00:00+01:00")
+
+    def test_clip_gaps_to_windows(self):
+        windows = [
+            (parse_ts("2026-11-03T08:00:00+02:00"), parse_ts("2026-11-04T12:00:00+02:00")),
+        ]
+        gaps = [
+            {"start": "2026-11-02T12:00:00+02:00", "end": "2026-11-02T14:00:00+02:00"},
+            {"start": "2026-11-03T10:00:00+02:00", "end": "2026-11-03T12:00:00+02:00"},
+            {"start": "2026-11-03T11:00:00+02:00", "end": "2026-11-04T18:00:00+02:00"},
+            {"start": "2026-11-05T10:00:00+02:00", "end": "2026-11-05T16:00:00+02:00"},
+        ]
+        out = clip_gaps_to_windows(gaps, windows)
+        pairs = [(item["start"], item["end"]) for item in out]
+        self.assertEqual(pairs, [
+            ("2026-11-03T10:00:00+02:00", "2026-11-03T12:00:00+02:00"),
+            ("2026-11-03T11:00:00+02:00", "2026-11-04T12:00:00+02:00"),
+        ])
 
 
 if __name__ == "__main__":

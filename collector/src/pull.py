@@ -12,6 +12,14 @@ from .parse import DisabledExport, InvalidExport, interpret_export
 from . import presence as presence_mod
 
 
+def known_hosts_path() -> str:
+    override = os.environ.get("IDEA_USAGE_KNOWN_HOSTS")
+    if override:
+        return override
+    data_dir = os.environ.get("DATA_DIR") or "/data"
+    return os.path.join(data_dir, "known_hosts")
+
+
 def ssh_base(host: str, key: str, socks: str | None = None, port: int = 22) -> list[str]:
     cmd = [
         os.environ.get("IDEA_USAGE_SSH") or "ssh",
@@ -19,11 +27,10 @@ def ssh_base(host: str, key: str, socks: str | None = None, port: int = 22) -> l
         "-o", "IdentitiesOnly=yes",
         "-o", "BatchMode=yes",
         "-o", "StrictHostKeyChecking=accept-new",
+        "-o", "LogLevel=ERROR",
+        "-o", "UserKnownHostsFile=%s" % known_hosts_path(),
         "-p", str(port),
     ]
-    known = os.environ.get("IDEA_USAGE_KNOWN_HOSTS")
-    if known:
-        cmd.extend(["-o", "UserKnownHostsFile=%s" % known])
     if socks:
         cmd.extend(["-o", "ProxyCommand=nc -x %s %%h %%p" % socks])
     cmd.append("pi@%s" % host)

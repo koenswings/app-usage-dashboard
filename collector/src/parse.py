@@ -49,13 +49,26 @@ def parse_since_stream(text: str) -> dict[str, Any]:
     return {"presence": presence, "days": days, "samples": samples, "end": end}
 
 
+def stderr_indicates_disabled(stderr: str) -> bool:
+    """True when rc-10 stderr is empty or any stripped line is exactly `disabled`.
+
+    SSH may print a first-connect known_hosts warning on stderr before the
+    helper's `disabled` line. Matching any line (or the last non-empty line)
+    avoids classifying that as a rejected pull.
+    """
+    lines = [line.strip() for line in (stderr or "").splitlines() if line.strip()]
+    if not lines:
+        return True
+    return any(line == "disabled" for line in lines) or lines[-1] == "disabled"
+
+
 def interpret_export(returncode: int, stdout: str, stderr: str) -> dict[str, Any]:
     err = (stderr or "").strip()
     out = stdout or ""
     if returncode == 10:
         if out.strip():
             raise InvalidExport("exit 10 but stdout was not empty")
-        if err and err.splitlines()[0].strip() != "disabled":
+        if not stderr_indicates_disabled(stderr):
             raise InvalidExport("exit 10 with unexpected stderr: %s" % err)
         raise DisabledExport("disabled")
     if returncode == 2:

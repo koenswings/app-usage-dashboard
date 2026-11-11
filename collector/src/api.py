@@ -28,15 +28,22 @@ def error_body(code: str, message: str, details=None) -> dict[str, Any]:
     return body
 
 
-def _kit_tz(conn, kit) -> dict[str, str]:
-    offset = None
-    row = conn.execute(
-        "SELECT ts FROM presence_samples WHERE engine = ? ORDER BY ts DESC LIMIT 1",
-        (kit["engine"],),
-    ).fetchone()
-    if row:
-        offset = agg.offset_from_ts(row["ts"])
-    return agg.kit_timezone(kit["timezone"], offset)
+def _monitoring_enabled(kit) -> bool:
+    value = kit["monitoring_enabled"]
+    return value != 0 if value is not None else False
+
+
+def _kit_tz(conn, kit, week_start: str | None = None) -> dict[str, str]:
+    iana = kit["timezone"] or None
+    offset = presence_mod.offset_at(iana, week_start)
+    if offset is None:
+        row = conn.execute(
+            "SELECT ts FROM presence_samples WHERE engine = ? ORDER BY ts DESC LIMIT 1",
+            (kit["engine"],),
+        ).fetchone()
+        if row:
+            offset = agg.offset_from_ts(row["ts"])
+    return agg.kit_timezone(iana, offset)
 
 
 def _summaries(conn, engine: str, week_start: str):
@@ -96,6 +103,57 @@ def _collector_gaps(conn) -> list[dict[str, Any]]:
     ]
 
 
+def _monitoring_on_windows(conn, kit) -> list[tuple] | None:
+    """Intervals when this kit's monitoring was on, from pull_log.
+
+    None: no success/disabled rows (caller falls back).
+    Empty list: monitoring has never been enabled.
+    """
+    rows = conn.execute(
+        """SELECT kind, started_at, finished_at FROM pull_log
+           WHERE engine = ? AND kind IN ('success', 'disabled')
+           ORDER BY started_at, id""",
+        (kit["engine"],),
+    ).fetchall()
+    if not rows:
+        return None
+    windows = []
+    current_start = None
+    saw_success = False
+    for row in rows:
+        when = presence_mod.parse_ts(row["started_at"])
+        if row["kind"] == "success":
+            saw_success = True
+            if current_start is None:
+                current_start = when
+        elif row["kind"] == "disabled" and current_start is not None:
+            windows.append((current_start, when))
+            current_start = None
+    if not saw_success:
+        return []
+    if current_start is not None:
+        windows.append((current_start, None))
+    return windows
+
+
+def _collector_gaps_for_kit(conn, kit) -> list[dict[str, Any]]:
+    """collectorGap only for sidecar outages while monitoring was on.
+
+    A never-enabled kit (or one whose only polls are `disabled`) gets no
+    collector gaps: the week stays `gapUnknown`. Periods before the first
+    successful pull and periods covered by disabled polls are excluded.
+    """
+    gaps = _collector_gaps(conn)
+    windows = _monitoring_on_windows(conn, kit)
+    if windows is None:
+        if _monitoring_enabled(kit) or kit["last_pulled"]:
+            return gaps
+        return []
+    if not windows:
+        return []
+    return presence_mod.clip_gaps_to_windows(gaps, windows)
+
+
 def _rows_in_week(conn, table: str, engine: str, start, end):
     """Fetch rows whose timestamp column falls in [start, end), offset-aware."""
     pad_lo = (start - timedelta(days=2)).date().isoformat()
@@ -148,18 +206,20 @@ def _week_bundle(conn, kit, week_start: str) -> dict[str, Any]:
     scorecard = agg.scorecard_from_weeks(kolibri, nextcloud, kiwix, presence_days, week_start)
     has_usage = bool(rows)
     stale, data_from = agg.freshness(kit["last_pulled"])
-    tz = _kit_tz(conn, kit)
+    tz = _kit_tz(conn, kit, week_start)
     segs = conn.execute(
         """SELECT state, start, end, length_known FROM presence_segments
            WHERE engine = ? ORDER BY start""",
         (kit["engine"],),
     ).fetchall()
-    start, end = presence_mod.week_bounds(week_start, tz["utcOffset"])
+    start, end = presence_mod.week_bounds(
+        week_start, tz["utcOffset"], time_zone=tz["timeZone"] or None
+    )
     raw_segments = [
         {"state": s["state"], "start": s["start"], "end": s["end"], "lengthKnown": bool(s["length_known"])}
         for s in segs
     ]
-    segments = presence_mod.cover_week(raw_segments, start, end, _collector_gaps(conn))
+    segments = presence_mod.cover_week(raw_segments, start, end, _collector_gaps_for_kit(conn, kit))
     return {
         "kolibri": kolibri,
         "nextcloud": nextcloud,
@@ -250,7 +310,7 @@ def handle(conn, method: str, path: str, body: dict[str, Any] | None, user: str 
                 "school": row["school"],
                 "deploymentId": row["deployment_id"],
                 "lastPulled": row["last_pulled"],
-                "monitoringEnabled": row["monitoring_enabled"] != 0 if row["monitoring_enabled"] is not None else False,
+                "monitoringEnabled": _monitoring_enabled(row),
             })
         return 200, {"schema": agg.API_SCHEMA, "kits": kits}, None
 
@@ -290,6 +350,7 @@ def handle(conn, method: str, path: str, body: dict[str, Any] | None, user: str 
                     "stale": bundle["stale"],
                     "dataFrom": bundle["dataFrom"],
                     "hasUsageData": bundle["hasUsageData"],
+                    "monitoringEnabled": _monitoring_enabled(kit),
                     "scorecard": bundle["scorecard"],
                     "headlines": bundle["headlines"],
                 }
@@ -328,7 +389,7 @@ def handle(conn, method: str, path: str, body: dict[str, Any] | None, user: str 
                     "stale": bundle["stale"],
                     "dataFrom": bundle["dataFrom"],
                     "hasUsageData": bundle["hasUsageData"],
-                    "monitoringEnabled": kit["monitoring_enabled"] != 0 if kit["monitoring_enabled"] is not None else False,
+                    "monitoringEnabled": _monitoring_enabled(kit),
                     "thresholdsConfigured": meta["thresholdsConfigured"],
                     "sampleData": meta["sampleData"],
                     "timezone": bundle["timezone"],
