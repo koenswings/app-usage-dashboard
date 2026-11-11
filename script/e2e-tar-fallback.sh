@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # e2e-tar-fallback.sh — end-to-end installApp test of the services/ tar fallback.
 #
-# The Engine loads <diskRoot>/services/usage-dashboard-web:1.0.tar (a sibling of
-# apps/, see docs/packaging.md) instead of running `docker pull` on the
-# build-only web image. This script stages the App Disk bundle, builds and
+# The Engine loads the web image from
+# <diskRoot>/services/ghcr.io_koenswings_usage-dashboard-web:1.0.tar
+# (a sibling of apps/, see docs/packaging.md) instead of running
+# `docker pull` on ghcr. This script stages the App Disk bundle, builds and
 # saves the arm64 web image plus the other compose service tars, then
 # installApp through the Engine's local-disk path (--source, --fresh) so
 # GET /api/v1/health reports the bundled commit (collector/build-info.json).
@@ -41,7 +42,7 @@ WRITE_BUILD_INFO="$HERE/write-build-info.sh"
 APP_NAME=usage-dashboard
 APP_VERSION=1.0
 APP_ID="${APP_NAME}-${APP_VERSION}"
-WEB_IMAGE=usage-dashboard-web:1.0
+WEB_IMAGE=ghcr.io/koenswings/usage-dashboard-web:1.0
 INSTANCE_NAME=usage-dashboard-tar-e2e
 ENGINE_ROOT=${ENGINE_ROOT:-/home/pi/idea/agents/agent-engine-dev}
 QUARANTINE_ROOT=${QUARANTINE_ROOT:-/home/pi/kid-quarantine}
@@ -1025,12 +1026,12 @@ PY
   cat > "$RUN_DIR/planned-commands.txt" <<EOF
 # Planned Engine / Docker steps (not executed in --dry-run)
 docker build --platform linux/arm64 --build-arg COMMIT=$COMMIT -f web/Dockerfile -t $WEB_IMAGE .
-docker save $WEB_IMAGE > services/usage-dashboard-web:1.0.tar
+docker save $WEB_IMAGE > services/ghcr.io_koenswings_usage-dashboard-web:1.0.tar
 # plus official compose service tars:
 #   services/python:3.12-slim-bookworm.tar
 #   services/tailscale_tailscale:v1.88.3.tar
 # nginx:1.28-alpine is the web image *build* base, not a compose service;
-# Engine does not load a nginx tar once usage-dashboard-web:1.0.tar exists.
+# Engine does not load a nginx tar once the web service tar exists.
 docker image rm $WEB_IMAGE   # so installApp must load the tar, not reuse the build
 installApp $APP_ID <systemDiskId> --source <systemDiskId> --fresh --name $INSTANCE_NAME
 # wait for health, GET /, GET /assets/x.js
@@ -1120,10 +1121,11 @@ run_live() {
     docker image rm "$WEB_IMAGE"
   fi
   if image_present "$WEB_IMAGE"; then
-    die "usage-dashboard-web:1.0 is still present after docker image rm"
+    die "$WEB_IMAGE is still present after docker image rm"
   fi
-  echo "PASS: usage-dashboard-web:1.0 is absent before installApp"
-  [ -f /services/usage-dashboard-web:1.0.tar ] || die "missing /services/usage-dashboard-web:1.0.tar"
+  echo "PASS: $WEB_IMAGE is absent before installApp"
+  web_tar="/$(tar_rel_of "$WEB_IMAGE")"
+  [ -f "$web_tar" ] || die "missing $web_tar"
 
   log_watermark
   DID_INSTALL=1
@@ -1142,9 +1144,9 @@ run_live() {
   copy_new_logs "$RUN_DIR/logs"
   assert_no_web_pull "$RUN_DIR/logs"
   if image_present "$WEB_IMAGE"; then
-    echo "PASS: usage-dashboard-web:1.0 is present after installApp (loaded from tar, not pulled)"
+    echo "PASS: $WEB_IMAGE is present after installApp (loaded from tar, not pulled)"
   else
-    die "usage-dashboard-web:1.0 is still absent after installApp; tar load did not happen"
+    die "$WEB_IMAGE is still absent after installApp; tar load did not happen"
   fi
 
   local health

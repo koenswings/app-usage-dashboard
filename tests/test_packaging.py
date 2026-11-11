@@ -25,11 +25,10 @@ class PackagingTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertIn("ok", result.stdout)
 
-    def test_release_check_fails_while_web_is_local_build(self):
+    def test_release_check_passes_on_pinned_compose(self):
         result = self._check("--release", str(COMPOSE))
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("usage-dashboard-web:1.0", result.stderr)
-        self.assertIn("build:", result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("ok", result.stdout)
 
     def test_release_check_fails_on_placeholder(self):
         result = self._check("--release", str(EXAMPLE))

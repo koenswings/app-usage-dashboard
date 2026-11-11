@@ -152,7 +152,13 @@ Engine's existing-tar path looks for
 <diskRoot>/services/<image with every / replaced by _>.tar
 ```
 
-For `image: usage-dashboard-web:1.0` that is:
+For the published compose pin `ghcr.io/koenswings/usage-dashboard-web:1.0@sha256:…` that is:
+
+```
+<diskRoot>/services/ghcr.io_koenswings_usage-dashboard-web:1.0.tar
+```
+
+(`saveName()` strips the digest, then every `/` becomes `_`). The earlier local-build name `image: usage-dashboard-web:1.0` used:
 
 ```
 <diskRoot>/services/usage-dashboard-web:1.0.tar
@@ -162,21 +168,24 @@ For `image: usage-dashboard-web:1.0` that is:
 a folder inside `apps/usage-dashboard-1.0/`. `build-app-bundle.sh` already
 writes service tars there (`save="${img%%@*}"`, then every `/` → `_`).
 On a GitHub `installApp` onto the system disk the same path is
-`/services/usage-dashboard-web:1.0.tar`.
+`/services/ghcr.io_koenswings_usage-dashboard-web:1.0.tar`.
 
-Build (on an arm64 host, or with buildx `--platform linux/arm64`) and save:
+Build (on an arm64 host, or with buildx `--platform linux/arm64`) and save
+under the compose image's `saveName()` (digest stripped):
 
 ```sh
 COMMIT=$(git rev-parse HEAD)
 docker build --platform linux/arm64 \
   --build-arg "COMMIT=$COMMIT" \
-  -f web/Dockerfile -t usage-dashboard-web:1.0 .
-docker save usage-dashboard-web:1.0 > services/usage-dashboard-web:1.0.tar
+  -f web/Dockerfile -t ghcr.io/koenswings/usage-dashboard-web:1.0 .
+docker save ghcr.io/koenswings/usage-dashboard-web:1.0 \
+  > services/ghcr.io_koenswings_usage-dashboard-web:1.0.tar
 ```
 
-Put that file at `<diskRoot>/services/usage-dashboard-web:1.0.tar` before
-`installApp`. Engine then prints that the image already exists and does not
-`docker pull`.
+Put that file at
+`<diskRoot>/services/ghcr.io_koenswings_usage-dashboard-web:1.0.tar`
+before `installApp`. Engine then prints that the image already exists and
+does not `docker pull`.
 
 ### Size
 
