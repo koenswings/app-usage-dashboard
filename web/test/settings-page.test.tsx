@@ -50,6 +50,10 @@ describe('Settings page', () => {
     expect((getByTestId('settings-field-learnerSessionShareMin').querySelector('input') as HTMLInputElement).value).toBe('50');
     expect(getByTestId('settings-setup').textContent).toMatch(/yes\/no check/i);
     expect(getByTestId('settings-setup').textContent).toMatch(/beyond-seed/);
+    expect(getByTestId('settings-field-nextcloudMinActions').textContent).toMatch(/teacher or learner/);
+    expect(getByTestId('settings-field-nextcloudMinActions').textContent).toMatch(
+      /File drop uploads count toward the person who owns the drop link, because uploaders are anonymous/,
+    );
   });
 
   it('saves a valid edit and resets to defaults', async () => {

@@ -151,6 +151,9 @@ export function SettingsPage(props: SettingsPageProps) {
                       <span class="settings-field__copy">
                         <span class="settings-field__label">{item().label}</span>
                         <span class="settings-field__meaning">{item().meaning}</span>
+                        <Show when={item().help}>
+                          {(help) => <span class="settings-field__meaning">{help()}</span>}
+                        </Show>
                         <span class="settings-field__default">Default: {defaultLabel(id)}</span>
                       </span>
                       <span class="settings-field__control">

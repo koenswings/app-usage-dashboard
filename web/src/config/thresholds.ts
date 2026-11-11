@@ -67,6 +67,8 @@ export interface ThresholdFieldMeta {
   id: ThresholdKey;
   label: string;
   meaning: string;
+  /** Extra line of operator help, shown under the meaning. */
+  help?: string;
   kind: ThresholdFieldKind;
   min: number;
   max?: number;
@@ -99,7 +101,8 @@ export const THRESHOLD_FIELDS: ThresholdFieldMeta[] = [
   {
     id: "nextcloudMinActions",
     label: "Nextcloud",
-    meaning: "At least this many worksheet shares, co-edits, school-files shares, File drop uploads or Office opens by a teacher or learner. Admin Office opens and File drop links do not count.",
+    meaning: "At least this many worksheet shares, co-edits, school-files shares, File drop uploads or Office opens by a teacher or learner. Admin actions and File drop links do not count.",
+    help: "File drop uploads count toward the person who owns the drop link, because uploaders are anonymous.",
     kind: "int",
     min: 0,
   },
@@ -216,11 +219,6 @@ export interface LineEvaluation {
   word: string;
 }
 
-function measuredSum(values: Array<number | null>): number | null {
-  if (values.every((value) => value === null)) return null;
-  return values.reduce<number>((sum, value) => sum + (value ?? 0), 0);
-}
-
 /** Lessons or quizzes made visible or started this week. */
 export function teachingCycleItemCount(inputs: ScorecardInputs): number | null {
   const { lessonsVisible, quizzesStarted, lessonsCreated, quizzesCreated, learnerSessionsOnAssigned } =
@@ -255,19 +253,31 @@ export function learnerSessionShare(inputs: ScorecardInputs): number | null {
 }
 
 /**
- * Counted Nextcloud actions: worksheet, edit and school-files shares,
- * File drop uploads, and Office opens by a teacher or learner
- * (`officeOpensTeacherLearner`). File drop links and admin Office opens
- * do not count. A null teacher/learner split counts as 0 (Kid 34bb193).
+ * Counted Nextcloud actions: the five teacher/learner splits
+ * (shares, File drop uploads, and Office opens). Flat totals and admin
+ * fields are never used. A null split counts as 0. The line is unmeasured
+ * (grey) only when all five TeacherLearner fields and all five flat
+ * totals are null (Kid 10a1cc5, idea#431). File drop links do not count.
  */
 export function nextcloudWorkflowActions(inputs: ScorecardInputs): number | null {
-  return measuredSum([
+  const parts = [
+    inputs.nextcloud.worksheetSharesTeacherLearner,
+    inputs.nextcloud.editSharesTeacherLearner,
+    inputs.nextcloud.schoolFilesSharesTeacherLearner,
+    inputs.nextcloud.fileDropUploadsTeacherLearner,
+    inputs.nextcloud.officeOpensTeacherLearner,
+  ];
+  const totals = [
     inputs.nextcloud.worksheetShares,
     inputs.nextcloud.editShares,
     inputs.nextcloud.schoolFilesShares,
     inputs.nextcloud.fileDropUploads,
-    inputs.nextcloud.officeOpensTeacherLearner,
-  ]);
+    inputs.nextcloud.officeOpens,
+  ];
+  if (parts.every((value) => value === null) && totals.every((value) => value === null)) {
+    return null;
+  }
+  return parts.reduce<number>((sum, value) => sum + (value ?? 0), 0);
 }
 
 export function setupIsComplete(inputs: ScorecardInputs): boolean | null {

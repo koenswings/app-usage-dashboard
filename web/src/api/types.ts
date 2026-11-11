@@ -294,10 +294,25 @@ export interface ScorecardLearnersOperateInputs {
 
 export interface ScorecardNextcloudInputs {
   worksheetShares: number | null;
+  /**
+   * Worksheet shares by a teacher or learner (`workflows.byGroup.worksheetShares`,
+   * Kid 10a1cc5, idea#431). Null when no own instance this week had that
+   * byGroup (old day files). A null split counts as 0 toward nextcloudMinActions.
+   */
+  worksheetSharesTeacherLearner: number | null;
+  /** Worksheet shares by an admin. Does not count toward the Nextcloud threshold. */
+  worksheetSharesAdmin: number | null;
   editShares: number | null;
+  editSharesTeacherLearner: number | null;
+  editSharesAdmin: number | null;
+  /** Unsplit. Creating a File drop link does not count toward nextcloudMinActions. */
   fileDropLinks: number | null;
   fileDropUploads: number | null;
+  fileDropUploadsTeacherLearner: number | null;
+  fileDropUploadsAdmin: number | null;
   schoolFilesShares: number | null;
+  schoolFilesSharesTeacherLearner: number | null;
+  schoolFilesSharesAdmin: number | null;
   officeOpens: number | null;
   /**
    * Office opens by a teacher or learner (`office.byGroup.teacher` +

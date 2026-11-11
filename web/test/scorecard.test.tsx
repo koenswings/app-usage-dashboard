@@ -20,6 +20,27 @@ function nharira(): ScorecardInputs {
   return cloneInputs(scorecardFor('dep-nharira', SAMPLE_WEEK));
 }
 
+function zeroNextcloud(inputs: ScorecardInputs): ScorecardInputs {
+  inputs.nextcloud.worksheetShares = 0;
+  inputs.nextcloud.worksheetSharesTeacherLearner = 0;
+  inputs.nextcloud.worksheetSharesAdmin = 0;
+  inputs.nextcloud.editShares = 0;
+  inputs.nextcloud.editSharesTeacherLearner = 0;
+  inputs.nextcloud.editSharesAdmin = 0;
+  inputs.nextcloud.fileDropLinks = 0;
+  inputs.nextcloud.fileDropUploads = 0;
+  inputs.nextcloud.fileDropUploadsTeacherLearner = 0;
+  inputs.nextcloud.fileDropUploadsAdmin = 0;
+  inputs.nextcloud.schoolFilesShares = 0;
+  inputs.nextcloud.schoolFilesSharesTeacherLearner = 0;
+  inputs.nextcloud.schoolFilesSharesAdmin = 0;
+  inputs.nextcloud.officeOpens = 0;
+  inputs.nextcloud.officeOpensTeacherLearner = 0;
+  inputs.nextcloud.officeOpensAdmin = 0;
+  return inputs;
+}
+
+
 function renderCard(deploymentId: string, weekStart = SAMPLE_WEEK, thresholds: ScorecardThresholds = DEFAULT_THRESHOLDS) {
   const card = cardsByWeek[weekStart].find((item) => item.deploymentId === deploymentId);
   if (!card) throw new Error(deploymentId);
@@ -172,15 +193,8 @@ describe('U-7 line evaluation', () => {
     expect(evaluateLine('learnersOperate', inputs, DEFAULT_THRESHOLDS).tone).toBe('noData');
   });
 
-  it('Nextcloud sums shares, uploads and teacher/learner office opens, and ignores File drop links', () => {
-    const inputs = nharira();
-    inputs.nextcloud.worksheetShares = 0;
-    inputs.nextcloud.editShares = 0;
-    inputs.nextcloud.fileDropUploads = 0;
-    inputs.nextcloud.schoolFilesShares = 0;
-    inputs.nextcloud.officeOpens = 0;
-    inputs.nextcloud.officeOpensTeacherLearner = 0;
-    inputs.nextcloud.officeOpensAdmin = 0;
+  it('Nextcloud sums teacher/learner shares, uploads and office opens, and ignores File drop links', () => {
+    const inputs = zeroNextcloud(nharira());
     inputs.nextcloud.fileDropLinks = 4;
     expect(evaluateLine('nextcloud', inputs, DEFAULT_THRESHOLDS).tone).toBe('needsHelp');
     inputs.nextcloud.officeOpensTeacherLearner = 1;
@@ -188,12 +202,21 @@ describe('U-7 line evaluation', () => {
     expect(evaluateLine('nextcloud', inputs, DEFAULT_THRESHOLDS).tone).toBe('onTrack');
     inputs.nextcloud.officeOpensTeacherLearner = 0;
     inputs.nextcloud.officeOpens = 0;
+    inputs.nextcloud.worksheetSharesTeacherLearner = 1;
     inputs.nextcloud.worksheetShares = 1;
     expect(evaluateLine('nextcloud', inputs, DEFAULT_THRESHOLDS).tone).toBe('onTrack');
     inputs.nextcloud.worksheetShares = null;
+    inputs.nextcloud.worksheetSharesTeacherLearner = null;
+    inputs.nextcloud.worksheetSharesAdmin = null;
     inputs.nextcloud.editShares = null;
+    inputs.nextcloud.editSharesTeacherLearner = null;
+    inputs.nextcloud.editSharesAdmin = null;
     inputs.nextcloud.fileDropUploads = null;
+    inputs.nextcloud.fileDropUploadsTeacherLearner = null;
+    inputs.nextcloud.fileDropUploadsAdmin = null;
     inputs.nextcloud.schoolFilesShares = null;
+    inputs.nextcloud.schoolFilesSharesTeacherLearner = null;
+    inputs.nextcloud.schoolFilesSharesAdmin = null;
     inputs.nextcloud.officeOpens = null;
     inputs.nextcloud.officeOpensTeacherLearner = null;
     inputs.nextcloud.officeOpensAdmin = null;
@@ -201,12 +224,7 @@ describe('U-7 line evaluation', () => {
   });
 
   it('does not count admin-only Office opens toward the Nextcloud threshold', () => {
-    const inputs = nharira();
-    inputs.nextcloud.worksheetShares = 0;
-    inputs.nextcloud.editShares = 0;
-    inputs.nextcloud.fileDropUploads = 0;
-    inputs.nextcloud.schoolFilesShares = 0;
-    inputs.nextcloud.fileDropLinks = 0;
+    const inputs = zeroNextcloud(nharira());
     inputs.nextcloud.officeOpens = 8;
     inputs.nextcloud.officeOpensTeacherLearner = 0;
     inputs.nextcloud.officeOpensAdmin = 8;
@@ -214,11 +232,7 @@ describe('U-7 line evaluation', () => {
   });
 
   it('counts teacher or learner Office opens toward the Nextcloud threshold', () => {
-    const inputs = nharira();
-    inputs.nextcloud.worksheetShares = 0;
-    inputs.nextcloud.editShares = 0;
-    inputs.nextcloud.fileDropUploads = 0;
-    inputs.nextcloud.schoolFilesShares = 0;
+    const inputs = zeroNextcloud(nharira());
     inputs.nextcloud.officeOpens = 1;
     inputs.nextcloud.officeOpensTeacherLearner = 1;
     inputs.nextcloud.officeOpensAdmin = 0;
@@ -226,11 +240,7 @@ describe('U-7 line evaluation', () => {
   });
 
   it('treats a null teacher/learner Office split as 0', () => {
-    const inputs = nharira();
-    inputs.nextcloud.worksheetShares = 0;
-    inputs.nextcloud.editShares = 0;
-    inputs.nextcloud.fileDropUploads = 0;
-    inputs.nextcloud.schoolFilesShares = 0;
+    const inputs = zeroNextcloud(nharira());
     inputs.nextcloud.officeOpens = 6;
     inputs.nextcloud.officeOpensTeacherLearner = null;
     inputs.nextcloud.officeOpensAdmin = null;
@@ -238,14 +248,67 @@ describe('U-7 line evaluation', () => {
   });
 
   it('ignores a total officeOpens larger than the teacher/learner split', () => {
-    const inputs = nharira();
-    inputs.nextcloud.worksheetShares = 0;
-    inputs.nextcloud.editShares = 0;
-    inputs.nextcloud.fileDropUploads = 0;
-    inputs.nextcloud.schoolFilesShares = 0;
+    const inputs = zeroNextcloud(nharira());
     inputs.nextcloud.officeOpens = 9;
     inputs.nextcloud.officeOpensTeacherLearner = 0;
     inputs.nextcloud.officeOpensAdmin = 4;
+    expect(evaluateLine('nextcloud', inputs, DEFAULT_THRESHOLDS).tone).toBe('needsHelp');
+  });
+
+  it('does not count admin-only shares and File drop uploads toward the Nextcloud threshold', () => {
+    const inputs = zeroNextcloud(nharira());
+    inputs.nextcloud.worksheetShares = 3;
+    inputs.nextcloud.worksheetSharesAdmin = 3;
+    inputs.nextcloud.worksheetSharesTeacherLearner = 0;
+    inputs.nextcloud.editShares = 2;
+    inputs.nextcloud.editSharesAdmin = 2;
+    inputs.nextcloud.editSharesTeacherLearner = 0;
+    inputs.nextcloud.fileDropUploads = 4;
+    inputs.nextcloud.fileDropUploadsAdmin = 4;
+    inputs.nextcloud.fileDropUploadsTeacherLearner = 0;
+    inputs.nextcloud.schoolFilesShares = 1;
+    inputs.nextcloud.schoolFilesSharesAdmin = 1;
+    inputs.nextcloud.schoolFilesSharesTeacherLearner = 0;
+    expect(evaluateLine('nextcloud', inputs, DEFAULT_THRESHOLDS).tone).toBe('needsHelp');
+  });
+
+  it('counts teacher or learner shares and File drop uploads toward the Nextcloud threshold', () => {
+    const inputs = zeroNextcloud(nharira());
+    inputs.nextcloud.worksheetShares = 1;
+    inputs.nextcloud.worksheetSharesTeacherLearner = 1;
+    inputs.nextcloud.editShares = 1;
+    inputs.nextcloud.editSharesTeacherLearner = 1;
+    expect(evaluateLine('nextcloud', inputs, DEFAULT_THRESHOLDS).tone).toBe('onTrack');
+  });
+
+  it('treats null teacher/learner share and upload splits as 0', () => {
+    const inputs = zeroNextcloud(nharira());
+    inputs.nextcloud.worksheetShares = 5;
+    inputs.nextcloud.worksheetSharesTeacherLearner = null;
+    inputs.nextcloud.worksheetSharesAdmin = null;
+    inputs.nextcloud.editShares = 2;
+    inputs.nextcloud.editSharesTeacherLearner = null;
+    inputs.nextcloud.editSharesAdmin = null;
+    inputs.nextcloud.fileDropUploads = 3;
+    inputs.nextcloud.fileDropUploadsTeacherLearner = null;
+    inputs.nextcloud.fileDropUploadsAdmin = null;
+    inputs.nextcloud.schoolFilesShares = 1;
+    inputs.nextcloud.schoolFilesSharesTeacherLearner = null;
+    inputs.nextcloud.schoolFilesSharesAdmin = null;
+    expect(evaluateLine('nextcloud', inputs, DEFAULT_THRESHOLDS).tone).toBe('needsHelp');
+  });
+
+  it('ignores flat share and upload totals larger than the teacher/learner splits', () => {
+    const inputs = zeroNextcloud(nharira());
+    inputs.nextcloud.worksheetShares = 8;
+    inputs.nextcloud.worksheetSharesTeacherLearner = 0;
+    inputs.nextcloud.worksheetSharesAdmin = 3;
+    inputs.nextcloud.editShares = 4;
+    inputs.nextcloud.editSharesTeacherLearner = 0;
+    inputs.nextcloud.fileDropUploads = 6;
+    inputs.nextcloud.fileDropUploadsTeacherLearner = 0;
+    inputs.nextcloud.schoolFilesShares = 2;
+    inputs.nextcloud.schoolFilesSharesTeacherLearner = 0;
     expect(evaluateLine('nextcloud', inputs, DEFAULT_THRESHOLDS).tone).toBe('needsHelp');
   });
 
@@ -279,9 +342,17 @@ describe('U-7 line evaluation', () => {
     empty.learnersOperate.coachSessions = null;
     empty.learnersOperate.adminSessions = null;
     empty.nextcloud.worksheetShares = null;
+    empty.nextcloud.worksheetSharesTeacherLearner = null;
+    empty.nextcloud.worksheetSharesAdmin = null;
     empty.nextcloud.editShares = null;
+    empty.nextcloud.editSharesTeacherLearner = null;
+    empty.nextcloud.editSharesAdmin = null;
     empty.nextcloud.fileDropUploads = null;
+    empty.nextcloud.fileDropUploadsTeacherLearner = null;
+    empty.nextcloud.fileDropUploadsAdmin = null;
     empty.nextcloud.schoolFilesShares = null;
+    empty.nextcloud.schoolFilesSharesTeacherLearner = null;
+    empty.nextcloud.schoolFilesSharesAdmin = null;
     empty.nextcloud.officeOpens = null;
     empty.nextcloud.officeOpensTeacherLearner = null;
     empty.nextcloud.officeOpensAdmin = null;
