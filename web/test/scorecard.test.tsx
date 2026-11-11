@@ -172,17 +172,21 @@ describe('U-7 line evaluation', () => {
     expect(evaluateLine('learnersOperate', inputs, DEFAULT_THRESHOLDS).tone).toBe('noData');
   });
 
-  it('Nextcloud sums shares, uploads and office opens, and ignores File drop links', () => {
+  it('Nextcloud sums shares, uploads and teacher/learner office opens, and ignores File drop links', () => {
     const inputs = nharira();
     inputs.nextcloud.worksheetShares = 0;
     inputs.nextcloud.editShares = 0;
     inputs.nextcloud.fileDropUploads = 0;
     inputs.nextcloud.schoolFilesShares = 0;
     inputs.nextcloud.officeOpens = 0;
+    inputs.nextcloud.officeOpensTeacherLearner = 0;
+    inputs.nextcloud.officeOpensAdmin = 0;
     inputs.nextcloud.fileDropLinks = 4;
     expect(evaluateLine('nextcloud', inputs, DEFAULT_THRESHOLDS).tone).toBe('needsHelp');
+    inputs.nextcloud.officeOpensTeacherLearner = 1;
     inputs.nextcloud.officeOpens = 1;
     expect(evaluateLine('nextcloud', inputs, DEFAULT_THRESHOLDS).tone).toBe('onTrack');
+    inputs.nextcloud.officeOpensTeacherLearner = 0;
     inputs.nextcloud.officeOpens = 0;
     inputs.nextcloud.worksheetShares = 1;
     expect(evaluateLine('nextcloud', inputs, DEFAULT_THRESHOLDS).tone).toBe('onTrack');
@@ -191,7 +195,58 @@ describe('U-7 line evaluation', () => {
     inputs.nextcloud.fileDropUploads = null;
     inputs.nextcloud.schoolFilesShares = null;
     inputs.nextcloud.officeOpens = null;
+    inputs.nextcloud.officeOpensTeacherLearner = null;
+    inputs.nextcloud.officeOpensAdmin = null;
     expect(evaluateLine('nextcloud', inputs, DEFAULT_THRESHOLDS).tone).toBe('noData');
+  });
+
+  it('does not count admin-only Office opens toward the Nextcloud threshold', () => {
+    const inputs = nharira();
+    inputs.nextcloud.worksheetShares = 0;
+    inputs.nextcloud.editShares = 0;
+    inputs.nextcloud.fileDropUploads = 0;
+    inputs.nextcloud.schoolFilesShares = 0;
+    inputs.nextcloud.fileDropLinks = 0;
+    inputs.nextcloud.officeOpens = 8;
+    inputs.nextcloud.officeOpensTeacherLearner = 0;
+    inputs.nextcloud.officeOpensAdmin = 8;
+    expect(evaluateLine('nextcloud', inputs, DEFAULT_THRESHOLDS).tone).toBe('needsHelp');
+  });
+
+  it('counts teacher or learner Office opens toward the Nextcloud threshold', () => {
+    const inputs = nharira();
+    inputs.nextcloud.worksheetShares = 0;
+    inputs.nextcloud.editShares = 0;
+    inputs.nextcloud.fileDropUploads = 0;
+    inputs.nextcloud.schoolFilesShares = 0;
+    inputs.nextcloud.officeOpens = 1;
+    inputs.nextcloud.officeOpensTeacherLearner = 1;
+    inputs.nextcloud.officeOpensAdmin = 0;
+    expect(evaluateLine('nextcloud', inputs, DEFAULT_THRESHOLDS).tone).toBe('onTrack');
+  });
+
+  it('treats a null teacher/learner Office split as 0', () => {
+    const inputs = nharira();
+    inputs.nextcloud.worksheetShares = 0;
+    inputs.nextcloud.editShares = 0;
+    inputs.nextcloud.fileDropUploads = 0;
+    inputs.nextcloud.schoolFilesShares = 0;
+    inputs.nextcloud.officeOpens = 6;
+    inputs.nextcloud.officeOpensTeacherLearner = null;
+    inputs.nextcloud.officeOpensAdmin = null;
+    expect(evaluateLine('nextcloud', inputs, DEFAULT_THRESHOLDS).tone).toBe('needsHelp');
+  });
+
+  it('ignores a total officeOpens larger than the teacher/learner split', () => {
+    const inputs = nharira();
+    inputs.nextcloud.worksheetShares = 0;
+    inputs.nextcloud.editShares = 0;
+    inputs.nextcloud.fileDropUploads = 0;
+    inputs.nextcloud.schoolFilesShares = 0;
+    inputs.nextcloud.officeOpens = 9;
+    inputs.nextcloud.officeOpensTeacherLearner = 0;
+    inputs.nextcloud.officeOpensAdmin = 4;
+    expect(evaluateLine('nextcloud', inputs, DEFAULT_THRESHOLDS).tone).toBe('needsHelp');
   });
 
   it('Wikipedia is green at 10 own views, amber at 9, grey when unmeasured', () => {
@@ -228,6 +283,8 @@ describe('U-7 line evaluation', () => {
     empty.nextcloud.fileDropUploads = null;
     empty.nextcloud.schoolFilesShares = null;
     empty.nextcloud.officeOpens = null;
+    empty.nextcloud.officeOpensTeacherLearner = null;
+    empty.nextcloud.officeOpensAdmin = null;
     empty.wikipedia.pageViewsOwn = null;
     const tones = evaluateLines(empty, DEFAULT_THRESHOLDS).map((line) => line.tone);
     expect(tones.every((tone) => tone === 'noData')).toBe(true);

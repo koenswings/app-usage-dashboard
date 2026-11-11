@@ -209,7 +209,7 @@ Keys and built-in defaults (Set up is a yes/no check and has no number):
 | `availableMinSchoolDays` | `3` | Kit on in school hours on at least this many school days in the week (integer 0–5) |
 | `teachingCycleMinItems` | `1` | At least this many lessons or quizzes made visible or started, followed by learner sessions on assigned content |
 | `learnerSessionShareMin` | `0.5` | Learner share of Kolibri sessions versus coaches and admins (0–1; shown as a percentage in Settings). Guests and `learnerShareOfMinutes` are not used |
-| `nextcloudMinActions` | `1` | At least this many worksheet shares, co-edits, school-files shares, File drop uploads or office opens. File drop links do not count |
+| `nextcloudMinActions` | `1` | At least this many worksheet shares, co-edits, school-files shares, File drop uploads or Office opens by a teacher or learner (`officeOpensTeacherLearner`, Kid 34bb193). Admin opens and File drop links do not count. A null split, from old day files with no `byGroup`, contributes 0 |
 | `wikipediaMinViews` | `10` | At least this many article views on the school's own Wikipedia (not Demo) |
 | `helpAfterAmberWeeks` | `3` | Offer help after this many consecutive school weeks with any line amber (integer ≥ 1). A grey week neither counts nor breaks the streak; a green week resets it. No pulled data yet still triggers help at once |
 | `unusedAfterHelpWeeks` | `4` | The school counts as unused if it is still amber with no improvement this many school weeks after help (integer ≥ 1) |
@@ -224,7 +224,7 @@ The six lines from §4. The API returns the measurements, not a colour or a pass
 2. **Set up** — own-Kolibri `classes`, `learnersRegistered`, `learnersEnrolled`, `teachers`, `admins`; own-Nextcloud `nextcloudTeacherBeyondSeed`, `nextcloudLearnerBeyondSeed` (read from hook `setup.teacher.beyondSeed` / `setup.learner.beyondSeed` on the last ok day)
 3. **Teaching cycle** — `lessonsCreated`, `lessonsVisible`, `quizzesCreated`, `quizzesStarted`, `learnerSessionsOnAssigned` (assigned learner *content visits*, not sessions; the collector keeps this field name), `assignedShareOfLearnerVisits` (`learnerSessionsOnAssigned` / all learner content visits)
 4. **Learners operate** — sessions and minutes by role, plus `learnerShareOfMinutes`. Guest time stays as `seconds` on the instance payload and is converted to minutes only here
-5. **Nextcloud** — `worksheetShares`, `editShares`, `fileDropLinks`, `fileDropUploads`, `schoolFilesShares`, `officeOpens`, `officeDistinctDocuments` (sum across the school’s own Nextcloud instances; document ids are salted per instance, so the sum is correct), `officeRead`, `officeEdit`, `officeEstimatedMinutes`
+5. **Nextcloud** — `worksheetShares`, `editShares`, `fileDropLinks`, `fileDropUploads`, `schoolFilesShares`, `officeOpens`, `officeOpensTeacherLearner`, `officeOpensAdmin`, `officeDistinctDocuments` (sum across the school’s own Nextcloud instances; document ids are salted per instance, so the sum is correct), `officeRead`, `officeEdit`, `officeEstimatedMinutes`. `officeOpensTeacherLearner` and `officeOpensAdmin` come from `office.byGroup` (Kid 34bb193). Old day files with no `byGroup` send `null` for both splits. If only some instances have `byGroup`, the splits can sum to less than total `officeOpens`
 6. **Wikipedia** — `pageViewsOwn`, `sessionsOwn`, `distinctArticlesOwn` on the school's own instance (Demo excluded). `distinctArticlesOwn` is the max of daily `distinctArticles`, not a week-wide distinct total.
 
 `null` means no data for that input (kit not pulled, monitoring off, or that app produced no summary). Null is shown as **No data**, never as a failing grade (never the word "Grey").
@@ -235,7 +235,7 @@ Threshold comparison lives only in `src/config/thresholds.ts`. The UI maps each 
 2. **Set up** — yes when `learnersRegistered > 0` and `teachers > 0`. Without a Kolibri census (`classes`, `learnersRegistered` and `teachers` all null), fall back to a Nextcloud `beyondSeed` count > 0. No numeric threshold
 3. **Teaching cycle** — (`lessonsVisible` + `quizzesStarted`) ≥ `teachingCycleMinItems` AND `learnerSessionsOnAssigned >= 1`
 4. **Learners operate** — `learnerSessions / (learnerSessions + coachSessions + adminSessions)` against `learnerSessionShareMin`. Do not use `learnerShareOfMinutes`. Guests are excluded. A zero session total is a share of 0, not grey
-5. **Nextcloud** — `worksheetShares + editShares + schoolFilesShares + fileDropUploads + officeOpens` against `nextcloudMinActions`. File drop links do not count. Scorecard inputs have total `officeOpens`, not a teacher/learner split (`office.byGroup` is only on the instance payload)
+5. **Nextcloud** — `worksheetShares + editShares + schoolFilesShares + fileDropUploads + (officeOpensTeacherLearner ?? 0)` against `nextcloudMinActions` (Kid 34bb193). File drop links and admin Office opens (`officeOpensAdmin`, total `officeOpens`) do not count. A null teacher/learner split, from old day files with no `byGroup`, contributes 0
 6. **Wikipedia** — `pageViewsOwn` against `wikipediaMinViews` (Demo excluded)
 
 `SchoolCard` and `SchoolWeekResponse` also carry `unused: boolean`.
@@ -253,6 +253,7 @@ Threshold comparison lives only in `src/config/thresholds.ts`. The UI maps each 
 | `KitTimezone` (`timeZone`, `utcOffset`, `label`) | `timeZone` from the idea registry (optional IANA); `utcOffset` is the offset at Monday 00:00 of the requested week from that zone, falling back to the latest sample, then `+00:00` |
 | `headerTimeZone`, `hourlyChartMinWeeklyViews`, `sampleData` | Header clock, chart-hiding threshold, mock/sample banner |
 | `thresholds` on `/meta`, `GET`/`PUT /api/v1/settings/thresholds` | U-7 cut-offs served by the collector (PR #2, Kid 7880247, not yet pushed). Settings responses have no `schema`. `400` body is `{ error, field }`. `updatedBy` is the operator username |
+| `officeOpensTeacherLearner`, `officeOpensAdmin` | Scorecard splits from `office.byGroup` (Kid 34bb193). Null when no own instance this week had a byGroup. U-7 line 5 uses only the teacher/learner split |
 | `unused` on `SchoolCard` and `SchoolWeekResponse` | True after help + `unusedAfterHelpWeeks` amber weeks with no improvement. Unused kits are not in `helpSuggestions` |
 | `note` on a school card | Subtitle ("own apps + Demo", "Not installed yet") |
 | `headlines` | Fleet-card census strip (classes / learners / teachers / Kolibri minutes) |

@@ -300,6 +300,19 @@ export interface ScorecardNextcloudInputs {
   schoolFilesShares: number | null;
   officeOpens: number | null;
   /**
+   * Office opens by a teacher or learner (`office.byGroup.teacher` +
+   * `office.byGroup.learner`), summed across the school's own Nextclouds
+   * (Kid 34bb193). Null when no instance this week had a byGroup split
+   * (old day files). A null split counts as 0 toward nextcloudMinActions.
+   */
+  officeOpensTeacherLearner: number | null;
+  /**
+   * Office opens by an admin (`office.byGroup.admin`). Null under the same
+   * conditions as officeOpensTeacherLearner. Does not count toward the
+   * Nextcloud threshold.
+   */
+  officeOpensAdmin: number | null;
+  /**
    * Sum of each own Nextcloud instance's last-ok-day `office.distinctDocuments`.
    * Document ids are salted per instance, so two own Nextclouds hold different
    * documents and the sum is correct.

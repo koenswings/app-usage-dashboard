@@ -99,7 +99,7 @@ export const THRESHOLD_FIELDS: ThresholdFieldMeta[] = [
   {
     id: "nextcloudMinActions",
     label: "Nextcloud",
-    meaning: "At least this many worksheet shares, co-edits, school-files shares, File drop uploads or office opens. Creating a File drop link does not count.",
+    meaning: "At least this many worksheet shares, co-edits, school-files shares, File drop uploads or Office opens by a teacher or learner. Admin Office opens and File drop links do not count.",
     kind: "int",
     min: 0,
   },
@@ -256,8 +256,9 @@ export function learnerSessionShare(inputs: ScorecardInputs): number | null {
 
 /**
  * Counted Nextcloud actions: worksheet, edit and school-files shares,
- * File drop uploads, and office opens. File drop links are not counted.
- * Scorecard inputs have total officeOpens, not a teacher/learner split.
+ * File drop uploads, and Office opens by a teacher or learner
+ * (`officeOpensTeacherLearner`). File drop links and admin Office opens
+ * do not count. A null teacher/learner split counts as 0 (Kid 34bb193).
  */
 export function nextcloudWorkflowActions(inputs: ScorecardInputs): number | null {
   return measuredSum([
@@ -265,7 +266,7 @@ export function nextcloudWorkflowActions(inputs: ScorecardInputs): number | null
     inputs.nextcloud.editShares,
     inputs.nextcloud.schoolFilesShares,
     inputs.nextcloud.fileDropUploads,
-    inputs.nextcloud.officeOpens,
+    inputs.nextcloud.officeOpensTeacherLearner,
   ]);
 }
 
