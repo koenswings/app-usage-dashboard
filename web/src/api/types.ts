@@ -696,6 +696,19 @@ export interface NextcloudWorkflows {
   fileDropLinks: number;
   fileDropUploads: number;
   schoolFilesShares: number;
+  /**
+   * Per-metric role splits, summed across ok days the same way
+   * `office.byGroup` is (collector docs/API.md). Keys match the split
+   * workflow totals; `fileDropLinks` has no group split. Optional on
+   * old day files with no `byGroup`. The UI does not read this field;
+   * U-7 line 5 uses the scorecard `*TeacherLearner` splits.
+   */
+  byGroup?: {
+    worksheetShares: { admin: number; teacher: number; learner: number };
+    editShares: { admin: number; teacher: number; learner: number };
+    fileDropUploads: { admin: number; teacher: number; learner: number };
+    schoolFilesShares: { admin: number; teacher: number; learner: number };
+  };
 }
 
 export interface NextcloudInstanceWeek extends InstanceEnvelope {
