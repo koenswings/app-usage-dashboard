@@ -96,7 +96,7 @@ class E2eTarFallbackTests(unittest.TestCase):
                 cwd=str(REPO),
             )
             self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-            bundle = dest / "apps" / "usage-dashboard-1.2"
+            bundle = dest / "apps" / "usage-dashboard-1.3"
             info = bundle / "collector" / "build-info.json"
             sums = bundle / "SHA256SUMS"
             self.assertTrue((bundle / "compose.yaml").is_file())
@@ -105,12 +105,12 @@ class E2eTarFallbackTests(unittest.TestCase):
             commit = subprocess.check_output(
                 ["git", "-C", str(REPO), "rev-parse", "HEAD"], text=True
             ).strip()
-            self.assertEqual(data["version"], "1.2")
+            self.assertEqual(data["version"], "1.3")
             self.assertEqual(data["commit"], commit)
             self.assertTrue(sums.is_file())
             listed = sums.read_text(encoding="utf-8")
-            self.assertIn("apps/usage-dashboard-1.2/collector/build-info.json", listed)
-            self.assertIn("apps/usage-dashboard-1.2/compose.yaml", listed)
+            self.assertIn("apps/usage-dashboard-1.3/collector/build-info.json", listed)
+            self.assertIn("apps/usage-dashboard-1.3/compose.yaml", listed)
             planned = (dest / "dry-run-meta" / "planned-tars.txt").read_text(encoding="utf-8")
             self.assertIn("services/ghcr.io_koenswings_usage-dashboard-web:1.2.tar", planned)
             self.assertIn("services/python:3.12-slim-bookworm.tar", planned)
@@ -123,7 +123,7 @@ class E2eTarFallbackTests(unittest.TestCase):
             self.assertIn("script/verify-service-tar.sh compose.yaml services", commands)
             self.assertNotIn("docker build", commands)
             self.assertIn("ghcr.io/koenswings/usage-dashboard-web@" + pin.split("@", 1)[1], commands)
-            self.assertIn("installApp usage-dashboard-1.2", commands)
+            self.assertIn("installApp usage-dashboard-1.3", commands)
             self.assertIn("--source", commands)
             self.assertIn("--fresh", commands)
             self.assertIn("--keep", commands)

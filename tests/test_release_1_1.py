@@ -93,7 +93,7 @@ class Release11Tests(unittest.TestCase):
     def test_release_requires_verify_block_for_hook(self):
         body = self._text().replace(VERIFY_BLOCK, "")
         self.assertNotEqual(body, self._text())
-        r = self._check_body(body, "--release", "--tag", "1.2")
+        r = self._check_body(body, "--release", "--tag", "1.3")
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("x-app.backup.verify", r.stderr)
         # Without --release the block stays optional.
