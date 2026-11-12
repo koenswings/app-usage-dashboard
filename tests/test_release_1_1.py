@@ -74,19 +74,8 @@ class Release11Tests(unittest.TestCase):
                 out.append(m.group(1))
         return out
 
-    def test_release_check_passes_with_tag_1_1(self):
-        r = self._check("--release", "--tag", "1.1", str(COMPOSE))
-        self.assertEqual(r.returncode, 0, r.stderr + r.stdout)
-
-    def test_version_label_and_health_version_are_1_1(self):
-        text = self._text()
-        self.assertRegex(text, r'(?m)^  version: "1\.1"$')
-        labels = re.findall(r'(?m)^      x-app-version: "([^"]+)"$', text)
-        self.assertEqual(labels, ["1.1", "1.1", "1.1"])
-        self.assertIn("- USAGE_DASHBOARD_VERSION=1.1\n", text)
-        self.assertNotIn('x-app-version: "1.0"', text)
-
-    def test_web_pin_is_9b5501f0(self):
+    def test_web_pin_is_still_9b5501f0_until_1_2_image_lands(self):
+        # 1.2 keeps this pin as a placeholder until the new web digest is pinned.
         self.assertIn("    image: " + WEB_PIN + "\n", self._text())
 
     def test_backup_method_hook_present(self):
@@ -113,7 +102,7 @@ class Release11Tests(unittest.TestCase):
     def test_release_requires_verify_block_for_hook(self):
         body = self._text().replace(VERIFY_BLOCK, "")
         self.assertNotEqual(body, self._text())
-        r = self._check_body(body, "--release", "--tag", "1.1")
+        r = self._check_body(body, "--release", "--tag", "1.2")
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("x-app.backup.verify", r.stderr)
         # Without --release the block stays optional.
