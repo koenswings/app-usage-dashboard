@@ -49,12 +49,12 @@ class AggregateTests(unittest.TestCase):
         rows = [
             row("2026-11-09", "kolibri-a", "kolibri", {
                 "name": "Kolibri",
-                "setup": {"classes": 1, "classesDelta": 1, "learnersRegistered": 10,
-                          "learnersRegisteredDelta": 2, "learnersEnrolled": 8,
-                          "teachers": 1, "teachersDelta": 0, "admins": 1},
-                "signins": {"learner": {"users": 4, "sessions": 5, "minutes": 20},
-                            "coach": {"users": 1, "sessions": 1, "minutes": 10},
-                            "admin": {"users": 1, "sessions": 1, "minutes": 5}},
+                "setup": {"classes": 1, "classesDelta": 1, "learner": {"total": 10, "beyondSeed": 10},
+                          "learnerDelta": 2, "learnerEnrolled": 8,
+                          "teacher": {"total": 1, "beyondSeed": 1}, "teachersDelta": 0, "admin": {"total": 1, "beyondSeed": 0}},
+                "signins": {"learner": {"total": 4, "beyondSeed": 4, "sessions": 5, "minutes": 20},
+                            "coach": {"total": 1, "beyondSeed": 1, "sessions": 1, "minutes": 10},
+                            "admin": {"total": 1, "beyondSeed": 1, "sessions": 1, "minutes": 5}},
                 "guest": {"visits": 0, "seconds": 0},
                 "teaching": {"lessonsCreated": 1, "lessonsVisible": 1,
                              "quizzesCreated": 0, "quizzesStarted": 0, "quizzesEnded": 0},
@@ -62,12 +62,12 @@ class AggregateTests(unittest.TestCase):
             }),
             row("2026-11-10", "kolibri-a", "kolibri", {
                 "name": "Kolibri",
-                "setup": {"classes": 2, "classesDelta": 1, "learnersRegistered": 12,
-                          "learnersRegisteredDelta": 2, "learnersEnrolled": 9,
-                          "teachers": 2, "teachersDelta": 1, "admins": 1},
-                "signins": {"learner": {"users": 6, "sessions": 7, "minutes": 30},
-                            "coach": {"users": 1, "sessions": 2, "minutes": 8},
-                            "admin": {"users": 1, "sessions": 0, "minutes": 0}},
+                "setup": {"classes": 2, "classesDelta": 1, "learner": {"total": 12, "beyondSeed": 12},
+                          "learnerDelta": 2, "learnerEnrolled": 9,
+                          "teacher": {"total": 2, "beyondSeed": 2}, "teachersDelta": 1, "admin": {"total": 1, "beyondSeed": 0}},
+                "signins": {"learner": {"total": 6, "beyondSeed": 6, "sessions": 7, "minutes": 30},
+                            "coach": {"total": 1, "beyondSeed": 1, "sessions": 2, "minutes": 8},
+                            "admin": {"total": 1, "beyondSeed": 1, "sessions": 0, "minutes": 0}},
                 "guest": {"visits": 1, "seconds": 120},
                 "teaching": {"lessonsCreated": 2, "lessonsVisible": 2,
                              "quizzesCreated": 1, "quizzesStarted": 1, "quizzesEnded": 0},
@@ -93,14 +93,14 @@ class AggregateTests(unittest.TestCase):
             "name": "Kolibri",
             "setup": {
                 "classes": 2, "classesDelta": 0,
-                "learnersEnrolled": 6, "learnersRegisteredDelta": 1, "teachersDelta": 0,
+                "learnerEnrolled": 6, "learnerDelta": 1, "teachersDelta": 0,
                 "admin": {"total": 1, "beyondSeed": 0},
                 "teacher": {"total": 1, "beyondSeed": 0},
                 "learner": {"total": 8, "beyondSeed": 8},
             },
-            "signins": {"learner": {"users": 4, "sessions": 4, "minutes": 10},
-                        "coach": {"users": 1, "sessions": 1, "minutes": 5},
-                        "admin": {"users": 0, "sessions": 0, "minutes": 0}},
+            "signins": {"learner": {"total": 4, "beyondSeed": 4, "sessions": 4, "minutes": 10},
+                        "coach": {"total": 1, "beyondSeed": 1, "sessions": 1, "minutes": 5},
+                        "admin": {"total": 0, "beyondSeed": 0, "sessions": 0, "minutes": 0}},
             "guest": {"visits": 0, "seconds": 0},
             "teaching": {"lessonsCreated": 0, "lessonsVisible": 0,
                          "quizzesCreated": 0, "quizzesStarted": 0, "quizzesEnded": 0},
@@ -146,7 +146,6 @@ class AggregateTests(unittest.TestCase):
                     "byGroup": {"admin": 0, "teacher": 4, "learner": 1},
                     "mime": {"text": 3, "sheet": 2, "slides": 0},
                 },
-                "appsOpened": {"files": 10, "richdocuments": 5},
                 "workflows": {
                     "worksheetShares": 1, "editShares": 1,
                     "fileDropLinks": 1, "fileDropUploads": 3, "schoolFilesShares": 0,
@@ -177,7 +176,6 @@ class AggregateTests(unittest.TestCase):
                     "byGroup": {"admin": 0, "teacher": 2, "learner": 0},
                     "mime": {"text": 1, "sheet": 1, "slides": 0},
                 },
-                "appsOpened": {"files": 2},
                 "workflows": {
                     "worksheetShares": 0, "editShares": 0,
                     "fileDropLinks": 0, "fileDropUploads": 1, "schoolFilesShares": 1,
@@ -208,7 +206,10 @@ class AggregateTests(unittest.TestCase):
         self.assertEqual(week["office"]["opens"], 7)
         self.assertEqual(week["office"]["distinctDocuments"], 2)  # last ok day, not max or sum
         self.assertEqual(week["office"]["estimatedMinutes"], 23)
-        self.assertEqual(week["appsOpened"]["files"], 12)
+        # The shipped hook does not emit appsOpened or documents yet: not measured.
+        self.assertIsNone(week["appsOpened"])
+        self.assertIsNone(week["documentsCreated"])
+        self.assertIsNone(week["documentsCreatedByGroup"])
         self.assertEqual(week["workflows"]["fileDropUploads"], 4)
         self.assertEqual(week["workflows"]["schoolFilesShares"], 1)
         self.assertEqual(week["workflows"]["byGroup"]["fileDropUploads"]["teacher"], 3)
@@ -261,8 +262,9 @@ class AggregateTests(unittest.TestCase):
         self.assertEqual(card["nextcloud"]["officeOpens"], 6)
         self.assertEqual(card["nextcloud"]["officeOpensTeacherLearner"], 2)
         self.assertEqual(card["nextcloud"]["officeOpensAdmin"], 4)
-        self.assertEqual(nextcloud_actions(card), 2)
-        self.assertEqual(line_tones(card)["nextcloud"], GREEN)
+        # Ruling 5: Office opens are not in line 5 until the counter ships.
+        self.assertEqual(nextcloud_actions(card), 0)
+        self.assertEqual(line_tones(card)["nextcloud"], AMBER)
 
         admin_only = nextcloud_week([nc_row("2026-11-09", {
             "opens": 5, "distinctDocuments": 1, "read": 0, "edit": 0,
@@ -290,7 +292,7 @@ class AggregateTests(unittest.TestCase):
         self.assertEqual(line_tones(card)["nextcloud"], AMBER)
 
     def test_workflow_split_excludes_admin_and_nulls_missing_by_group(self):
-        from src.thresholds import AMBER, GREEN, line_tones, nextcloud_actions
+        from src.thresholds import AMBER, GREEN, GREY, line_tones, nextcloud_actions
 
         def nc_row(day, workflows, office=None):
             return row(day, "nc-a", "nextcloud", {
@@ -360,8 +362,9 @@ class AggregateTests(unittest.TestCase):
         self.assertIsNone(card["nextcloud"]["editSharesTeacherLearner"])
         self.assertIsNone(card["nextcloud"]["fileDropUploadsTeacherLearner"])
         self.assertIsNone(card["nextcloud"]["schoolFilesSharesTeacherLearner"])
-        self.assertEqual(nextcloud_actions(card), 0)
-        self.assertEqual(line_tones(card)["nextcloud"], AMBER)
+        # No known teacher/learner split for any line-5 metric: unknown, grey.
+        self.assertIsNone(nextcloud_actions(card))
+        self.assertEqual(line_tones(card)["nextcloud"], GREY)
 
     def test_nextcloud_missing_beyond_seed_is_null(self):
         rows = [row("2026-11-09", "nc-a", "nextcloud", {
@@ -388,12 +391,12 @@ class AggregateTests(unittest.TestCase):
     def test_demo_not_in_own_scorecard(self):
         own = kolibri_week([row("2026-11-09", "k-own", "kolibri", {
             "name": "Kolibri",
-            "setup": {"classes": 2, "classesDelta": 0, "learnersRegistered": 8,
-                      "learnersRegisteredDelta": 0, "learnersEnrolled": 6,
-                      "teachers": 1, "teachersDelta": 0, "admins": 1},
-            "signins": {"learner": {"users": 4, "sessions": 4, "minutes": 10},
-                        "coach": {"users": 1, "sessions": 1, "minutes": 5},
-                        "admin": {"users": 0, "sessions": 0, "minutes": 0}},
+            "setup": {"classes": 2, "classesDelta": 0, "learner": {"total": 8, "beyondSeed": 8},
+                      "learnerDelta": 0, "learnerEnrolled": 6,
+                      "teacher": {"total": 1, "beyondSeed": 1}, "teachersDelta": 0, "admin": {"total": 1, "beyondSeed": 0}},
+            "signins": {"learner": {"total": 4, "beyondSeed": 4, "sessions": 4, "minutes": 10},
+                        "coach": {"total": 1, "beyondSeed": 1, "sessions": 1, "minutes": 5},
+                        "admin": {"total": 0, "beyondSeed": 0, "sessions": 0, "minutes": 0}},
             "guest": {"visits": 0, "seconds": 0},
             "teaching": {"lessonsCreated": 1, "lessonsVisible": 1,
                          "quizzesCreated": 0, "quizzesStarted": 0, "quizzesEnded": 0},
@@ -401,12 +404,12 @@ class AggregateTests(unittest.TestCase):
         })])
         demo = kolibri_week([row("2026-11-09", "k-demo", "kolibri", {
             "name": "Kolibri Demo", "demo": True,
-            "setup": {"classes": 9, "classesDelta": 0, "learnersRegistered": 99,
-                      "learnersRegisteredDelta": 0, "learnersEnrolled": 99,
-                      "teachers": 9, "teachersDelta": 0, "admins": 1},
-            "signins": {"learner": {"users": 6, "sessions": 50, "minutes": 400},
-                        "coach": {"users": 1, "sessions": 0, "minutes": 0},
-                        "admin": {"users": 0, "sessions": 0, "minutes": 0}},
+            "setup": {"classes": 9, "classesDelta": 0, "learner": {"total": 99, "beyondSeed": 99},
+                      "learnerDelta": 0, "learnerEnrolled": 99,
+                      "teacher": {"total": 9, "beyondSeed": 9}, "teachersDelta": 0, "admin": {"total": 1, "beyondSeed": 0}},
+            "signins": {"learner": {"total": 6, "beyondSeed": 6, "sessions": 50, "minutes": 400},
+                        "coach": {"total": 1, "beyondSeed": 1, "sessions": 0, "minutes": 0},
+                        "admin": {"total": 0, "beyondSeed": 0, "sessions": 0, "minutes": 0}},
             "guest": {"visits": 0, "seconds": 0},
             "teaching": {"lessonsCreated": 8, "lessonsVisible": 8,
                          "quizzesCreated": 0, "quizzesStarted": 0, "quizzesEnded": 0},
@@ -494,9 +497,9 @@ class AggregateTests(unittest.TestCase):
             "name": "Kolibri",
             "clock": {"synced": False, "correctedBoots": 1},
             "setup": {"classes": 1},
-            "signins": {"learner": {"users": 0, "sessions": 0, "minutes": 0},
-                        "coach": {"users": 0, "sessions": 0, "minutes": 0},
-                        "admin": {"users": 0, "sessions": 0, "minutes": 0}},
+            "signins": {"learner": {"total": 0, "beyondSeed": 0, "sessions": 0, "minutes": 0},
+                        "coach": {"total": 0, "beyondSeed": 0, "sessions": 0, "minutes": 0},
+                        "admin": {"total": 0, "beyondSeed": 0, "sessions": 0, "minutes": 0}},
             "guest": {"visits": 0, "seconds": 0},
             "teaching": {"lessonsCreated": 0, "lessonsVisible": 0,
                          "quizzesCreated": 0, "quizzesStarted": 0, "quizzesEnded": 0},

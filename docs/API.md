@@ -26,11 +26,11 @@ The kit files do not carry a deployment id. idea maps `(engine, day)` to `deploy
 ## Aggregation rules
 
 - The day-file identity field is `instance`. HTTP responses also send `instanceId` as an alias of the same value.
-- Census and Nextcloud `setup` come from the last `hookStatus: ok` day in the week and are not summed. Nextcloud `setup` and `logins` use singular `admin` / `teacher` / `learner` keys, each `{total, beyondSeed}`. `beyondSeed` is read from the hook; it is `null` when the hook omitted it. The collector does not invent it (no `teachers - 1` heuristic). `otherGroups` stays on Nextcloud `setup`. Kolibri HTTP `setup` is Pixel's flat `Census` (the hook's RoleCount totals are mapped into `learnersRegistered` / `teachers` / `admins`).
+- Per instance, census and Nextcloud `setup` come from the last `hookStatus: ok` day in the week and are not summed. Across the school's own copies they are combined by **max** (idea#462, see below). Nextcloud `setup` and `logins` use singular `admin` / `teacher` / `learner` keys, each `{total, beyondSeed}`. `beyondSeed` is read from the hook; it is `null` when the hook omitted it. The collector does not invent it (no `teachers - 1` heuristic). `otherGroups` stays on Nextcloud `setup`. Kolibri HTTP `setup` is Pixel's flat `Census` (the hook's RoleCount totals are mapped into `learnersRegistered` / `teachers` / `admins`).
 - Activity counters (sessions, minutes, page views, workflow events, office opens/read/edit) are summed across ok days. On a Nextcloud *instance*, weekly `office.distinctDocuments` is the last ok day's value (not a sum or max of days). Scorecard `officeDistinctDocuments` is the **sum across the school's own Nextcloud instances** (document ids are salted per instance, so two own Nextclouds hold different documents and the sum is correct). Kiwix `distinctArticles` is the max of daily counts (the export does not include the article set, so a true weekly union is not available).
 - `clockTrusted` (school-week and per-app week responses) is `false` only if a contributing `hookStatus: ok` day-file for that week had `clock.synced === false`. `no-hook`, `unlisted-no-hook` and `skipped` stub rows do not contribute, and neither do `timeout` / `failed` / `invalid` rows. Each row is attributed only to its own `day` (a later snapshot is not copied onto earlier days or weeks). If an instance has no ok day that week, its `clock` is `null`. A week with no contributing ok-rows has `clockTrusted: true` (the field is a boolean, not null). A null/missing clock on an ok-row does not taint the week.
 - Stub / failed day files keep `hookStatus` (`ok` \| `timeout` \| `failed` \| `invalid` \| `skipped` \| `unlisted-no-hook` \| `no-hook`) and optional `skipReason`. App payloads on those days are treated as null; they do not overwrite an earlier ok summary.
-- Nextcloud `office.byGroup` stays numeric (`{admin, teacher, learner}`), not RoleCount. `appsOpened` is an object (`{ "files": n }`). `workflows` uses `fileDropLinks` and `fileDropUploads`.
+- Nextcloud `office.byGroup` stays numeric (`{admin, teacher, learner}`), not RoleCount. `appsOpened` is an object (`{ "files": n }`) or `null` when no ok day of the week carried it (not measured; the shipped app-nextcloud hook does not emit it yet). `{}` means measured, nothing opened. `workflows` uses `fileDropLinks` and `fileDropUploads`.
 - The scorecard Nextcloud block matches Pixel's `ScorecardNextcloudInputs` (`worksheetShares`, `editShares`, `fileDropLinks`, `fileDropUploads`, `schoolFilesShares`, `officeOpens`, `officeDistinctDocuments`, `officeRead`, `officeEdit`, `officeEstimatedMinutes`) plus collector-side splits: `officeOpensTeacherLearner` / `officeOpensAdmin` from `office.byGroup`, and `worksheetSharesTeacherLearner` / `worksheetSharesAdmin`, `editSharesTeacherLearner` / `editSharesAdmin`, `fileDropUploadsTeacherLearner` / `fileDropUploadsAdmin`, `schoolFilesSharesTeacherLearner` / `schoolFilesSharesAdmin` from `workflows.byGroup`. Flat totals are unchanged. If a week's own Nextcloud instances have no split (old day files) while the matching total is greater than 0, both split fields are `null` rather than `0` — we do not invent a role split. When some instances have a split and others do not, the splits sum only the known groups (so the flat total may be larger than teacher+learner+admin). `officeDistinctDocuments` is the sum across the school's own Nextcloud instances (see above). Setup extras are `nextcloudTeacherBeyondSeed` and `nextcloudLearnerBeyondSeed` (null when the hook did not emit `beyondSeed`). `fileDropLinks` has no group split (creating a link is not part of the U-7 sum). Weekly instance `workflows.byGroup` sums the per-day maps the same way `office.byGroup` does.
 - Presence segments for a school week cover Monday 00:00 through Saturday 00:00 (the end of `weekEnd`, Friday) in kit-local time — the same window Pixel's strip draws. They are contiguous, non-overlapping, and sum to that window. Unmeasured stretches are filled explicitly: `off` where the export shows the kit was off; `collectorGap` only where a `collector_gaps` interval (sidecar down, or a whole-hub collector outage recorded at startup as `collector-offline`) covers the hole *while monitoring was known to be on*; `gapUnknown` otherwise. A kit that has never had monitoring enabled has a week of all `gapUnknown`, with no `collectorGap`. Periods covered by `disabled` polls, and any time before monitoring was first successfully pulled, also stay `gapUnknown` rather than `collectorGap`. `lengthKnown` is true for measured `on`/`off` and for collector gaps that have both a start and an end; it is false for `gapUnknown` and for an open-ended collector outage.
 - `presence.summary` is a short plain sentence such as `On 4 of 5 school days, 31 h in school hours`, built from `presence_days` school-hour totals. It is `null` when those roll-ups are missing. It is never an empty string.
@@ -62,3 +62,48 @@ Operator accounts are exactly `koen` and `marco` (U-9). There is no `admin` acco
 Threshold keys and defaults: `availableMinSchoolDays` 3 (integer 0–5), `teachingCycleMinItems` 1 (integer ≥ 0), `learnerSessionShareMin` 0.5 (number 0–1, learners as a share of Kolibri *sessions*, not minutes), `nextcloudMinActions` 1 (integer ≥ 0; `worksheetSharesTeacherLearner` + `editSharesTeacherLearner` + `schoolFilesSharesTeacherLearner` + `fileDropUploadsTeacherLearner` + `officeOpensTeacherLearner` — Nextcloud actions by a teacher or learner. Admin actions do not count. A null split, from old day files with no `byGroup`, contributes 0), `wikipediaMinViews` 10 (integer ≥ 0), `helpAfterAmberWeeks` 3 (integer ≥ 1), `unusedAfterHelpWeeks` 4 (integer ≥ 1). Set up is a yes/no line with no number (yes when registered learners and teachers are both > 0, or, with no Kolibri census, when a Nextcloud beyond-seed count is > 0).
 
 Consistent daily snapshots use `VACUUM INTO` under `./data/backup/daily/`, keeping 14 copies. A hook-mode Engine backup (idea#444) writes a separate fresh dump at `./data/backup/usage.sqlite`; see `docs/runbook.md`.
+
+## idea#462: U-7 Set up, enrolment, distinct users, one copy set (1.2)
+
+**Hook names are authoritative.** The shipped Kolibri hook emits `setup.learnerEnrolled`, `setup.learnerDelta`, `setup.{admin,teacher,learner}` as `{total, beyondSeed}` and `signins.<role>.{total, beyondSeed, sessions, minutes}`. The collector maps them to the HTTP names below and still reads the PR #410 §7.6 sketch names (`learnersEnrolled`, `learnersRegisteredDelta`, flat `teachers`, `signins.<role>.users`) so old day files parse. Contract fixtures with real hook output are in `tests/fixtures/hook-real/`.
+
+**Own copies.** For each app, the school's own copies are the non-demo instances with at least one ok day in the week, sorted by instance id. The same set feeds the census, the activity sums and the `setupStatus` inputs, and is listed in `scorecard.copies`.
+
+- Census and Set up inputs (`scorecard.setup.*`, school-week `census`) are the **max** across own copies (`CENSUS_ACROSS_COPIES = "max"`, ruling 2): two own copies are usually clones of the same school database, so a sum would double-count. `census` equals the Kolibri fields of `scorecard.setup`.
+- Activity (sessions, minutes, teaching counts, shares, uploads, opens, documents created) is **summed** over the same copies.
+
+**Kolibri.** Instance `setup` (Census) gains `coachesBeyondSeed` (hook `setup.teacher.beyondSeed`; a future `setup.coach` RoleCount is preferred when present). `teachers` is the Kolibri coach total. `signins.<role>.users` is the max of the daily distinct `total` (a lower bound: the hook does not emit ids for a weekly union); `signins.<role>.usersBeyondSeed` is the max of daily `beyondSeed`, null when absent.
+
+**Nextcloud.** Instance weeks gain `documentsCreated: number|null` and `documentsCreatedByGroup: {admin, teacher, learner}|null`, read from a future hook's `documents: {created, byGroup}` (flat `documentsCreated` / `documentsCreatedByGroup` also accepted), summed over ok days. Null until the app-nextcloud counter release. `scorecard.nextcloud` gains `documentsCreated`, `documentsCreatedTeacherLearner`, `documentsCreatedAdmin` (same null-split rule as `officeOpensTeacherLearner`) and `appsOpened` (sum over own copies; null if none measured). Documents created are display only.
+
+**`scorecard.setup`** gains `kolibriCoachBeyondSeed` (max across own Kolibri copies). `nextcloudTeacherBeyondSeed` / `nextcloudLearnerBeyondSeed` are now the max across own Nextcloud copies (1.1: the first copy that had a value).
+
+**`scorecard.copies`**: `{kolibri: string[], nextcloud: string[], kiwix: string[]}`, the own instance ids that fed the scorecard.
+
+**`scorecard.setupStatus`** (U-7 Set up, rule tag `u7-2026-11-11`):
+
+```
+{ complete: boolean|null,
+  kolibri:   {complete, missing[], unknown[], passingInstanceIds[]} | null,
+  nextcloud: {complete, missing[], unknown[], passingInstanceIds[]} | null,
+  rule: "u7-2026-11-11" }
+parts: coach | class | enrolledLearner | teacherBeyondSeed | learnerBeyondSeed | noOwnKolibri | noOwnNextcloud
+```
+
+- Kolibri part, per own copy: `coachesBeyondSeed ≥ 1` AND `classes ≥ 1` AND `learnersEnrolled ≥ 1`. Nextcloud part, per own copy: `teacher.beyondSeed ≥ 1` AND `learner.beyondSeed ≥ 1`.
+- A copy **passes** if all its conditions are known and met, **fails** if any known condition is not met, and is **unknown** otherwise (including a copy with no ok day). A part is `true` if any one copy passes on its own (no mixing a coach on one copy with a class on another), else `null` if any copy is unknown, else `false`. `missing` / `unknown` list the failing / unknown conditions across copies.
+- No own copy of an app: that part is `{complete: false, missing: ["noOwnKolibri"|"noOwnNextcloud"]}` (ruling 1, `SETUP_REQUIRES_BOTH_APPS`).
+
+| Kolibri part | Nextcloud part | `complete` | Server tone |
+|---|---|---|---|
+| any | false | false | amber |
+| false | any | false | amber |
+| null | true or null | null | grey |
+| true | null | null | grey |
+| true | true | true | green |
+| — (no ok day-file from any app this week) | — | null (parts null) | grey |
+
+A part with no data is never counted as passing. The server Set up tone (and therefore help suggestions and `unused`) is driven only by `setupStatus.complete`; the flat inputs no longer decide it.
+
+**U-7 line 5 (Nextcloud workflows)** counts `worksheetShares`, `editShares`, `schoolFilesShares` and `fileDropUploads` by a teacher or learner. `officeOpensTeacherLearner` is left out until the app-nextcloud app-open counter ships (`NEXTCLOUD_LINE5_COUNTS_OFFICE_OPENS`, ruling 5); documents created never count (ruling 3).
+

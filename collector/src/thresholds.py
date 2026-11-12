@@ -219,17 +219,25 @@ def learner_session_share(scorecard: dict[str, Any]) -> float | None:
     return int(learner or 0) / total
 
 
+# U-7 line 5 (Nextcloud workflows), idea#462 ruling 5 (Steve, 2026-11-12):
+# judged on shares, co-edits and File drop uploads by a teacher or learner.
+# Office opens join only once the IDEA app-open counter ships in app-nextcloud
+# (flip NEXTCLOUD_LINE5_COUNTS_OFFICE_OPENS then). Ruling 3: documents created
+# are display only and never count here.
+NEXTCLOUD_LINE5_COUNTS_OFFICE_OPENS = False
+NEXTCLOUD_LINE5_KEYS = (
+    "worksheetSharesTeacherLearner",
+    "editSharesTeacherLearner",
+    "schoolFilesSharesTeacherLearner",
+    "fileDropUploadsTeacherLearner",
+) + (("officeOpensTeacherLearner",) if NEXTCLOUD_LINE5_COUNTS_OFFICE_OPENS else ())
+
+
 def nextcloud_actions(scorecard: dict[str, Any]) -> int | None:
     nc = scorecard.get("nextcloud") or {}
     # U-7 line 5: actions by a teacher or learner. Admin actions do not count.
     # A null split (old day files with no byGroup) contributes 0.
-    parts = [
-        nc.get("worksheetSharesTeacherLearner"),
-        nc.get("editSharesTeacherLearner"),
-        nc.get("schoolFilesSharesTeacherLearner"),
-        nc.get("fileDropUploadsTeacherLearner"),
-        nc.get("officeOpensTeacherLearner"),
-    ]
+    parts = [nc.get(key) for key in NEXTCLOUD_LINE5_KEYS]
     if all(v is None for v in parts):
         return None
     return sum(int(v or 0) for v in parts)
@@ -264,18 +272,137 @@ def improved(current: dict[str, Any], baseline: dict[str, Any]) -> bool:
     return False
 
 
-def _setup_yes(setup: dict[str, Any]) -> str:
-    """Set up is a yes/no line with no numeric cut-off."""
-    classes = _int_or_none(setup.get("classes"))
-    learners = _int_or_none(setup.get("learnersRegistered"))
-    teachers = _int_or_none(setup.get("teachers"))
-    if classes is not None or learners is not None or teachers is not None:
-        return GREEN if int(learners or 0) > 0 and int(teachers or 0) > 0 else AMBER
-    teacher_beyond = _int_or_none(setup.get("nextcloudTeacherBeyondSeed"))
-    learner_beyond = _int_or_none(setup.get("nextcloudLearnerBeyondSeed"))
-    if teacher_beyond is None and learner_beyond is None:
-        return GREY
-    return GREEN if int(teacher_beyond or 0) > 0 or int(learner_beyond or 0) > 0 else AMBER
+# --- U-7 Set up (idea#462). Rulings (Steve, 2026-11-12) are single constants. ---
+
+SETUP_RULE = "u7-2026-11-11"
+
+# Ruling 1: Set up is yes only when BOTH the Kolibri and the Nextcloud part
+# pass. A school with no own copy of one app fails that part with the reason
+# "noOwnKolibri" / "noOwnNextcloud". Set False to let a missing app not block.
+SETUP_REQUIRES_BOTH_APPS = True
+
+# Per-copy conditions. Ruling 4: a Kolibri coach means a coach BEYOND the seed
+# accounts (``coachesBeyondSeed``), the same seed exclusion as Nextcloud.
+KOLIBRI_SETUP_CHECKS = (
+    ("coach", "coachesBeyondSeed"),
+    ("class", "classes"),
+    ("enrolledLearner", "learnersEnrolled"),
+)
+NEXTCLOUD_SETUP_CHECKS = (
+    ("teacherBeyondSeed", "teacherBeyondSeed"),
+    ("learnerBeyondSeed", "learnerBeyondSeed"),
+)
+
+PASS = "pass"
+FAIL = "fail"
+UNKNOWN = "unknown"
+
+
+def _copy_verdict(inputs: dict[str, Any] | None, checks) -> tuple[str, list[str], list[str]]:
+    """(verdict, failing parts, unknown parts) for one own copy.
+
+    A copy with no ok day this week (``inputs`` None) is unknown on every part.
+    A known failing condition makes the copy fail even if other parts are
+    unknown, because it cannot pass whatever the unknown values are.
+    """
+    if inputs is None:
+        return UNKNOWN, [], [name for name, _ in checks]
+    failing, unknown = [], []
+    for name, key in checks:
+        value = _int_or_none(inputs.get(key))
+        if value is None:
+            unknown.append(name)
+        elif value < 1:
+            failing.append(name)
+    if failing:
+        return FAIL, failing, unknown
+    if unknown:
+        return UNKNOWN, [], unknown
+    return PASS, [], []
+
+
+def _ordered(names: set[str], checks) -> list[str]:
+    return [name for name, _ in checks if name in names]
+
+
+def app_setup_status(copies: list[tuple[str, dict[str, Any] | None]], checks, absent_reason: str) -> dict[str, Any] | None:
+    """One app's part of U-7 Set up.
+
+    ``copies`` lists the school's own (non-demo) copies of the app seen this
+    week as ``(instanceId, inputs)``; ``inputs`` is None when the copy had no
+    ok day. The part passes when ANY one copy passes on its own (a coach on
+    copy A and a class on copy B do not combine). Otherwise it is unknown if
+    any copy is unknown, else it fails.
+    """
+    if not copies:
+        if not SETUP_REQUIRES_BOTH_APPS:
+            return None
+        return {"complete": False, "missing": [absent_reason], "unknown": [], "passingInstanceIds": []}
+    passing: list[str] = []
+    failing: set[str] = set()
+    unknown: set[str] = set()
+    any_unknown = False
+    for instance_id, inputs in copies:
+        verdict, fails, unknowns = _copy_verdict(inputs, checks)
+        if verdict == PASS:
+            passing.append(instance_id)
+        elif verdict == UNKNOWN:
+            any_unknown = True
+        failing.update(fails)
+        unknown.update(unknowns)
+    if passing:
+        return {"complete": True, "missing": [], "unknown": [], "passingInstanceIds": passing}
+    return {
+        "complete": None if any_unknown else False,
+        "missing": _ordered(failing, checks),
+        "unknown": _ordered(unknown, checks),
+        "passingInstanceIds": [],
+    }
+
+
+def empty_setup_status() -> dict[str, Any]:
+    return {"complete": None, "kolibri": None, "nextcloud": None, "rule": SETUP_RULE}
+
+
+def setup_status(
+    kolibri_copies: list[tuple[str, dict[str, Any] | None]],
+    nextcloud_copies: list[tuple[str, dict[str, Any] | None]],
+    has_data: bool,
+) -> dict[str, Any]:
+    """``scorecard.setupStatus``: the U-7 Set up verdict the UI shows.
+
+    Truth table (parts are true / false / null):
+      - no ok day-file from any app this week -> complete null, parts null;
+      - any present part false               -> complete false (amber);
+      - else any part null (unknown)         -> complete null (grey);
+      - else (every part true)               -> complete true (green).
+    An unknown part never counts as passing.
+    """
+    if not has_data:
+        return empty_setup_status()
+    kolibri = app_setup_status(kolibri_copies, KOLIBRI_SETUP_CHECKS, "noOwnKolibri")
+    nextcloud = app_setup_status(nextcloud_copies, NEXTCLOUD_SETUP_CHECKS, "noOwnNextcloud")
+    parts = [p["complete"] for p in (kolibri, nextcloud) if p is not None]
+    if not parts:
+        complete = None
+    elif any(v is False for v in parts):
+        complete = False
+    elif any(v is None for v in parts):
+        complete = None
+    else:
+        complete = True
+    return {"complete": complete, "kolibri": kolibri, "nextcloud": nextcloud, "rule": SETUP_RULE}
+
+
+def setup_tone(scorecard: dict[str, Any]) -> str:
+    """Server tone for the Set up line, driven only by ``scorecard.setupStatus``."""
+    status = scorecard.get("setupStatus") or {}
+    complete = status.get("complete")
+    if complete is True:
+        return GREEN
+    if complete is False:
+        return AMBER
+    return GREY
 
 
 def line_tones(scorecard: dict[str, Any], thresholds: dict[str, Any] | None = None) -> dict[str, str]:
@@ -291,7 +418,7 @@ def line_tones(scorecard: dict[str, Any], thresholds: dict[str, Any] | None = No
     else:
         available_tone = GREEN if int(days or 0) >= thresholds["availableMinSchoolDays"] else AMBER
 
-    setup_tone = _setup_yes(scorecard.get("setup") or {})
+    setup_line = setup_tone(scorecard)
 
     items = teaching_items(scorecard)
     assigned = _int_or_none(teaching.get("learnerSessionsOnAssigned"))
@@ -321,7 +448,7 @@ def line_tones(scorecard: dict[str, Any], thresholds: dict[str, Any] | None = No
 
     return {
         "available": available_tone,
-        "setup": setup_tone,
+        "setup": setup_line,
         "teachingCycle": teaching_tone,
         "learnersOperate": learners_tone,
         "nextcloud": nextcloud_tone,

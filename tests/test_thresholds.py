@@ -48,9 +48,19 @@ def amber_scorecard():
             "learnersEnrolled": 0,
             "teachers": 0,
             "admins": 0,
-            "nextcloudTeacherBeyondSeed": None,
-            "nextcloudLearnerBeyondSeed": None,
+            "nextcloudTeacherBeyondSeed": 0,
+            "nextcloudLearnerBeyondSeed": 0,
+            "kolibriCoachBeyondSeed": 0,
         },
+        "setupStatus": {
+            "complete": False,
+            "kolibri": {"complete": False, "missing": ["coach", "class", "enrolledLearner"],
+                        "unknown": [], "passingInstanceIds": []},
+            "nextcloud": {"complete": False, "missing": ["teacherBeyondSeed", "learnerBeyondSeed"],
+                          "unknown": [], "passingInstanceIds": []},
+            "rule": "u7-2026-11-11",
+        },
+        "copies": {"kolibri": ["k-own"], "nextcloud": ["nc-own"], "kiwix": ["z-own"]},
         "teachingCycle": {
             "lessonsCreated": 0,
             "lessonsVisible": 0,
@@ -76,6 +86,10 @@ def amber_scorecard():
             "fileDropLinks": 5,
             "fileDropUploads": 0,
             "schoolFilesShares": 0,
+            "worksheetSharesTeacherLearner": 0,
+            "editSharesTeacherLearner": 0,
+            "fileDropUploadsTeacherLearner": 0,
+            "schoolFilesSharesTeacherLearner": 0,
             "officeOpens": 0,
             "officeOpensTeacherLearner": 0,
             "officeOpensAdmin": 0,
@@ -95,6 +109,16 @@ def green_scorecard():
     card["setup"]["classes"] = 2
     card["setup"]["learnersRegistered"] = 8
     card["setup"]["teachers"] = 1
+    card["setup"]["learnersEnrolled"] = 8
+    card["setup"]["kolibriCoachBeyondSeed"] = 1
+    card["setup"]["nextcloudTeacherBeyondSeed"] = 1
+    card["setup"]["nextcloudLearnerBeyondSeed"] = 1
+    card["setupStatus"] = {
+        "complete": True,
+        "kolibri": {"complete": True, "missing": [], "unknown": [], "passingInstanceIds": ["k-own"]},
+        "nextcloud": {"complete": True, "missing": [], "unknown": [], "passingInstanceIds": ["nc-own"]},
+        "rule": "u7-2026-11-11",
+    }
     card["teachingCycle"]["lessonsVisible"] = 1
     card["teachingCycle"]["learnerSessionsOnAssigned"] = 4
     card["learnersOperate"]["learnerSessions"] = 10
@@ -103,6 +127,8 @@ def green_scorecard():
     card["nextcloud"]["officeOpens"] = 2
     card["nextcloud"]["officeOpensTeacherLearner"] = 2
     card["nextcloud"]["officeOpensAdmin"] = 0
+    card["nextcloud"]["editShares"] = 1
+    card["nextcloud"]["editSharesTeacherLearner"] = 1
     card["wikipedia"]["pageViewsOwn"] = 12
     return card
 
@@ -198,18 +224,27 @@ class ToneTests(unittest.TestCase):
         card = amber_scorecard()
         card["nextcloud"]["fileDropLinks"] = 9
         self.assertEqual(line_tones(card)["nextcloud"], AMBER)
-        card["nextcloud"]["officeOpens"] = 1
-        card["nextcloud"]["officeOpensTeacherLearner"] = 1
+        card["nextcloud"]["fileDropUploads"] = 1
+        card["nextcloud"]["fileDropUploadsTeacherLearner"] = 1
         self.assertEqual(line_tones(card)["nextcloud"], GREEN)
 
-    def test_nextcloud_ignores_admin_office_opens(self):
+    def test_nextcloud_office_opens_wait_for_the_counter(self):
+        # idea#462 ruling 5: line 5 is shares, co-edits and File drop uploads;
+        # Office opens join only once the app-nextcloud counter ships.
         card = amber_scorecard()
         card["nextcloud"]["officeOpens"] = 8
-        card["nextcloud"]["officeOpensAdmin"] = 8
-        card["nextcloud"]["officeOpensTeacherLearner"] = 0
+        card["nextcloud"]["officeOpensAdmin"] = 0
+        card["nextcloud"]["officeOpensTeacherLearner"] = 8
         self.assertEqual(line_tones(card)["nextcloud"], AMBER)
-        card["nextcloud"]["officeOpensTeacherLearner"] = 1
+        card["nextcloud"]["editSharesTeacherLearner"] = 1
         self.assertEqual(line_tones(card)["nextcloud"], GREEN)
+
+    def test_documents_created_are_display_only(self):
+        card = amber_scorecard()
+        card["nextcloud"]["documentsCreated"] = 5
+        card["nextcloud"]["documentsCreatedTeacherLearner"] = 5
+        card["nextcloud"]["documentsCreatedAdmin"] = 0
+        self.assertEqual(line_tones(card)["nextcloud"], AMBER)
 
     def test_nextcloud_ignores_admin_and_unsplit_workflow_actions(self):
         card = amber_scorecard()
@@ -222,13 +257,17 @@ class ToneTests(unittest.TestCase):
         card["nextcloud"]["worksheetSharesTeacherLearner"] = 1
         self.assertEqual(line_tones(card)["nextcloud"], GREEN)
 
-    def test_setup_is_yes_no(self):
+    def test_setup_tone_follows_setup_status_only(self):
         card = empty_scorecard()
         self.assertEqual(line_tones(card)["setup"], GREY)
+        # The flat inputs no longer decide the tone (the old learners>0 &&
+        # teachers>0 rule is gone); only setupStatus.complete does.
         card["setup"]["teachers"] = 1
-        card["setup"]["learnersRegistered"] = 0
-        self.assertEqual(line_tones(card)["setup"], AMBER)
         card["setup"]["learnersRegistered"] = 8
+        self.assertEqual(line_tones(card)["setup"], GREY)
+        card["setupStatus"]["complete"] = False
+        self.assertEqual(line_tones(card)["setup"], AMBER)
+        card["setupStatus"]["complete"] = True
         self.assertEqual(line_tones(card)["setup"], GREEN)
 
 

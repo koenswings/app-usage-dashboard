@@ -81,7 +81,10 @@ def empty_scorecard() -> dict[str, Any]:
             "admins": None,
             "nextcloudTeacherBeyondSeed": None,
             "nextcloudLearnerBeyondSeed": None,
+            "kolibriCoachBeyondSeed": None,
         },
+        "setupStatus": thresholds_mod.empty_setup_status(),
+        "copies": {"kolibri": [], "nextcloud": [], "kiwix": []},
         "teachingCycle": {
             "lessonsCreated": None,
             "lessonsVisible": None,
@@ -122,6 +125,10 @@ def empty_scorecard() -> dict[str, Any]:
             "officeRead": None,
             "officeEdit": None,
             "officeEstimatedMinutes": None,
+            "documentsCreated": None,
+            "documentsCreatedTeacherLearner": None,
+            "documentsCreatedAdmin": None,
+            "appsOpened": None,
         },
         "wikipedia": {
             "pageViewsOwn": None,
@@ -141,7 +148,21 @@ def empty_census() -> dict[str, Any]:
         "teachers": None,
         "teachersDelta": None,
         "admins": None,
+        "coachesBeyondSeed": None,
     }
+
+
+# Census keys copied from the hook. Each pair is (HTTP name, hook names in
+# preference order). The shipped Kolibri hook (app-kolibri hooks/usage.sh)
+# emits the singular ``learnerEnrolled`` / ``learnerDelta``; the PR #410 §7.6
+# sketch names are still read so old day files parse.
+_CENSUS_FLAT_KEYS = (
+    ("classes", ("classes",)),
+    ("classesDelta", ("classesDelta",)),
+    ("learnersEnrolled", ("learnerEnrolled", "learnersEnrolled")),
+    ("learnersRegisteredDelta", ("learnerDelta", "learnersRegisteredDelta")),
+    ("teachersDelta", ("teachersDelta",)),
+)
 
 
 def kit_timezone(iana: str | None, utc_offset: str | None) -> dict[str, str]:
@@ -350,13 +371,33 @@ def _census_from_setup(setup: dict[str, Any] | None) -> dict[str, Any]:
     out = empty_census()
     if not setup:
         return out
-    for key in ("classes", "classesDelta", "learnersEnrolled", "learnersRegisteredDelta", "teachersDelta"):
-        if key in setup:
-            out[key] = _as_int(setup.get(key))
+    for key, sources in _CENSUS_FLAT_KEYS:
+        for src in sources:
+            if src in setup:
+                out[key] = _as_int(setup.get(src))
+                break
     out["learnersRegistered"] = role_total(setup, "learner", "learnersRegistered")
     out["teachers"] = role_total(setup, "teacher", "teachers")
     out["admins"] = role_total(setup, "admin", "admins")
+    out["coachesBeyondSeed"] = _coaches_beyond_seed(setup)
     return out
+
+
+def _coaches_beyond_seed(setup: dict[str, Any]) -> int | None:
+    """Kolibri coaches beyond the seed accounts (U-7 Set up, ruling 4).
+
+    Prefers a ``setup.coach`` RoleCount (every account holding a coach role,
+    admins included) if a future hook emits one. Today's hook emits
+    ``setup.teacher`` = accounts whose *highest* role is coach, with seeds
+    (``teacher1``/``teacher2``) excluded in ``beyondSeed``; an admin who also
+    coaches is counted under ``admin`` there, so it is not seen as a coach.
+    Null when the hook did not emit ``beyondSeed`` (old day files).
+    """
+    for role in ("coach", "teacher"):
+        rc = read_role_count(setup, role)
+        if rc is not None:
+            return rc["beyondSeed"]
+    return None
 
 
 def clocks_trusted(instances: list[dict[str, Any]]) -> bool:
@@ -388,9 +429,8 @@ def kolibri_week(rows: list[Any]) -> dict[str, Any]:
         return env
     env["setup"] = _census_from_setup((last_ok or {}).get("setup"))
     signins = {
-        "learner": {"users": 0, "sessions": 0, "minutes": 0},
-        "coach": {"users": 0, "sessions": 0, "minutes": 0},
-        "admin": {"users": 0, "sessions": 0, "minutes": 0},
+        role: {"users": 0, "usersBeyondSeed": None, "sessions": 0, "minutes": 0}
+        for role in ("learner", "coach", "admin")
     }
     guest = {"visits": 0, "seconds": 0}
     teaching = {
@@ -406,7 +446,15 @@ def kolibri_week(rows: list[Any]) -> dict[str, Any]:
             item = raw.get(role) or {}
             signins[role]["sessions"] += int(item.get("sessions") or 0)
             signins[role]["minutes"] += int(item.get("minutes") or 0)
-            signins[role]["users"] = max(signins[role]["users"], int(item.get("users") or 0))
+            # Distinct accounts: the hook's daily ``total`` (old files: ``users``).
+            # A weekly union needs ids the hook does not emit, so the week is
+            # the max of the daily counts ("at least n"), like Kiwix articles.
+            daily = item.get("total") if "total" in item else item.get("users")
+            signins[role]["users"] = max(signins[role]["users"], int(daily or 0))
+            beyond = _as_int(item.get("beyondSeed"))
+            if beyond is not None:
+                prev = signins[role]["usersBeyondSeed"]
+                signins[role]["usersBeyondSeed"] = beyond if prev is None else max(prev, beyond)
         g = payload.get("guest") or {}
         guest["visits"] += int(g.get("visits") or 0)
         guest["seconds"] += int(g.get("seconds") or 0)
@@ -517,7 +565,10 @@ def nextcloud_week(rows: list[Any]) -> dict[str, Any]:
     env["app"] = "nextcloud"
     env.pop("flags", None)
     if not ok_payloads:
-        env.update({"setup": None, "logins": None, "office": None, "appsOpened": None, "workflows": None})
+        env.update({
+            "setup": None, "logins": None, "office": None, "appsOpened": None, "workflows": None,
+            "documentsCreated": None, "documentsCreatedByGroup": None,
+        })
         return env
     setup_src = (last_ok or {}).get("setup") or {}
     env["setup"] = {
@@ -534,7 +585,12 @@ def nextcloud_week(rows: list[Any]) -> dict[str, Any]:
         "byGroup": {"admin": 0, "teacher": 0, "learner": 0},
         "mime": {"text": 0, "sheet": 0, "slides": 0},
     }
-    apps: dict[str, int] = {}
+    # appsOpened is null until a hook actually measures it (app-nextcloud
+    # omits it until the IDEA app-open counter ships). ``{}`` means measured,
+    # nothing opened.
+    apps: dict[str, int] | None = None
+    docs_created: int | None = None
+    docs_by_group: dict[str, int] | None = None
     workflows = {key: 0 for key in WORKFLOW_TOTAL_KEYS}
     workflows["byGroup"] = {key: {"admin": 0, "teacher": 0, "learner": 0} for key in WORKFLOW_SPLIT_KEYS}
     est_sum = 0
@@ -563,13 +619,22 @@ def nextcloud_week(rows: list[Any]) -> dict[str, Any]:
             office["mime"][kind] += int(mime.get(kind) or 0)
         opened = payload.get("appsOpened")
         if isinstance(opened, dict):
+            apps = apps if apps is not None else {}
             for app_id, count in opened.items():
                 apps[app_id] = apps.get(app_id, 0) + int(count or 0)
         elif isinstance(opened, list):
+            apps = apps if apps is not None else {}
             for item in opened:
                 app_id = item.get("appId")
                 if app_id:
                     apps[app_id] = apps.get(app_id, 0) + int(item.get("opens") or 0)
+        created, created_by = _documents_created(payload)
+        if created is not None:
+            docs_created = (docs_created or 0) + created
+        if created_by is not None:
+            docs_by_group = docs_by_group or {"admin": 0, "teacher": 0, "learner": 0}
+            for role in docs_by_group:
+                docs_by_group[role] += created_by[role]
         wf = payload.get("workflows") or {}
         for key in WORKFLOW_TOTAL_KEYS:
             workflows[key] += int(wf.get(key) or 0)
@@ -591,7 +656,25 @@ def nextcloud_week(rows: list[Any]) -> dict[str, Any]:
     env["office"] = office
     env["appsOpened"] = apps
     env["workflows"] = workflows
+    env["documentsCreated"] = docs_created
+    env["documentsCreatedByGroup"] = docs_by_group
     return env
+
+
+def _documents_created(payload: dict[str, Any]) -> tuple[int | None, dict[str, int] | None]:
+    """Office documents created that day, from a future app-nextcloud hook.
+
+    Hook contract (draft, app-nextcloud counter issue): ``documents: {created,
+    byGroup: {admin, teacher, learner}}``. Flat ``documentsCreated`` /
+    ``documentsCreatedByGroup`` are accepted too. (None, None) when absent.
+    """
+    docs = payload.get("documents") if isinstance(payload.get("documents"), dict) else {}
+    created = _as_int(docs.get("created")) if "created" in docs else _as_int(payload.get("documentsCreated"))
+    by = docs.get("byGroup") if isinstance(docs.get("byGroup"), dict) else payload.get("documentsCreatedByGroup")
+    by_group = None
+    if isinstance(by, dict):
+        by_group = {role: _by_group({"byGroup": by}, role) for role in ("admin", "teacher", "learner")}
+    return created, by_group
 
 
 def kiwix_week(rows: list[Any]) -> dict[str, Any]:
@@ -666,6 +749,74 @@ def own_instances(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [item for item in items if not item.get("demo")]
 
 
+# idea#462 ruling 2 (Steve, 2026-11-12): census and Set up inputs are the MAX
+# across the school's own copies, not the sum, because two own copies are most
+# often clones of the same school database (summing would double-count the
+# same classes and accounts). Activity (sessions, minutes, shares, opens) is
+# still summed over the same copies: each copy logs its own events.
+CENSUS_ACROSS_COPIES = "max"
+
+
+def _combine(values: list[int | None]) -> int | None:
+    known = [int(v) for v in values if v is not None]
+    if not known:
+        return None
+    return max(known) if CENSUS_ACROSS_COPIES == "max" else sum(known)
+
+
+def own_copies(items: list[dict[str, Any]], measured_key: str = "setup") -> list[dict[str, Any]]:
+    """Own (non-demo) copies with at least one ok day this week.
+
+    The one copy set used for census, activity sums and setupStatus inputs
+    (idea#462 item 5). Order is by instance id so results are deterministic.
+    """
+    return sorted(
+        (item for item in own_instances(items) if item.get(measured_key) is not None),
+        key=lambda item: item.get("instance") or "",
+    )
+
+
+CENSUS_KEYS = tuple(empty_census().keys())
+
+
+def school_census(kolibri: list[dict[str, Any]]) -> dict[str, Any]:
+    """School census (Q3) from the own Kolibri copies, combined per field."""
+    copies = own_copies(kolibri)
+    out = empty_census()
+    if not copies:
+        return out
+    for key in CENSUS_KEYS:
+        out[key] = _combine([(c.get("setup") or {}).get(key) for c in copies])
+    return out
+
+
+def _nextcloud_setup_inputs(inst: dict[str, Any]) -> dict[str, Any] | None:
+    setup = inst.get("setup")
+    if setup is None:
+        return None
+    teacher = read_role_count(setup, "teacher") or {}
+    learner = read_role_count(setup, "learner") or {}
+    return {"teacherBeyondSeed": teacher.get("beyondSeed"), "learnerBeyondSeed": learner.get("beyondSeed")}
+
+
+def setup_status_from_weeks(
+    kolibri: list[dict[str, Any]], nextcloud: list[dict[str, Any]], kiwix: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """``scorecard.setupStatus`` from all instance weeks (own copies judged per copy)."""
+    has_data = any(k.get("setup") is not None for k in kolibri) or any(
+        n.get("setup") is not None for n in nextcloud
+    ) or any(z.get("pageViews") is not None for z in kiwix)
+    k_copies = [
+        (k.get("instance") or "", k.get("setup") if k.get("setup") is not None else None)
+        for k in sorted(own_instances(kolibri), key=lambda x: x.get("instance") or "")
+    ]
+    n_copies = [
+        (n.get("instance") or "", _nextcloud_setup_inputs(n))
+        for n in sorted(own_instances(nextcloud), key=lambda x: x.get("instance") or "")
+    ]
+    return thresholds_mod.setup_status(k_copies, n_copies, has_data)
+
+
 def scorecard_from_weeks(
     kolibri: list[dict[str, Any]],
     nextcloud: list[dict[str, Any]],
@@ -697,14 +848,14 @@ def scorecard_from_weeks(
             card["available"]["bootsPerSchoolDay"] = boots
             card["available"]["longestGapMinutes"] = longest
 
-    own_k = own_instances([k for k in kolibri if k.get("setup") is not None])
+    card["setupStatus"] = setup_status_from_weeks(kolibri, nextcloud, kiwix)
+    own_k = own_copies(kolibri)
+    card["copies"]["kolibri"] = [k.get("instance") for k in own_k]
     if own_k:
-        setup = own_k[0]["setup"]
-        card["setup"]["classes"] = setup.get("classes")
-        card["setup"]["learnersRegistered"] = setup.get("learnersRegistered")
-        card["setup"]["learnersEnrolled"] = setup.get("learnersEnrolled")
-        card["setup"]["teachers"] = setup.get("teachers")
-        card["setup"]["admins"] = setup.get("admins")
+        census = school_census(kolibri)
+        for key in ("classes", "learnersRegistered", "learnersEnrolled", "teachers", "admins"):
+            card["setup"][key] = census[key]
+        card["setup"]["kolibriCoachBeyondSeed"] = census["coachesBeyondSeed"]
         teaching = {
             "lessonsCreated": 0, "lessonsVisible": 0,
             "quizzesCreated": 0, "quizzesStarted": 0,
@@ -757,9 +908,15 @@ def scorecard_from_weeks(
             "learnerShareOfMinutes": (minutes["learner"] / total_min) if total_min else None,
         })
 
-    own_n = own_instances([n for n in nextcloud if n.get("setup") is not None])
+    own_n = own_copies(nextcloud)
+    card["copies"]["nextcloud"] = [n.get("instance") for n in own_n]
     if own_n:
-        teacher_beyond = learner_beyond = None
+        teacher_values: list[int | None] = []
+        learner_values: list[int | None] = []
+        docs_created: int | None = None
+        docs_tl = docs_admin = 0
+        has_docs_split = False
+        apps: dict[str, int] | None = None
         worksheet = edit_shares = file_drop_links = file_drop_uploads = school_files = 0
         split_tl = {key: 0 for key in WORKFLOW_SPLIT_KEYS}
         split_admin = {key: 0 for key in WORKFLOW_SPLIT_KEYS}
@@ -770,13 +927,20 @@ def scorecard_from_weeks(
         office_est = 0
         has_est = False
         for inst in own_n:
-            setup = inst.get("setup") or {}
-            teacher_rc = read_role_count(setup, "teacher")
-            learner_rc = read_role_count(setup, "learner")
-            if teacher_beyond is None and teacher_rc and teacher_rc.get("beyondSeed") is not None:
-                teacher_beyond = int(teacher_rc["beyondSeed"])
-            if learner_beyond is None and learner_rc and learner_rc.get("beyondSeed") is not None:
-                learner_beyond = int(learner_rc["beyondSeed"])
+            inputs = _nextcloud_setup_inputs(inst) or {}
+            teacher_values.append(inputs.get("teacherBeyondSeed"))
+            learner_values.append(inputs.get("learnerBeyondSeed"))
+            if inst.get("documentsCreated") is not None:
+                docs_created = (docs_created or 0) + int(inst["documentsCreated"])
+                by = inst.get("documentsCreatedByGroup")
+                if isinstance(by, dict) and (sum(int(v or 0) for v in by.values()) > 0 or not inst["documentsCreated"]):
+                    has_docs_split = True
+                    docs_tl += int(by.get("teacher") or 0) + int(by.get("learner") or 0)
+                    docs_admin += int(by.get("admin") or 0)
+            if isinstance(inst.get("appsOpened"), dict):
+                apps = apps if apps is not None else {}
+                for app_id, count in inst["appsOpened"].items():
+                    apps[app_id] = apps.get(app_id, 0) + int(count or 0)
             wf = inst.get("workflows") or {}
             worksheet += int(wf.get("worksheetShares") or 0)
             edit_shares += int(wf.get("editShares") or 0)
@@ -804,8 +968,8 @@ def scorecard_from_weeks(
             if isinstance(off.get("estimatedMinutes"), (int, float)):
                 has_est = True
                 office_est += int(off["estimatedMinutes"])
-        card["setup"]["nextcloudTeacherBeyondSeed"] = teacher_beyond
-        card["setup"]["nextcloudLearnerBeyondSeed"] = learner_beyond
+        card["setup"]["nextcloudTeacherBeyondSeed"] = _combine(teacher_values)
+        card["setup"]["nextcloudLearnerBeyondSeed"] = _combine(learner_values)
         def _split_fields(key: str) -> tuple[int | None, int | None]:
             if has_workflow_split[key]:
                 return split_tl[key], split_admin[key]
@@ -836,9 +1000,15 @@ def scorecard_from_weeks(
             "officeRead": office_read,
             "officeEdit": office_edit,
             "officeEstimatedMinutes": office_est if has_est else None,
+            # Display only (ruling 3): not part of U-7 line 5.
+            "documentsCreated": docs_created,
+            "documentsCreatedTeacherLearner": docs_tl if has_docs_split else None,
+            "documentsCreatedAdmin": docs_admin if has_docs_split else None,
+            "appsOpened": apps,
         })
 
-    own_z = own_instances([z for z in kiwix if z.get("pageViews") is not None])
+    own_z = own_copies(kiwix, "pageViews")
+    card["copies"]["kiwix"] = [z.get("instance") for z in own_z]
     if own_z:
         card["wikipedia"].update({
             "pageViewsOwn": sum(int(z.get("pageViews") or 0) for z in own_z),

@@ -239,7 +239,8 @@ def _week_bundle(conn, kit, week_start: str, now: datetime | None = None) -> dic
         "timezone": tz,
         "headlines": agg.headlines_from(scorecard),
         "note": agg.school_note(kit["note"] or "", instances, has_usage),
-        "census": (agg.own_instances(kolibri)[0]["setup"] if agg.own_instances(kolibri) and agg.own_instances(kolibri)[0].get("setup") else agg.empty_census()),
+        # Same own-copy set and combine rule as scorecard.setup (idea#462 item 5).
+        "census": agg.school_census(kolibri),
         "presence_summary": agg.presence_summary(presence_days, week_start),
         "week_start_dt": start,
         "week_end_dt": end,
