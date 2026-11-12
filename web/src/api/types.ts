@@ -266,22 +266,23 @@ export interface ScorecardSetupInputs {
   learnersEnrolled: number | null;
   teachers: number | null;
   admins: number | null;
-  /** From own-Nextcloud `setup.teacher.beyondSeed` (hook-emitted, last ok day). */
+  /** From own-Nextcloud `setup.teacher.beyondSeed` (hook-emitted, the max across the school's own copies). */
   nextcloudTeacherBeyondSeed: number | null;
-  /** From own-Nextcloud `setup.learner.beyondSeed` (hook-emitted, last ok day). */
+  /** From own-Nextcloud `setup.learner.beyondSeed` (hook-emitted, the max across the school's own copies). */
   nextcloudLearnerBeyondSeed: number | null;
 }
 
 /**
- * One U-7 Set up requirement (idea#462, Kid's collector proposal). The first
- * three are checked on the school's own Kolibri, the last two on its own Nextcloud.
+ * One U-7 Set up requirement (idea#462). The first three are checked on the
+ * school's own Kolibri, the last two on its own Nextcloud. `noOwnKolibri` /
+ * `noOwnNextcloud` mean the school has no own copy of that app (ruling 1).
  */
-export type SetupPart = 'coach' | 'class' | 'enrolledLearner' | 'teacherBeyondSeed' | 'learnerBeyondSeed';
+export type SetupPart = 'coach' | 'class' | 'enrolledLearner' | 'teacherBeyondSeed' | 'learnerBeyondSeed' | 'noOwnKolibri' | 'noOwnNextcloud';
 
 export interface AppSetupStatus {
-  /** null = no own copy with an ok day, or an input is null. */
+  /** null = an input is unknown (no data); never means "no own copy". */
   complete: boolean | null;
-  /** Parts that are known and fail; [] when complete or unknown. */
+  /** Parts that are known and fail; [] when complete or unknown. A missing own app is `['noOwnKolibri']` or `['noOwnNextcloud']`. */
   missing: SetupPart[];
   /** Parts whose input is null (e.g. an old hook). */
   unknown: SetupPart[];
@@ -295,9 +296,9 @@ export interface AppSetupStatus {
  */
 export interface SetupStatus {
   complete: boolean | null;
-  /** null = no own Kolibri copy this week. */
+  /** null = no data for this app (not "no own copy"). A missing own copy is `{ complete: false, missing: ['noOwnKolibri'] }`. */
   kolibri: AppSetupStatus | null;
-  /** null = no own Nextcloud copy this week. */
+  /** null = no data for this app (not "no own copy"). A missing own copy is `{ complete: false, missing: ['noOwnNextcloud'] }`. */
   nextcloud: AppSetupStatus | null;
   rule: string;
 }
@@ -363,7 +364,8 @@ export interface ScorecardNextcloudInputs {
    * Office opens by a teacher or learner (`office.byGroup.teacher` +
    * `office.byGroup.learner`), summed across the school's own Nextclouds
    * (Kid 34bb193). Null when no instance this week had a byGroup split
-   * (old day files). A null split counts as 0 toward nextcloudMinActions.
+   * (old day files). Displayed, but does not count toward nextcloudMinActions
+   * until idea#464.
    */
   officeOpensTeacherLearner: number | null;
   /**

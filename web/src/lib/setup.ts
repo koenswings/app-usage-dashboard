@@ -7,6 +7,8 @@ const SHORT: Record<SetupPart, string> = {
   enrolledLearner: 'enrolment',
   teacherBeyondSeed: 'Nextcloud teachers',
   learnerBeyondSeed: 'Nextcloud learners',
+  noOwnKolibri: 'no own Kolibri',
+  noOwnNextcloud: 'no own Nextcloud',
 };
 
 /** Plain words for the school page; the app ("in the own Kolibri") is added by the sentence. */
@@ -16,6 +18,8 @@ const LONG: Record<SetupPart, string> = {
   enrolledLearner: 'learners enrolled in a class',
   teacherBeyondSeed: 'teacher accounts beyond the seeds',
   learnerBeyondSeed: 'learner accounts beyond the seeds',
+  noOwnKolibri: 'The school has no own Kolibri copy',
+  noOwnNextcloud: 'The school has no own Nextcloud copy',
 };
 
 const PART_APP: Record<SetupPart, 'Kolibri' | 'Nextcloud'> = {
@@ -24,26 +28,44 @@ const PART_APP: Record<SetupPart, 'Kolibri' | 'Nextcloud'> = {
   enrolledLearner: 'Kolibri',
   teacherBeyondSeed: 'Nextcloud',
   learnerBeyondSeed: 'Nextcloud',
+  noOwnKolibri: 'Kolibri',
+  noOwnNextcloud: 'Nextcloud',
 };
+
+const NO_OWN_PARTS: readonly SetupPart[] = ['noOwnKolibri', 'noOwnNextcloud'];
+
+function isNoOwnPart(part: SetupPart): boolean {
+  return (NO_OWN_PARTS as readonly string[]).includes(part);
+}
 
 function listWords(words: string[]): string {
   if (words.length <= 1) return words.join('');
   return `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}`;
 }
 
+function appOf(part: SetupPart): 'Kolibri' | 'Nextcloud' | null {
+  return PART_APP[part] ?? null;
+}
+
 function partsPhrase(parts: SetupPart[]): string {
-  const apps = [...new Set(parts.map((part) => PART_APP[part]))];
-  return apps
-    .map((app) => `${listWords(parts.filter((part) => PART_APP[part] === app).map(setupPartLong))} in the own ${app}`)
-    .join('; ');
+  // noOwn… (and any unknown code) must not become "… in the own undefined"
+  // or leak a raw code. noOwn… strings are already complete sentences.
+  const standalone = parts.filter((part) => isNoOwnPart(part) || appOf(part) === null);
+  const rest = parts.filter((part) => !standalone.includes(part));
+  const phrases: string[] = standalone.map(setupPartLong);
+  const apps = [...new Set(rest.map(appOf).filter((app): app is 'Kolibri' | 'Nextcloud' => app != null))];
+  for (const app of apps) {
+    phrases.push(`${listWords(rest.filter((part) => appOf(part) === app).map(setupPartLong))} in the own ${app}`);
+  }
+  return phrases.join('; ');
 }
 
 export function setupPartShort(part: SetupPart): string {
-  return SHORT[part] ?? part;
+  return SHORT[part] ?? 'a requirement';
 }
 
 export function setupPartLong(part: SetupPart): string {
-  return LONG[part] ?? part;
+  return LONG[part] ?? 'a requirement';
 }
 
 function uniqueParts(status: SetupStatus, key: 'missing' | 'unknown'): SetupPart[] {
@@ -78,10 +100,10 @@ export function setupDetail(status: SetupStatus | null | undefined): string {
   return parts.join(' · ');
 }
 
-export type AppSetupWord = 'Set up' | 'Not set up' | 'No data' | 'No own copy';
+export type AppSetupWord = 'Set up' | 'Not set up' | 'No data';
 
 export function appSetupWord(app: AppSetupStatus | null | undefined): AppSetupWord {
-  if (app === null || app === undefined) return 'No own copy';
+  if (app === null || app === undefined) return 'No data';
   if (app.complete === true) return 'Set up';
   if (app.complete === false) return 'Not set up';
   return 'No data';
@@ -89,10 +111,13 @@ export function appSetupWord(app: AppSetupStatus | null | undefined): AppSetupWo
 
 /** Plain-words explanation for one app on the school page. */
 export function appSetupSentence(app: AppSetupStatus | null | undefined): string {
-  if (app === null || app === undefined) return 'The school has no own copy this week, so it does not count.';
+  if (app === null || app === undefined) return 'No data this week.';
   const sentences: string[] = [];
   if (app.complete === true) sentences.push('Every requirement is met.');
-  if (app.missing.length > 0) sentences.push(`Missing ${partsPhrase(app.missing)}.`);
+  const noOwn = app.missing.filter(isNoOwnPart);
+  const otherMissing = app.missing.filter((part) => !isNoOwnPart(part));
+  if (noOwn.length > 0) sentences.push(`${noOwn.map(setupPartLong).join('. ')}.`);
+  if (otherMissing.length > 0) sentences.push(`Missing ${partsPhrase(otherMissing)}.`);
   if (app.unknown.length > 0) sentences.push(`Not known yet: ${partsPhrase(app.unknown)}.`);
   if (sentences.length === 0) sentences.push('No data this week.');
   return sentences.join(' ');
