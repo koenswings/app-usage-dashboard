@@ -219,7 +219,7 @@ class VerifyTarTests(unittest.TestCase):
         t = self.raw_tar(files)
         ref = "%s@%s" % (self.name, REAL_PIN)
         self.assertState(t, ref, v.MATCH, layout="index", code=0)
-        self.assertIn(ref, (REPO / "compose.yaml").read_text(encoding="utf-8"))
+        # Historical 1.0 pin fixture; 1.2 compose uses a different digest.
 
     # --- (a) extra: bare image-index index.json hashing to the pin: ImageRef.ts:242-245 ---
 
