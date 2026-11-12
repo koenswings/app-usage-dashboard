@@ -125,7 +125,7 @@ runs:  git -C $ENGINE_DIR rev-parse HEAD; $SUDO -n $HELPER version
        $DOCKER exec <tailscale> tailscale --socket=$TS_SOCK status --json  (BackendState + PublicKey prefix only)
        $DOCKER port <web> 8080/tcp; $CURL -fsS http://127.0.0.1:<port>/api/v1/health
        $DOCKER image inspect <repo@digest> per 1.1 image; $VST <compose> $SERVICES_DIR
-       sha256sum; df; find (names only)
+       sha256sum; df; find (names only); $SUDO -n find $SNAP_DIR (names only, when pi cannot list it)
 PLAN
   if [ "$MODE" = pre ]; then
     echo "checks: P01 engine P02 helper P03 instanceOf P04 containers P05 tailscale P06 state-inode P07 secrets-presence P08 usageMonitoring P09 health P10 live-tars P11 bundle-tars P12 images-available P13 stick-bundle P14 stick-compose P15 free-space P16 backup-age P17 apps-listing P99 no-secrets-in-evidence"
@@ -416,15 +416,36 @@ else
     if [ -z "$bad" ]; then res PASS Q10 apps-files "/apps/$APP_ID matches stick SHA256SUMS"
     else res FAIL Q10 apps-files "differ from stick SHA256SUMS: $bad"; fi
   else res FAIL Q10 apps-files "missing $STICK_BUNDLE/SHA256SUMS or $APPS_DIR/$APP_ID"; fi
-  # Q11 snapshot: names only, never contents
-  if [ ! -d "$SNAP_DIR" ]; then res FAIL Q11 snapshot-no-secrets "no $SNAP_DIR"
-  elif ! find "$SNAP_DIR" -maxdepth 4 -print >/dev/null 2>&1; then res FAIL Q11 snapshot-no-secrets "cannot list $SNAP_DIR (permission); check with Atlas"
+  # Q11 snapshot: names only, never contents. /.pre-update is root 0700 and this script
+  # runs as pi, so the listing falls back to `sudo -n find` (names only, no -exec). When
+  # neither works it is a WARN "cannot list", never a FAIL: unknown is not a secret leak.
+  q11_find() { if [ "$Q11_VIA" = sudo ]; then "$SUDO" -n find "$@"; else find "$@"; fi; }
+  Q11_VIA="" q11_missing=0 q11_why=""
+  if [ -d "$SNAP_DIR" ] && find "$SNAP_DIR" -maxdepth 4 -print >/dev/null 2>&1; then Q11_VIA=direct
+  elif [ -x "$(dirname -- "$SNAP_DIR")" ] && [ ! -e "$SNAP_DIR" ]; then q11_missing=1
   else
-    find "$SNAP_DIR" -maxdepth 3 -printf '%y %P\n' 2>/dev/null | sort > "$OUT/pre-update-listing.txt"
-    hits=$(find "$SNAP_DIR" -maxdepth 5 \( -path '*/data/tailscale' -o -path '*/data/keys' -o -path '*/data/tailscale-run' -o -name tailscaled.state -o -name pull_key \) -printf '%P ' 2>/dev/null)
-    complete=no; [ -e "$SNAP_DIR/COMPLETE" ] && complete=yes
-    if [ -z "$hits" ]; then res PASS Q11 snapshot-no-secrets "no data/tailscale, data/keys, data/tailscale-run (COMPLETE=$complete)"
-    else res FAIL Q11 snapshot-no-secrets "snapshot holds: $hits"; fi
+    probe=$("$SUDO" -n find "$SNAP_DIR" -maxdepth 0 -printf '%y' 2>&1); prc=$?
+    if [ "$prc" = 0 ] && [ "$probe" = d ]; then
+      if "$SUDO" -n find "$SNAP_DIR" -maxdepth 4 -print >/dev/null 2>&1; then Q11_VIA=sudo
+      else q11_why="sudo -n find failed below $SNAP_DIR"; fi
+    elif [[ "$probe" == *"No such file or directory"* ]]; then q11_missing=1
+    elif [ "$prc" = 0 ]; then q11_why="$SNAP_DIR is not a directory ($probe)"
+    else q11_why="not listable as $(id -un) and sudo -n find unavailable"; fi
+  fi
+  if [ "$q11_missing" = 1 ]; then res FAIL Q11 snapshot-no-secrets "no $SNAP_DIR"
+  elif [ -z "$Q11_VIA" ]; then res WARN Q11 snapshot-no-secrets "cannot list $SNAP_DIR: ${q11_why}; not checked"
+  else
+    q11_find "$SNAP_DIR" -maxdepth 3 -printf '%y %P\n' 2>/dev/null | sort > "$OUT/pre-update-listing.txt"
+    hits=$(q11_find "$SNAP_DIR" -maxdepth 5 \( -path '*/data/tailscale' -o -path '*/data/keys' -o -path '*/data/tailscale-run' -o -name tailscaled.state -o -name pull_key \) -printf '%P ' 2>/dev/null)
+    complete=no; grep -qxF 'f COMPLETE' "$OUT/pre-update-listing.txt" && grep -qxF 'd data' "$OUT/pre-update-listing.txt" && complete=yes
+    rec snapshot_listed_via "$Q11_VIA"
+    if [ -n "$hits" ]; then res FAIL Q11 snapshot-no-secrets "snapshot holds: $hits"
+    elif [ "$complete" != yes ]; then res FAIL Q11 snapshot-no-secrets "incomplete snapshot: no COMPLETE marker or data/ in $SNAP_DIR"
+    else res PASS Q11 snapshot-no-secrets "no data/tailscale, data/keys, data/tailscale-run (COMPLETE=yes, listed via $Q11_VIA)"; fi
+    # INFO, never WARN/FAIL: data/.env is kept on purpose (rollback needs it); the snapshot is root 0700 on the same Pi.
+    if grep -qxF 'f data/.env' "$OUT/pre-update-listing.txt"; then
+      res INFO Q11 snapshot-env "snapshot holds data/.env, root-only"
+    fi
   fi
   if [ -x "$INST_DIR/data/tailscale" ]; then
     if [ -e "$INST_DIR/data/tailscale/authkey-join-blocked" ]; then res FAIL Q12 no-join-marker "authkey-join-blocked present"
