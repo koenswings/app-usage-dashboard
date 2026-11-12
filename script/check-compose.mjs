@@ -8,7 +8,8 @@
 // digest-pinned ghcr image
 //   ghcr.io/koenswings/usage-dashboard-web:<version>@sha256:<64 hex>
 //   (a :<version>-<shortsha>@sha256:<64 hex> pin is also accepted)
-// with no build: block. Fails if a packaging placeholder
+// with no build: block, and (idea#446) an x-app.backup.verify block when
+// the backup method is hook. Fails if a packaging placeholder
 // (DIGEST_PLACEHOLDER, SHORTSHA, <DIGEST>) is still present.
 //
 // Engine idea#322 saveName() rejects a digest-only pin (no tag), so the
@@ -247,6 +248,114 @@ const checkBackupHook = (text, errs) => {
 };
 
 
+// idea#446 verify lists. Port of agent-engine-dev src/utils/backupExclude.ts
+// normalizeBackupExclude: a bare name (no slash, not "data", no leading dot)
+// means data/<name>; a path with a slash or a leading dot is instance-relative.
+const normalizeBackupPath = (raw) => {
+  let p = String(raw).trim();
+  if (!p || p.includes('\0') || p.startsWith('-') || p.startsWith('/')) return null;
+  while (p.startsWith('./')) p = p.slice(2);
+  p = p.replace(/\/+$/, '');
+  if (!p || p.includes('//')) return null;
+  if (p.split('/').some((c) => c === '' || c === '.' || c === '..')) return null;
+  if (/[*?[\]]/.test(p) || !/^[A-Za-z0-9._][A-Za-z0-9._/-]*$/.test(p)) return null;
+  if (!p.includes('/') && p !== 'data' && !p.startsWith('.')) p = `data/${p}`;
+  return p;
+};
+
+// a covers b: a equals b or is a parent directory of b.
+const covers = (a, b) => a === b || b.startsWith(a + '/');
+
+// Nested list under "    verify:" ("      present:" / "      absent:").
+const verifyList = (block, key) => {
+  const vm = /^    verify:\s*$/m.exec(block);
+  if (!vm) return null;
+  const lines = block.slice(vm.index + vm[0].length).split('\n');
+  let inKey = false;
+  let found = false;
+  const items = [];
+  for (const line of lines) {
+    if (/^    [A-Za-z]/.test(line) || /^\S/.test(line)) break;
+    if (/^\s*#/.test(line) || line.trim() === '') continue;
+    const km = line.match(/^      ([A-Za-z]+):\s*$/);
+    if (km) {
+      inKey = km[1] === key;
+      if (inKey) found = true;
+      continue;
+    }
+    const item = inKey && line.match(/^\s+- ([^\s#]+)/);
+    if (item) items.push(stripQuotes(item[1]));
+  }
+  return found ? items : null;
+};
+
+// Paths a hook archive packs that a fallback-stop archive may lack, and the
+// reverse. A verify entry must hold for both, so neither side may name them.
+const LIVE_DB = ['data/usage.sqlite', 'data/usage.sqlite-wal', 'data/usage.sqlite-shm'];
+const HOOK_DUMP = 'data/backup/usage.sqlite';
+
+const checkBackupVerify = (text, errs, { release } = {}) => {
+  const block = xAppBackupBlock(text);
+  if (!block) return;
+  const hasVerify = /^    verify:\s*$/m.test(block);
+  if (!hasVerify) {
+    if (release && backupField(block, 'method') === 'hook') {
+      errs.push('release: x-app.backup.verify (present/absent, idea#446) is required when method is hook');
+    }
+    return;
+  }
+  const present = verifyList(block, 'present');
+  const absent = verifyList(block, 'absent');
+  if (!present || !present.length) errs.push('x-app.backup.verify.present must be a non-empty list');
+  if (!absent || !absent.length) errs.push('x-app.backup.verify.absent must be a non-empty list');
+  const norm = (raw, field) => {
+    const n = normalizeBackupPath(raw);
+    if (n === null) errs.push(`x-app.backup.verify.${field} entry '${raw}' is not an allowed path`);
+    return n;
+  };
+  const exclude = (backupList(block, 'exclude') || []).map((r) => normalizeBackupPath(r)).filter(Boolean);
+  const hookExclude = (backupList(block, 'hookExclude') || []).map((r) => normalizeBackupPath(r)).filter(Boolean);
+  const presentN = [];
+  for (const raw of present || []) {
+    const p = norm(raw, 'present');
+    if (p === null) continue;
+    // A bare name means data/<name>; "compose.yaml" would check data/compose.yaml.
+    if (!String(raw).includes('/') && !String(raw).startsWith('.')) {
+      errs.push(`x-app.backup.verify.present entry '${raw}' is a bare name (means ${p}); write the instance-relative path with a '/' or a leading '.'`);
+    }
+    for (const ex of exclude) {
+      if (covers(ex, p)) errs.push(`x-app.backup.verify.present entry '${raw}' is under exclude '${ex}', so it is never in an archive`);
+    }
+    for (const hx of hookExclude.concat(LIVE_DB)) {
+      if (covers(p, hx) || covers(hx, p)) {
+        errs.push(`x-app.backup.verify.present entry '${raw}' names the live db '${hx}', which a hook archive leaves out (hookExclude)`);
+        break;
+      }
+    }
+    if (covers(p, HOOK_DUMP) || covers(HOOK_DUMP, p)) {
+      errs.push(`x-app.backup.verify.present entry '${raw}' names the hook dump ${HOOK_DUMP}, which a HOOK_FALLBACK stop archive does not have`);
+    }
+    presentN.push(p);
+  }
+  for (const raw of absent || []) {
+    const a = norm(raw, 'absent');
+    if (a === null) continue;
+    for (const hx of hookExclude.concat(LIVE_DB)) {
+      if (covers(a, hx)) {
+        errs.push(`x-app.backup.verify.absent entry '${raw}' covers the live db '${hx}', which a HOOK_FALLBACK stop archive packs`);
+        break;
+      }
+    }
+    if (covers(a, HOOK_DUMP)) {
+      errs.push(`x-app.backup.verify.absent entry '${raw}' covers the hook dump ${HOOK_DUMP}, which a hook archive packs`);
+    }
+    for (const p of presentN) {
+      if (covers(a, p)) errs.push(`x-app.backup.verify.absent entry '${raw}' covers present entry '${p}'`);
+    }
+  }
+};
+
+
 export function checkCompose(text, { tag, release } = {}) {
   const errs = [];
   if (PLACEHOLDER_RE.test(text)) {
@@ -285,6 +394,7 @@ export function checkCompose(text, { tag, release } = {}) {
   checkTailscalePersist(text, errs);
   checkCollectorDoesNotMountState(text, errs);
   checkBackupHook(text, errs);
+  checkBackupVerify(text, errs, { release });
 
   if (release) {
     const image = webImage(text);

@@ -8,6 +8,8 @@ REPO = Path(__file__).resolve().parents[1]
 CHECK = REPO / "script" / "check-compose.mjs"
 COMPOSE = REPO / "compose.yaml"
 EXAMPLE = REPO / "compose.web-ghcr.example.yaml"
+# pin-web-digest.sh pins :<x-app.version>; the repo compose is the fixture.
+VERSION = re.search(r'(?m)^  version: "([^"]+)"$', COMPOSE.read_text(encoding="utf-8")).group(1)
 NGINX = REPO / "web" / "nginx.conf"
 
 
@@ -115,7 +117,7 @@ services:
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         rewritten = dest.read_text(encoding="utf-8")
         self.assertIn(
-            "image: ghcr.io/koenswings/usage-dashboard-web:1.0@sha256:" + digest,
+            "image: ghcr.io/koenswings/usage-dashboard-web:%s@sha256:" % VERSION + digest,
             rewritten,
         )
         collected = []
@@ -136,7 +138,7 @@ services:
         self.assertTrue(web_block.startswith("  web:"), rewritten)
         self.assertNotIn("build:", web_block)
         self.assertNotIn("pull_policy: never", web_block)
-        result = self._check("--release", "--tag", "1.0", str(dest))
+        result = self._check("--release", "--tag", VERSION, str(dest))
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         dest.unlink()
         tmpdir.rmdir()
@@ -334,10 +336,10 @@ services:
             out = result.stdout
             self.assertIn("Pin-change runbook (idea#445", out)
             steps = [
-                "mv <services>/ghcr.io_koenswings_usage-dashboard-web:1.0.tar /home/pi/kid-quarantine/",
-                "script/publish-web-image.sh --export-tar <services> --pin ghcr.io/koenswings/usage-dashboard-web:1.0@sha256:" + digest,
+                "mv <services>/ghcr.io_koenswings_usage-dashboard-web:%s.tar /home/pi/kid-quarantine/" % VERSION,
+                "script/publish-web-image.sh --export-tar <services> --pin ghcr.io/koenswings/usage-dashboard-web:%s@sha256:" % VERSION + digest,
                 "script/verify-service-tar.sh compose.yaml <services>",
-                "docker tag ghcr.io/koenswings/usage-dashboard-web@sha256:%s ghcr.io/koenswings/usage-dashboard-web:1.0" % digest,
+                "docker tag ghcr.io/koenswings/usage-dashboard-web@sha256:%s ghcr.io/koenswings/usage-dashboard-web:%s" % (digest, VERSION),
                 "Engine-driven start",
             ]
             positions = [out.index(step) for step in steps]
@@ -361,7 +363,7 @@ services:
                 # No tar there yet: the verify step must fail and say why.
                 self.assertEqual(result.returncode, 4, result.stderr + result.stdout)
                 self.assertIn("MISSING web", result.stdout)
-                self.assertIn("ghcr.io_koenswings_usage-dashboard-web:1.0.tar", result.stdout)
+                self.assertIn("ghcr.io_koenswings_usage-dashboard-web:%s.tar" % VERSION, result.stdout)
             finally:
                 dest.unlink()
                 tmpdir.rmdir()
