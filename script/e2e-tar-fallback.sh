@@ -1109,8 +1109,8 @@ script/publish-web-image.sh --export-tar services --pin $WEB_REF
 #     docker image tag $WEB_REF $WEB_IMAGE
 #     docker save $WEB_IMAGE > services/$(basename "$(tar_rel_of "$WEB_REF")").partial
 #     script/verify-service-tar.sh --tar <.partial> --image $WEB_REF ; mv .partial -> .tar
-# plus official compose service tars:
-#   services/python:3.12-slim-bookworm.tar
+# plus the other digest-pinned compose service tars, e.g.:
+#   services/ghcr.io_koenswings_usage-dashboard-collector:<ver>.tar
 #   services/tailscale_tailscale:v1.88.3.tar
 # nginx:1.28-alpine is the web image *build* base, not a compose service;
 # Engine does not load a nginx tar once the web service tar exists.

@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # write-build-info.sh — write collector/build-info.json for GET /api/v1/health.
 #
-# The collector runs the stock python:3.12-slim-bookworm image with ./collector
-# bind-mounted at /app, so a COMMIT baked into the web image never reaches
-# /health. This file is the bundle-time equivalent: Engine copies the App
-# tree into the instance, compose mounts ./collector at /app, and
-# collector/src/buildinfo.py reads /app/build-info.json.
+# The collector image bakes packages only (idea#461); compose still
+# bind-mounts ./collector at /app, so a COMMIT baked into the web or
+# collector image never reaches /health. This file is the bundle-time
+# equivalent: Engine copies the App tree into the instance, compose mounts
+# ./collector at /app, and collector/src/buildinfo.py reads
+# /app/build-info.json.
 #
 # Usage:
 #   script/write-build-info.sh [--dest <dir>] [--commit <sha>] [--version <ver>]

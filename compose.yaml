@@ -11,7 +11,7 @@ x-app:
   category: admin
   icon: icon.png
   author: Koen Swings
-  version: "1.3"
+  version: "1.4"
   instanceName: usage-dashboard
   healthCheck:
     path: /api/v1/health
@@ -19,11 +19,12 @@ x-app:
   healthTimeout: 180
   updatesFrom: []
   migrationNote: >
-    1.2→1.3: no data migration. Set up judges only the school's own
-    copies with an ok day (idea#462), and the fleet Set up detail fits on
-    one line.
-    Data under ./data stays in place; the idea-hub Tailscale state in
-    ./data/tailscale is never copied or recreated.
+    1.3→1.4: no data migration. The collector image bakes in
+    openssh-client, netcat-openbsd and tzdata (idea#461), so a fresh
+    start does not need apt or outbound DNS. Data under ./data stays
+    in place; the idea-hub Tailscale state in ./data/tailscale is never
+    copied or recreated. updateApp recreates the collector container
+    and loads the new service tar.
   snapshotExclude: []
   # idea#444 hook fields, as parsed by agent-engine-dev#325 (tip 0ba3737)
   # and idea#444 comment 6806470338: method hook|stop, fallback stop|fail
@@ -95,7 +96,7 @@ services:
     # attempt if Docker restarts the container after a failed join.
     image: tailscale/tailscale:v1.88.3@sha256:b2a19f6b6402adc26a2aa8cb90da66afe3061e718ac67ed3f21ec3d4b366439f
     labels:
-      x-app-version: "1.3"
+      x-app-version: "1.4"
     hostname: idea-hub
     restart: unless-stopped
     pull_policy: never
@@ -133,10 +134,15 @@ services:
       start_period: 90s
 
   collector:
-    # Official multi-arch index digest (idea#322). linux/arm64 verified 2026-11-11.
-    image: python:3.12-slim-bookworm@sha256:935c3c5b12357a7e10caa9c1e6ca5692344d97cf229832ef584be2cec9fc03df
+    # Custom image FROM the pinned python:3.12-slim-bookworm digest
+    # (idea#322, linux/arm64 verified 2026-11-11) plus openssh-client,
+    # netcat-openbsd and tzdata (idea#461). Built on idea03 2026-11-12
+    # (throwaway buildx, linux/arm64, single-platform --load). ./collector
+    # stays bind-mounted at /app. pull_policy: never so a start cannot
+    # try to pull an unpublished name.
+    image: ghcr.io/koenswings/usage-dashboard-collector:1.4@sha256:dd2ff032e15ba54da53f16ee54c43cad11a61b55ef8580e117142fe01fbee241
     labels:
-      x-app-version: "1.3"
+      x-app-version: "1.4"
     restart: unless-stopped
     pull_policy: never
     network_mode: service:tailscale
@@ -161,7 +167,7 @@ services:
       - HEADER_TIMEZONE=Europe/Brussels
       - STALE_AFTER_HOURS=48
       - HOURLY_CHART_MIN_WEEKLY_VIEWS=20
-      - USAGE_DASHBOARD_VERSION=1.3
+      - USAGE_DASHBOARD_VERSION=1.4
       # Optional override for GET /api/v1/health "commit". Empty is ignored
       # (falls through to collector/build-info.json written at bundle time).
       # There is no need to set this in the instance .env.
@@ -170,10 +176,11 @@ services:
       - IDEA_USAGE_MARCO_PASSWORD=${IDEA_USAGE_MARCO_PASSWORD:-marco911!}
       - IDEA_USAGE_SESSION_SECRET=${IDEA_USAGE_SESSION_SECRET:-}
     # The collector keeps the image's root user: live ./data (sqlite, keys,
-    # operators) is root-owned, and entrypoint.sh may apt-get on first start.
-    # A non-root user would need a chown of that volume, which this change
-    # does not do. The socket dir is 0755 / 0660 so a later non-root user
-    # can be added without moving the node key.
+    # operators) is root-owned. entrypoint.sh never installs packages; they
+    # are baked into the image, and a missing ssh, nc or Brussels tzdata
+    # file fails clearly. A non-root user would need a chown of that
+    # volume, which this change does not do. The socket dir is 0755 / 0660
+    # so a later non-root user can be added without moving the node key.
     volumes:
       - ./data:/data
       - ./data/tailscale-run:/var/run/tailscale
@@ -188,7 +195,7 @@ services:
   web:
     image: ghcr.io/koenswings/usage-dashboard-web:1.3@sha256:6ec777fb89b84cae93cc592b5cb96b9dea070c71cb25e892a8294af3f10f5dfc
     labels:
-      x-app-version: "1.3"
+      x-app-version: "1.4"
     restart: unless-stopped
     depends_on:
       - collector

@@ -45,11 +45,11 @@ class PackagingTests(unittest.TestCase):
   version: "1.0"
 services:
   tailscale:
-    image: tailscale/tailscale:v1.88.3
+    image: tailscale/tailscale:v1.88.3@sha256:%s
     labels:
       x-app-version: "1.0"
   collector:
-    image: python:3.12-slim-bookworm
+    image: ghcr.io/koenswings/usage-dashboard-collector:1.0@sha256:%s
     labels:
       x-app-version: "1.0"
   web:
@@ -57,7 +57,7 @@ services:
     labels:
       x-app-version: "1.0"
     restart: unless-stopped
-""" % digest
+""" % (digest, digest, digest)
         with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as fh:
             fh.write(body)
             path = fh.name
@@ -74,11 +74,11 @@ services:
   version: "1.0"
 services:
   tailscale:
-    image: tailscale/tailscale:v1.88.3
+    image: tailscale/tailscale:v1.88.3@sha256:%s
     labels:
       x-app-version: "1.0"
   collector:
-    image: python:3.12-slim-bookworm
+    image: ghcr.io/koenswings/usage-dashboard-collector:1.0-0d929618656e@sha256:%s
     labels:
       x-app-version: "1.0"
   web:
@@ -86,7 +86,7 @@ services:
     labels:
       x-app-version: "1.0"
     restart: unless-stopped
-""" % digest
+""" % (digest, digest, digest)
         with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as fh:
             fh.write(body)
             path = fh.name

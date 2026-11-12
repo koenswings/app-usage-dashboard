@@ -40,12 +40,22 @@ echo "ok: $R/$B ($(wc -l < "$R/$B/SHA256SUMS") files in SHA256SUMS)"
 DOCKER_STUB = '#!/usr/bin/env bash\n[ "$1" = save ] && { echo "placeholder $2"; exit 0; }\nexit 9\n'
 
 
+def _bab_has_zx(path):
+    """agent-app-dev script/check-compose.mjs imports zx; skip a checkout without it."""
+    return (Path(path).resolve().parent.parent / "node_modules" / "zx").is_dir()
+
+
 def find_real_bab():
-    cands = [os.environ.get("BUILD_APP_BUNDLE", ""),
+    forced = os.environ.get("BUILD_APP_BUNDLE", "")
+    cands = [forced,
              str(REPO.parent / "agent-app-dev" / "script" / "build-app-bundle.sh"),
+             "/workspace/kid-aad-main-5af736f/script/build-app-bundle.sh",
              "/workspace/agent-app-dev/script/build-app-bundle.sh"]
     for c in cands:
-        if c and Path(c).is_file():
+        if not c or not Path(c).is_file():
+            continue
+        # Honour an explicit BUILD_APP_BUNDLE even if zx is missing (will fail loudly).
+        if c == forced or _bab_has_zx(c):
             return c
     return None
 
@@ -74,7 +84,7 @@ class BuildReleaseBundleTests(unittest.TestCase):
         (self.app / "compose.yaml").write_bytes((REPO / "compose.yaml").read_bytes())
         subprocess.run(g + ["add", "-A", "script", "compose.yaml"], check=True)
         subprocess.run(g + ["commit", "-qm", "test", "--allow-empty"], check=True)
-        subprocess.run(g + ["tag", "-f", "1.3"], check=True)  # throwaway clone; official 1.3 is tagged later
+        subprocess.run(g + ["tag", "-f", "1.4"], check=True)  # throwaway clone; official 1.4 is tagged later
         self.sha = subprocess.check_output(["git", "-C", str(self.app), "rev-parse", "HEAD"], text=True).strip()
         self.stub = self.t / "build-app-bundle.sh"
         self.stub.write_text(STUB_BAB)
@@ -86,7 +96,7 @@ class BuildReleaseBundleTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def build(self, bab, ref="1.3", root_name="root", untagged=False):
+    def build(self, bab, ref="1.4", root_name="root", untagged=False):
         root = self.t / root_name
         root.mkdir()
         env = dict(os.environ, DOCKER=str(self.docker))
@@ -102,7 +112,7 @@ class BuildReleaseBundleTests(unittest.TestCase):
         b = root / "apps" / app_id
         bi = b / "collector" / "build-info.json"
         self.assertTrue(bi.is_file())
-        self.assertEqual(json.loads(bi.read_text()), {"version": "1.3", "commit": self.sha})
+        self.assertEqual(json.loads(bi.read_text()), {"version": "1.4", "commit": self.sha})
         sums = (b / "SHA256SUMS").read_text()
         self.assertIn("%s  collector/build-info.json\n" % sha256(bi), sums)
         subprocess.run(["sha256sum", "--quiet", "--strict", "--check", "SHA256SUMS"], cwd=b, check=True)
@@ -122,8 +132,8 @@ class BuildReleaseBundleTests(unittest.TestCase):
     def test_stub_tagged_build_has_build_info_in_sums(self):
         r, root = self.build(self.stub)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assert_bundle(root, "usage-dashboard-1.3")
-        self.assertIn("build-info: apps/usage-dashboard-1.3/collector/build-info.json", r.stdout)
+        self.assert_bundle(root, "usage-dashboard-1.4")
+        self.assertIn("build-info: apps/usage-dashboard-1.4/collector/build-info.json", r.stdout)
         # the checkout itself is untouched (index and tree)
         st = subprocess.check_output(["git", "-C", str(self.app), "status", "--porcelain", "--ignored"], text=True)
         self.assertNotIn("build-info.json", st)
@@ -133,13 +143,13 @@ class BuildReleaseBundleTests(unittest.TestCase):
         r2, b = self.build(self.stub, root_name="b")
         self.assertEqual(r1.returncode, 0, r1.stderr)
         self.assertEqual(r2.returncode, 0, r2.stderr)
-        p = "apps/usage-dashboard-1.3/"
+        p = "apps/usage-dashboard-1.4/"
         self.assertEqual(sha256(a / p / "collector/build-info.json"), sha256(b / p / "collector/build-info.json"))
         self.assertEqual((a / p / "SHA256SUMS").read_bytes(), (b / p / "SHA256SUMS").read_bytes())
 
     def test_ref_must_equal_xapp_version(self):
-        subprocess.run(["git", "-C", str(self.app), "tag", "1.4"], check=True)
-        r, _ = self.build(self.stub, ref="1.4")
+        subprocess.run(["git", "-C", str(self.app), "tag", "1.5"], check=True)
+        r, _ = self.build(self.stub, ref="1.5")
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("does not equal compose.yaml x-app.version", r.stderr)
 
@@ -220,18 +230,18 @@ class BuildReleaseBundleTests(unittest.TestCase):
             self.skipTest("agent-app-dev build-app-bundle.sh not found (set BUILD_APP_BUNDLE)")
         r, root = self.build(bab)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assert_bundle(root, "usage-dashboard-1.3")
-        # tagged 1.3 bundle compose == the tag's compose byte for byte (the post-check drift basis)
-        tag_compose = subprocess.check_output(["git", "-C", str(self.app), "show", "1.3:compose.yaml"])
-        self.assertEqual((root / "apps/usage-dashboard-1.3/compose.yaml").read_bytes(), tag_compose)
-        sums = (root / "apps/usage-dashboard-1.3/SHA256SUMS").read_text()
+        self.assert_bundle(root, "usage-dashboard-1.4")
+        # tagged 1.4 bundle compose == the tag's compose byte for byte (the post-check drift basis)
+        tag_compose = subprocess.check_output(["git", "-C", str(self.app), "show", "1.4:compose.yaml"])
+        self.assertEqual((root / "apps/usage-dashboard-1.4/compose.yaml").read_bytes(), tag_compose)
+        sums = (root / "apps/usage-dashboard-1.4/SHA256SUMS").read_text()
         self.assertRegex(sums, r"(?m)^[0-9a-f]{64}  compose\.yaml$")
 
 
 class CheckBundleSafeTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.b = Path(self.tmp.name) / "apps" / "usage-dashboard-1.3"
+        self.b = Path(self.tmp.name) / "apps" / "usage-dashboard-1.4"
         (self.b / "collector").mkdir(parents=True)
         (self.b / "compose.yaml").write_bytes((REPO / "compose.yaml").read_bytes())
         (self.b / "collector" / "build-info.json").write_text("{}\n")

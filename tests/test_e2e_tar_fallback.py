@@ -11,6 +11,27 @@ REPO = Path(__file__).resolve().parents[1]
 SCRIPT = REPO / "script" / "e2e-tar-fallback.sh"
 INGEST = REPO / "script" / "ingest-usage-export.py"
 SEND = REPO / "script" / "send-engine-command.mjs"
+COMPOSE_TEXT = (REPO / "compose.yaml").read_text(encoding="utf-8")
+VERSION = re.search(r'(?m)^  version: "([^"]+)"$', COMPOSE_TEXT).group(1)
+
+
+def _compose_service_images():
+    images = []
+    in_services = False
+    for line in COMPOSE_TEXT.splitlines():
+        if line == "services:":
+            in_services = True
+            continue
+        if in_services and line and not line.startswith("#") and line[0] not in " \t":
+            in_services = False
+        if in_services and line.strip().startswith("image:"):
+            images.append(line.split("image:", 1)[1].strip().strip("\"'"))
+    return images
+
+
+def _service_tar_rel(image: str) -> str:
+    name = image.split("@", 1)[0].replace("/", "_") + ".tar"
+    return "services/" + name
 
 
 def _command_lines(text: str):
@@ -96,7 +117,7 @@ class E2eTarFallbackTests(unittest.TestCase):
                 cwd=str(REPO),
             )
             self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-            bundle = dest / "apps" / "usage-dashboard-1.3"
+            bundle = dest / "apps" / ("usage-dashboard-" + VERSION)
             info = bundle / "collector" / "build-info.json"
             sums = bundle / "SHA256SUMS"
             self.assertTrue((bundle / "compose.yaml").is_file())
@@ -105,16 +126,16 @@ class E2eTarFallbackTests(unittest.TestCase):
             commit = subprocess.check_output(
                 ["git", "-C", str(REPO), "rev-parse", "HEAD"], text=True
             ).strip()
-            self.assertEqual(data["version"], "1.3")
+            self.assertEqual(data["version"], VERSION)
             self.assertEqual(data["commit"], commit)
             self.assertTrue(sums.is_file())
             listed = sums.read_text(encoding="utf-8")
-            self.assertIn("apps/usage-dashboard-1.3/collector/build-info.json", listed)
-            self.assertIn("apps/usage-dashboard-1.3/compose.yaml", listed)
+            self.assertIn("apps/usage-dashboard-%s/collector/build-info.json" % VERSION, listed)
+            self.assertIn("apps/usage-dashboard-%s/compose.yaml" % VERSION, listed)
             planned = (dest / "dry-run-meta" / "planned-tars.txt").read_text(encoding="utf-8")
-            self.assertIn("services/ghcr.io_koenswings_usage-dashboard-web:1.3.tar", planned)
-            self.assertIn("services/python:3.12-slim-bookworm.tar", planned)
-            self.assertIn("services/tailscale_tailscale:v1.88.3.tar", planned)
+            for image in _compose_service_images():
+                self.assertIn(_service_tar_rel(image), planned)
+            self.assertNotIn("services/python:3.12-slim-bookworm.tar", planned)
             commands = (dest / "dry-run-meta" / "planned-commands.txt").read_text(encoding="utf-8")
             # idea#445: the web tar is the Engine-identical export of the pin, never a local build.
             pin = [l.split("image:", 1)[1].strip() for l in (REPO / "compose.yaml").read_text(encoding="utf-8").splitlines()
@@ -123,7 +144,7 @@ class E2eTarFallbackTests(unittest.TestCase):
             self.assertIn("script/verify-service-tar.sh compose.yaml services", commands)
             self.assertNotIn("docker build", commands)
             self.assertIn("ghcr.io/koenswings/usage-dashboard-web@" + pin.split("@", 1)[1], commands)
-            self.assertIn("installApp usage-dashboard-1.3", commands)
+            self.assertIn("installApp usage-dashboard-" + VERSION, commands)
             self.assertIn("--source", commands)
             self.assertIn("--fresh", commands)
             self.assertIn("--keep", commands)

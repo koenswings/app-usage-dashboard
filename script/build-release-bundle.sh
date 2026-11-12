@@ -20,7 +20,11 @@
 #      the commit and version, `cd apps/<id> && sha256sum --check --strict SHA256SUMS`
 #      (Engine defaultVerifySums) passes, and check-bundle-safe.py
 #      finds no data/, .env or exclude/hookExclude path (copyBundle overwrites
-#      every top-level bundle name in instances/<id>).
+#      every top-level bundle name in instances/<id>);
+#   6. print the Engine service-tar names for every digest-pinned compose
+#      image (web, collector, tailscale). The bundle itself does not include
+#      the tars; place each MATCH tar in <disk-root>/services/ (System Disk
+#      /services) before installApp / updateApp.
 # The same commit always gives the same build-info.json bytes.
 #
 # Usage:
@@ -111,3 +115,10 @@ fi
 # no .env, nothing in x-app.backup exclude/hookExclude; SHA256SUMS lists compose.yaml.
 python3 "$HERE/check-bundle-safe.py" "$ROOT/$BUNDLE_REL" || die "bundle would clobber live instance state"
 echo "build-info: $BI version=$VERSION commit=$SHA sha256=$(sha256sum "$ROOT/$BI" | cut -d' ' -f1)"
+# Expected service tars (Engine serviceImageTarName). Not bundled; required on the disk.
+while IFS= read -r img; do
+  [ -n "$img" ] || continue
+  echo "service-tar: services/$(python3 "$HERE/verify_service_tar.py" --print-tar-name "$img")"
+done <<EOF
+$(awk '/^services:/{s=1;next} s&&/^[^ #]/{s=0} s&&/^    image:/{print $2}' "$SRC/compose.yaml" | tr -d "\"'")
+EOF

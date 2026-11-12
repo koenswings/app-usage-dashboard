@@ -1,19 +1,11 @@
-# Optional baked image. The compose file uses official python:3.12-slim-bookworm
-# plus collector/entrypoint.sh (no image is published for 1.0).
-FROM python:3.12-slim-bookworm
-ARG USAGE_DASHBOARD_VERSION=1.0
-ARG COMMIT=
-ARG USAGE_DASHBOARD_COMMIT=
+# Collector runtime image (idea#461). Official python:3.12-slim-bookworm
+# (the same digest compose used in 1.3) plus openssh-client, netcat-openbsd
+# and tzdata. Compose bind-mounts ./collector at /app, so this image does
+# not COPY the app tree. GET /api/v1/health still reads
+# collector/build-info.json from the bundle (script/write-build-info.sh).
+# entrypoint.sh never installs packages at start.
+FROM python:3.12-slim-bookworm@sha256:935c3c5b12357a7e10caa9c1e6ca5692344d97cf229832ef584be2cec9fc03df
 RUN apt-get update \
- && apt-get install -y --no-install-recommends openssh-client netcat-openbsd \
- && rm -rf /var/lib/apt/lists/* \
- && mkdir -p /etc/idea-usage \
- && COMMIT_VAL="${COMMIT:-$USAGE_DASHBOARD_COMMIT}" \
- && printf '{"version":"%s","commit":"%s"}\n' \
-      "$USAGE_DASHBOARD_VERSION" "$COMMIT_VAL" \
-      > /etc/idea-usage/build-info.json
+ && apt-get install -y --no-install-recommends openssh-client netcat-openbsd tzdata \
+ && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
-COPY src /app/src
-COPY scripts /app/scripts
-COPY entrypoint.sh /app/entrypoint.sh
-ENTRYPOINT ["/bin/sh", "/app/entrypoint.sh"]
