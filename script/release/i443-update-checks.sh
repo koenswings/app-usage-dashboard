@@ -179,8 +179,11 @@ containers_check() { # id
   local ids line bad=0 n=0 detail=""
   ids=$("$DOCKER" ps -aq --filter "label=com.docker.compose.project=$INSTANCE" 2>/dev/null)
   if [ -z "$ids" ]; then res FAIL "$1" containers "no containers for project $INSTANCE"; return; fi
+  # `index .State "Health"`: a container with no healthcheck (the collector)
+  # has no State.Health key. `{{if .State.Health}}` fails docker's template
+  # (`map has no entry for key Health`) and this check reported collector=absent.
   for id in $ids; do
-    line=$("$DOCKER" inspect --format '{{.Id}}|{{.Name}}|{{.Config.Image}}|{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}|{{index .Config.Labels "com.docker.compose.service"}}' "$id" 2>/dev/null) || { bad=1; continue; }
+    line=$("$DOCKER" inspect --format '{{.Id}}|{{.Name}}|{{.Config.Image}}|{{.State.Status}}|{{if index .State "Health"}}{{.State.Health.Status}}{{else}}none{{end}}|{{index .Config.Labels "com.docker.compose.service"}}' "$id" 2>/dev/null) || { bad=1; continue; }
     IFS='|' read -r fid _name image status health svc <<<"$line"
     n=$((n + 1))
     CID[$svc]=$fid
