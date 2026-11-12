@@ -101,7 +101,7 @@ export const THRESHOLD_FIELDS: ThresholdFieldMeta[] = [
   {
     id: "nextcloudMinActions",
     label: "Nextcloud",
-    meaning: "At least this many worksheet shares, co-edits, school-files shares, File drop uploads or Office opens by a teacher or learner. Admin actions and File drop links do not count.",
+    meaning: "At least this many worksheet shares, co-edits, school-files shares or File drop uploads by a teacher or learner. Admin actions, File drop links and Office opens do not count (Office opens are excluded until idea#464).",
     help: "File drop uploads count toward the person who owns the drop link, because uploaders are anonymous.",
     kind: "int",
     min: 0,
@@ -130,7 +130,7 @@ export const THRESHOLD_FIELDS: ThresholdFieldMeta[] = [
 ];
 
 export const SETUP_RULE_MEANING =
-  "Yes when the school's own Kolibri has at least one coach, at least one class and learners enrolled in a class, and its own Nextcloud has teacher and learner accounts beyond the seed accounts (U-7). The collector checks this on each own copy and sends the verdict; an app the school has no own copy of does not count against it. This is a yes/no check with no number to edit.";
+  "Yes only when both the school's own Kolibri and its own Nextcloud pass (U-7). Own Kolibri needs at least one coach, at least one class and learners enrolled in a class; own Nextcloud needs teacher and learner accounts beyond the seed accounts. The collector checks this on each own copy and sends the verdict. A school with no own copy of an app fails that part. No data (a null part) never counts as passing. This is a yes/no check with no number to edit.";
 
 export function cloneThresholds(value: ScorecardThresholds): ScorecardThresholds {
   return {
@@ -253,12 +253,14 @@ export function learnerSessionShare(inputs: ScorecardInputs): number | null {
 }
 
 /**
- * Counted Nextcloud actions: the five teacher/learner splits
- * (shares, File drop uploads, and Office opens). Flat totals and admin
- * fields are never used. A null split counts as 0. The line is unmeasured
- * (grey) when all five TeacherLearner fields are null, even if flat
- * totals are present — matching collector `nextcloud_actions`. File drop
- * links do not count.
+ * Counted Nextcloud actions (U-7 line 5, idea#462 ruling 5): the four
+ * teacher/learner workflow splits (worksheet shares, co-edits, school-files
+ * shares, and File drop uploads). Office opens are excluded until idea#464.
+ * Flat totals, admin fields and documents created are never used. A null
+ * split counts as 0. The line is unmeasured (grey) when all four
+ * TeacherLearner fields are null, even if flat totals or Office opens are
+ * present — matching collector `nextcloud_actions`. File drop links do not
+ * count.
  */
 export function nextcloudWorkflowActions(inputs: ScorecardInputs): number | null {
   const parts = [
@@ -266,7 +268,6 @@ export function nextcloudWorkflowActions(inputs: ScorecardInputs): number | null
     inputs.nextcloud.editSharesTeacherLearner,
     inputs.nextcloud.schoolFilesSharesTeacherLearner,
     inputs.nextcloud.fileDropUploadsTeacherLearner,
-    inputs.nextcloud.officeOpensTeacherLearner,
   ];
   if (parts.every((value) => value === null)) return null;
   return parts.reduce<number>((sum, value) => sum + (value ?? 0), 0);

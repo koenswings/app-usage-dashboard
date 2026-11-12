@@ -196,13 +196,14 @@ describe('U-7 line evaluation', () => {
     expect(evaluateLine('learnersOperate', inputs, DEFAULT_THRESHOLDS).tone).toBe('noData');
   });
 
-  it('Nextcloud sums teacher/learner shares, uploads and office opens, and ignores File drop links', () => {
+  it('Nextcloud sums teacher/learner shares and uploads, ignores File drop links, and does not count Office opens', () => {
     const inputs = zeroNextcloud(nharira());
     inputs.nextcloud.fileDropLinks = 4;
     expect(evaluateLine('nextcloud', inputs, DEFAULT_THRESHOLDS).tone).toBe('needsHelp');
     inputs.nextcloud.officeOpensTeacherLearner = 1;
     inputs.nextcloud.officeOpens = 1;
-    expect(evaluateLine('nextcloud', inputs, DEFAULT_THRESHOLDS).tone).toBe('onTrack');
+    expect(evaluateLine('nextcloud', inputs, DEFAULT_THRESHOLDS).tone).toBe('needsHelp');
+    expect(evaluateLine('nextcloud', inputs, DEFAULT_THRESHOLDS).word).not.toBe('On track');
     inputs.nextcloud.officeOpensTeacherLearner = 0;
     inputs.nextcloud.officeOpens = 0;
     inputs.nextcloud.worksheetSharesTeacherLearner = 1;
@@ -234,12 +235,22 @@ describe('U-7 line evaluation', () => {
     expect(evaluateLine('nextcloud', inputs, DEFAULT_THRESHOLDS).tone).toBe('needsHelp');
   });
 
-  it('counts teacher or learner Office opens toward the Nextcloud threshold', () => {
+  it('does not count teacher or learner Office opens toward the Nextcloud threshold (idea#464)', () => {
     const inputs = zeroNextcloud(nharira());
     inputs.nextcloud.officeOpens = 1;
     inputs.nextcloud.officeOpensTeacherLearner = 1;
     inputs.nextcloud.officeOpensAdmin = 0;
-    expect(evaluateLine('nextcloud', inputs, DEFAULT_THRESHOLDS).tone).toBe('onTrack');
+    expect(evaluateLine('nextcloud', inputs, DEFAULT_THRESHOLDS).tone).toBe('needsHelp');
+    expect(evaluateLine('nextcloud', inputs, DEFAULT_THRESHOLDS).word).not.toBe('On track');
+    // Office opens alone, with the counted splits unmeasured, leave the line grey.
+    const onlyOpens = zeroNextcloud(nharira());
+    onlyOpens.nextcloud.worksheetSharesTeacherLearner = null;
+    onlyOpens.nextcloud.editSharesTeacherLearner = null;
+    onlyOpens.nextcloud.schoolFilesSharesTeacherLearner = null;
+    onlyOpens.nextcloud.fileDropUploadsTeacherLearner = null;
+    onlyOpens.nextcloud.officeOpensTeacherLearner = 8;
+    onlyOpens.nextcloud.officeOpens = 8;
+    expect(evaluateLine('nextcloud', onlyOpens, DEFAULT_THRESHOLDS).tone).toBe('noData');
   });
 
   it('treats a null teacher/learner Office split as 0', () => {
@@ -284,7 +295,7 @@ describe('U-7 line evaluation', () => {
     expect(evaluateLine('nextcloud', inputs, DEFAULT_THRESHOLDS).tone).toBe('onTrack');
   });
 
-  it('treats a null teacher/learner split as 0 when any other split is present', () => {
+  it('treats a null teacher/learner split as 0 when any other counted split is present', () => {
     const inputs = zeroNextcloud(nharira());
     inputs.nextcloud.worksheetShares = 5;
     inputs.nextcloud.worksheetSharesTeacherLearner = null;
@@ -296,9 +307,9 @@ describe('U-7 line evaluation', () => {
     inputs.nextcloud.fileDropUploadsTeacherLearner = null;
     inputs.nextcloud.fileDropUploadsAdmin = null;
     inputs.nextcloud.schoolFilesShares = 1;
-    inputs.nextcloud.schoolFilesSharesTeacherLearner = null;
+    // One counted split is present (0), so nulls contribute 0 and the line is measured.
+    inputs.nextcloud.schoolFilesSharesTeacherLearner = 0;
     inputs.nextcloud.schoolFilesSharesAdmin = null;
-    // officeOpensTeacherLearner stays 0 from zeroNextcloud, so the line is measured.
     expect(evaluateLine('nextcloud', inputs, DEFAULT_THRESHOLDS).tone).toBe('needsHelp');
   });
 

@@ -1,6 +1,6 @@
 import { render } from '@solidjs/testing-library';
 import { API_SCHEMA } from '../src/api/types';
-import type { NextcloudInstanceWeek, ScorecardInputs, SchoolWeekResponse, SetupStatus } from '../src/api/types';
+import type { AppSetupStatus, NextcloudInstanceWeek, ScorecardInputs, SchoolWeekResponse, SetupStatus } from '../src/api/types';
 import {
   DEP_CHIGONDA,
   DEP_NHARIRA,
@@ -93,7 +93,7 @@ describe('Set up uses the collector verdict (setupStatus.complete)', () => {
     expect(setupLine?.word).toBe('Needs help');
   });
 
-  it('explains each app in plain words, and an app with no own copy does not count', () => {
+  it('explains each app in plain words, and a null part is only No data', () => {
     const chigonda = scorecardFor(DEP_CHIGONDA, SAMPLE_WEEK).setupStatus!;
     expect(appSetupWord(chigonda.kolibri)).toBe('Not set up');
     expect(appSetupSentence(chigonda.kolibri)).toBe(
@@ -103,12 +103,38 @@ describe('Set up uses the collector verdict (setupStatus.complete)', () => {
     expect(appSetupSentence(chigonda.nextcloud)).toBe(
       'Not known yet: teacher accounts beyond the seeds and learner accounts beyond the seeds in the own Nextcloud.',
     );
-    expect(appSetupWord(null)).toBe('No own copy');
+    expect(appSetupWord(null)).toBe('No data');
+    expect(appSetupSentence(null)).toBe('No data this week.');
+  });
+
+  it('treats a missing own app as not set up, with noOwn… in plain words and no raw codes', () => {
+    const none: AppSetupStatus = {
+      complete: false,
+      missing: ['noOwnKolibri'],
+      unknown: [],
+      passingInstanceIds: [],
+    };
+    expect(appSetupWord(none)).toBe('Not set up');
+    expect(appSetupSentence(none)).toBe('The school has no own Kolibri copy.');
+    expect(appSetupSentence(none)).not.toMatch(/noOwnKolibri|undefined/);
+    const nc: AppSetupStatus = { ...none, missing: ['noOwnNextcloud'] };
+    expect(appSetupSentence(nc)).toBe('The school has no own Nextcloud copy.');
+    expect(setupDetail(status({
+      complete: false,
+      kolibri: { complete: false, missing: ['noOwnKolibri'], unknown: [], passingInstanceIds: [] },
+      nextcloud: { complete: false, missing: ['noOwnNextcloud'], unknown: [], passingInstanceIds: [] },
+    }))).toBe('Missing: no own Kolibri, no own Nextcloud');
+    // Unknown collector codes must not leak and must not say "in the own undefined".
+    const odd = { complete: false, missing: ['futureCheck' as never], unknown: [], passingInstanceIds: [] };
+    expect(appSetupSentence(odd)).toBe('Missing a requirement.');
+    expect(appSetupSentence(odd)).not.toMatch(/futureCheck|undefined/);
   });
 
   it('describes U-7 in the Settings note', () => {
     expect(SETUP_RULE_MEANING).toMatch(/at least one coach, at least one class and learners enrolled in a class/);
     expect(SETUP_RULE_MEANING).toMatch(/teacher and learner accounts beyond the seed accounts/);
+    expect(SETUP_RULE_MEANING).toMatch(/no own copy of an app fails that part/);
+    expect(SETUP_RULE_MEANING).not.toMatch(/does not count against/);
   });
 });
 
