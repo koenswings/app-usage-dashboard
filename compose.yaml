@@ -11,7 +11,7 @@ x-app:
   category: admin
   icon: icon.png
   author: Koen Swings
-  version: "1.2"
+  version: "1.3"
   instanceName: usage-dashboard
   healthCheck:
     path: /api/v1/health
@@ -19,8 +19,9 @@ x-app:
   healthTimeout: 180
   updatesFrom: []
   migrationNote: >
-    1.1→1.2: no data migration. The collector reads the real hook names,
-    applies the stricter Set up rule from idea#462, and serves the new UI.
+    1.2→1.3: no data migration. Set up judges only the school's own
+    copies with an ok day (idea#462), and the fleet Set up detail fits on
+    one line.
     Data under ./data stays in place; the idea-hub Tailscale state in
     ./data/tailscale is never copied or recreated.
   snapshotExclude: []
@@ -94,7 +95,7 @@ services:
     # attempt if Docker restarts the container after a failed join.
     image: tailscale/tailscale:v1.88.3@sha256:b2a19f6b6402adc26a2aa8cb90da66afe3061e718ac67ed3f21ec3d4b366439f
     labels:
-      x-app-version: "1.2"
+      x-app-version: "1.3"
     hostname: idea-hub
     restart: unless-stopped
     pull_policy: never
@@ -135,7 +136,7 @@ services:
     # Official multi-arch index digest (idea#322). linux/arm64 verified 2026-11-11.
     image: python:3.12-slim-bookworm@sha256:935c3c5b12357a7e10caa9c1e6ca5692344d97cf229832ef584be2cec9fc03df
     labels:
-      x-app-version: "1.2"
+      x-app-version: "1.3"
     restart: unless-stopped
     pull_policy: never
     network_mode: service:tailscale
@@ -160,7 +161,7 @@ services:
       - HEADER_TIMEZONE=Europe/Brussels
       - STALE_AFTER_HOURS=48
       - HOURLY_CHART_MIN_WEEKLY_VIEWS=20
-      - USAGE_DASHBOARD_VERSION=1.2
+      - USAGE_DASHBOARD_VERSION=1.3
       # Optional override for GET /api/v1/health "commit". Empty is ignored
       # (falls through to collector/build-info.json written at bundle time).
       # There is no need to set this in the instance .env.
@@ -185,9 +186,9 @@ services:
     entrypoint: ["/bin/sh", "/app/entrypoint.sh"]
 
   web:
-    image: ghcr.io/koenswings/usage-dashboard-web:1.2@sha256:706fdd6833d5131cffe80e2410ace37899b8942fa8b0cb5d3e8088a103edde45
+    image: ghcr.io/koenswings/usage-dashboard-web:1.3@sha256:6ec777fb89b84cae93cc592b5cb96b9dea070c71cb25e892a8294af3f10f5dfc
     labels:
-      x-app-version: "1.2"
+      x-app-version: "1.3"
     restart: unless-stopped
     depends_on:
       - collector
