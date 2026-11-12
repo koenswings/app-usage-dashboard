@@ -116,14 +116,18 @@ describe('Set up uses the collector verdict (setupStatus.complete)', () => {
     };
     expect(appSetupWord(none)).toBe('Not set up');
     expect(appSetupSentence(none)).toBe('The school has no own Kolibri copy.');
-    expect(appSetupSentence(none)).not.toMatch(/noOwnKolibri|undefined/);
+    expect(appSetupSentence(none)).not.toMatch(/noOwnKolibri|undefined|does not count|No own copy/);
     const nc: AppSetupStatus = { ...none, missing: ['noOwnNextcloud'] };
+    expect(appSetupWord(nc)).toBe('Not set up');
     expect(appSetupSentence(nc)).toBe('The school has no own Nextcloud copy.');
-    expect(setupDetail(status({
+    expect(appSetupSentence(nc)).not.toMatch(/does not count|No own copy/);
+    const detail = setupDetail(status({
       complete: false,
       kolibri: { complete: false, missing: ['noOwnKolibri'], unknown: [], passingInstanceIds: [] },
       nextcloud: { complete: false, missing: ['noOwnNextcloud'], unknown: [], passingInstanceIds: [] },
-    }))).toBe('Missing: no own Kolibri, no own Nextcloud');
+    }));
+    expect(detail).toBe('Missing: no own Kolibri, no own Nextcloud');
+    expect(detail).not.toMatch(/does not count/);
     // Unknown collector codes must not leak and must not say "in the own undefined".
     const odd = { complete: false, missing: ['futureCheck' as never], unknown: [], passingInstanceIds: [] };
     expect(appSetupSentence(odd)).toBe('Missing a requirement.');
@@ -134,7 +138,7 @@ describe('Set up uses the collector verdict (setupStatus.complete)', () => {
     expect(SETUP_RULE_MEANING).toMatch(/at least one coach, at least one class and learners enrolled in a class/);
     expect(SETUP_RULE_MEANING).toMatch(/teacher and learner accounts beyond the seed accounts/);
     expect(SETUP_RULE_MEANING).toMatch(/no own copy of an app fails that part/);
-    expect(SETUP_RULE_MEANING).not.toMatch(/does not count against/);
+    expect(SETUP_RULE_MEANING).not.toMatch(/does not count/);
   });
 });
 

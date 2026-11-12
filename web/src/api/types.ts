@@ -17,8 +17,8 @@
  * Scorecard thresholds: Koen approved starting defaults on idea#375 U-7
  * (11 Nov 09:42 Europe/Brussels). The API still returns raw counts, never a
  * grade. The UI compares those counts to effective thresholds (defaults, or
- * values from /meta.thresholds / GET /api/v1/settings/thresholds). Grey
- * (no data / not measured) never counts as amber.
+ * values from /meta.thresholds / GET /api/v1/settings/thresholds). No data
+ * never counts as amber.
  *
  * Schema version: idea-usage-api/1 (this HTTP API).
  * Day-file version: idea-usage-day/1 (§7.6).
