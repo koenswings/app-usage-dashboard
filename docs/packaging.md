@@ -39,19 +39,44 @@ The clean option is (2) written at **App Disk bundle time**:
 `{"version":"<x-app.version>","commit":"<full sha>"}`.
 
 `build-app-bundle.sh` (agent-app-dev) copies only `git ls-files`, then writes
-`SHA256SUMS`. An untracked checkout copy of `collector/build-info.json` is
-**not** included (the path is gitignored so a stale SHA is never committed).
-After the script copies the tree into `apps/<appId>/` and before it writes
-`SHA256SUMS`:
+`SHA256SUMS`, and has no per-app hook. An untracked checkout copy of
+`collector/build-info.json` is **not** included (the path is gitignored so a
+stale SHA is never committed). So build the bundle through the per-app wrapper
+`script/build-release-bundle.sh` (idea#443), which leaves agent-app-dev
+unchanged:
+
+1. clones the checkout's HEAD commit and its tags into a throwaway dir;
+2. writes `collector/build-info.json` there with `write-build-info.sh`
+   (`{"version": <x-app.version>, "commit": <full HEAD sha>}`);
+3. `git add -f`s it in the throwaway clone's **index only** (HEAD is still the
+   tag commit, so the tag==HEAD check holds and `git ls-files` now lists it);
+4. runs `build-app-bundle.sh`, whose `SHA256SUMS` then covers the file;
+5. checks the bundle: the file is there, listed in `SHA256SUMS`, holds the
+   commit and version, `sha256sum -c` passes, and `check-bundle-safe.py`
+   passes (below).
 
 ```sh
-script/write-build-info.sh --dest "$ROOT/apps/usage-dashboard-1.0" \
-  --commit "$(git -C "$APP_DIR" rev-parse HEAD)"
+git checkout 1.1
+script/build-release-bundle.sh \
+  --build-app-bundle <agent-app-dev>/script/build-app-bundle.sh \
+  --disk-root <root> --ref 1.1
 ```
 
-Then let the bundle script checksum the new file. If you run
-`write-build-info.sh` only in the git checkout, remember to inject the file
-into the staged bundle as above.
+`--ref` must equal `x-app.version`. The same commit always gives the same
+`build-info.json` bytes. With `ALLOW_UNTAGGED=1` the dev bundle
+(`0.0-dev+<sha12>`) still carries `"version": "<x-app.version>"`.
+
+### No live state in the bundle (`check-bundle-safe.py`)
+
+updateApp's Swap (`copyBundle`, agent-engine-dev `UpdateApp.ts:133-137` on
+main, `:152-156` on #448) copies every top-level name of the bundle over
+`instances/<id>/` with overwrite, except `.env`, `SHA256SUMS` and `.idea-*`.
+It is not exclude-aware. A bundle that shipped `data/` (even an empty
+`data/tailscale`) would overwrite the hub's live state after the snapshot.
+`script/check-bundle-safe.py <apps/<appId>>` (and `--tree <checkout>`) fails
+on a top-level `data/`, a `.env`, or any path in `x-app.backup.exclude` /
+`hookExclude` (normalised like the Engine), and on a `SHA256SUMS` that is
+empty, does not list `compose.yaml`, or misses a file.
 
 The web image also accepts `--build-arg COMMIT=<full sha>` and writes
 `/etc/idea-usage/build-info.json` inside the nginx image. That identifies
@@ -77,8 +102,25 @@ one it was (Steve, idea#446). A fallback archive packs the live
 `data/compose.yaml`), and with `--release` requires the block when the
 method is `hook`.
 
-Bundle: `build-app-bundle.sh --ref 1.1` (agent-app-dev) from a checkout of
-the `1.1` tag. It only bundles from a `<major>.<minor>` tag at HEAD.
+Bundle: `script/build-release-bundle.sh --ref 1.1` (wrapping agent-app-dev
+`build-app-bundle.sh`) from a checkout of the `1.1` tag. It only bundles from
+a `<major>.<minor>` tag at HEAD.
+
+Bundle stick (Steve, idea#443): the Engine docks a disk only with a valid
+`META.yaml` at the partition root (a non-empty mapping;
+`src/monitors/mounts.ts isValidIdeaMetaFile`, `usbDeviceMonitor.ts:283-285`),
+and agent-app-dev `check-app-disk-tree.sh` also wants `diskId`, `diskName`,
+`created` and `lastDocked` (epoch ms; `src/data/Meta.ts DiskMeta`). It is an
+App Disk because `apps/` exists (`Disk.ts:609-617`). The offer needs
+`apps/usage-dashboard-1.1/SHA256SUMS` non-empty and listing `compose.yaml`
+(`UpdateApp.ts:442-443 sumsLookUsable`); updateApp runs a full
+`sha256sum --check --strict` on it. The stick's `services/*.tar` are not used:
+the start loads images only from idea03's own `/services` or skips the load
+when the pin is local (`Instance.ts:1402-1426`, `674-700`).
+
+Checks on idea03: `script/release/i443-update-checks.sh pre|post` (read-only,
+inside someone else's claim, evidence only under `/home/pi/kid-evidence/`).
+See `--help` for the check list.
 
 ## Publish to ghcr (U-10 approved)
 
