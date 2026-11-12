@@ -299,11 +299,55 @@ class UpdateChecksTests(unittest.TestCase):
         self.assertTrue(self.line(r.stdout, "P13").startswith("FAIL"))
         self.assertTrue(self.line(r.stdout, "P14").startswith("FAIL"))
 
-    def test_backup_age_gate(self):
+    def test_backup_age_skipped_without_backup_time(self):
         r = self.f.pre("--max-backup-age-s", "3600")
-        self.assertTrue(self.line(r.stdout, "P16").startswith("FAIL"))
-        r2 = Fixture(Path(self.tmp.name) / "b").pre()
-        self.assertTrue(self.line(r2.stdout, "P16").startswith("INFO"))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.line(r.stdout, "P16"), "INFO P16 backup-age: skipped: supply --backup-time")
+
+    def test_backup_time_epoch_ms_and_iso(self):
+        import time
+        now_ms = int(time.time() * 1000)
+        r = self.f.pre("--backup-time", str(now_ms - 600_000), "--max-backup-age-s", "3600")
+        p16 = self.line(r.stdout, "P16")
+        self.assertTrue(p16.startswith("INFO P16 backup-age: 6"), p16)
+        iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now_ms / 1000 - 7200))
+        r2 = Fixture(Path(self.tmp.name) / "b").pre("--backup-time", iso, "--max-backup-age-s", "3600")
+        self.assertEqual(r2.returncode, 1)
+        self.assertTrue(self.line(r2.stdout, "P16").startswith("FAIL"), r2.stdout)
+
+    def test_bad_backup_time_is_usage_error(self):
+        r = self.f.pre("--backup-time", "yesterday")
+        self.assertEqual(r.returncode, 2)
+
+    def test_never_reads_under_disks_except_stick(self):
+        # Disk B in the fixture holds a BACKUP.yaml and is made unreadable; nothing may
+        # notice it, and nothing names it.
+        sdb1 = self.f.fx / "disks" / "sdb1"
+        (sdb1 / "BACKUP.yaml").write_text("links:\n  - instanceId: %s\n    lastBackup: 1\n" % INST)
+        sdb1.chmod(0)
+        try:
+            r = self.f.pre()
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.f.apply_update()
+            r2 = self.f.post()
+            self.assertEqual(r2.returncode, 0, r2.stdout + r2.stderr)
+            d = self.f.run("pre", "--stick", "/disks/sdc1", "--dry-run")
+        finally:
+            sdb1.chmod(0o755)
+        for out in (r.stdout + r.stderr, r2.stdout + r2.stderr, d.stdout):
+            self.assertNotIn("sdb1", out)
+            self.assertNotIn("BACKUP.yaml", out)
+        # static: the only /disks mention in code is the --stick help/guard text
+        code = [ln for ln in SCRIPT.read_text().splitlines() if not ln.lstrip().startswith("#")]
+        hits = [ln for ln in code if "/disks" in ln]
+        self.assertTrue(all("usage_err" in ln or "/disks|/disks/*" in ln for ln in hits), hits)
+
+    def test_other_paths_under_disks_refused(self):
+        for args in (("--snapshot-dir", "/disks/sdb1/.pre-update/x"), ("--engine-dir", "/disks/sdb1/e")):
+            with self.subTest(args=args):
+                r = self.f.run("pre", "--stick", "/disks/sdc1", *args)
+                self.assertEqual(r.returncode, 2)
+                self.assertIn("under /disks/", r.stderr)
 
     def test_post_passes_after_update(self):
         self.assertEqual(self.f.pre().returncode, 0)

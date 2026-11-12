@@ -24,7 +24,11 @@
 #   --expect-commit SHA      post: GET /api/v1/health commit must equal it (full or prefix)
 #   --snapshot-dir DIR       post: the updateApp snapshot, default /.pre-update/<instance>
 #                            (<instance disk appDataRoot>/.pre-update/<id>, UpdateApp.ts)
-#   --max-backup-age-s N     pre: FAIL if the newest backup is older (default: report only)
+#   --backup-time T          pre: time of the newest backup of the instance, as epoch ms or
+#                            ISO 8601 (Atlas reads it from the Engine store, Instance.lastBackup).
+#                            Never read from a disk: this script reads nothing under /disks/
+#                            except the --stick path. Without it P16 is INFO skipped.
+#   --max-backup-age-s N     pre: with --backup-time, FAIL if that backup is older
 #   --dry-run                print the check plan and exit 0; runs nothing, writes nothing
 #   --fixture DIR            tests only: prefix every absolute path (also --out, --stick)
 #                            with DIR; docker, curl and sudo stubs come from PATH
@@ -35,11 +39,11 @@ set -uo pipefail
 export LC_ALL=C
 
 MODE="${1:-}"
-case "$MODE" in pre|post) shift ;; -h|--help|"") sed -n '2,33p' "$0" | sed 's/^# \{0,1\}//'; [ -n "$MODE" ]; exit $? ;; *) echo "usage: $0 pre|post ..." >&2; exit 2 ;; esac
+case "$MODE" in pre|post) shift ;; -h|--help|"") sed -n '2,37p' "$0" | sed 's/^# \{0,1\}//'; [ -n "$MODE" ]; exit $? ;; *) echo "usage: $0 pre|post ..." >&2; exit 2 ;; esac
 
 INSTANCE=usage-dashboard-8fhwrslsrq78xtswed4
 APP_ID=usage-dashboard-1.1
-OUT="" STICK="" PRE="" SNAP_ARG="" EXPECT_COMMIT="" TAG_SHA="" MAX_BACKUP_AGE="" FX="" DRY=0
+OUT="" STICK="" PRE="" SNAP_ARG="" EXPECT_COMMIT="" TAG_SHA="" MAX_BACKUP_AGE="" BACKUP_TIME="" FX="" DRY=0
 ENGINE_DIR=/home/pi/idea/agents/agent-engine-dev
 MIN_HELPER=9
 REQ_COMMITS=()
@@ -56,6 +60,7 @@ while [ $# -gt 0 ]; do
     --tag-compose-sha256) TAG_SHA="${2:-}"; shift 2 ;;
     --expect-commit) EXPECT_COMMIT="${2:-}"; shift 2 ;;
     --max-backup-age-s) MAX_BACKUP_AGE="${2:-}"; shift 2 ;;
+    --backup-time) BACKUP_TIME="${2:-}"; shift 2 ;;
     --snapshot-dir) SNAP_ARG="${2:-}"; shift 2 ;;
     --fixture) FX="${2:-}"; shift 2 ;;
     --dry-run) DRY=1; shift ;;
@@ -68,6 +73,12 @@ usage_err() { echo "ERROR: $*" >&2; exit 2; }
 [[ "$MIN_HELPER" =~ ^[0-9]+$ ]] || usage_err "bad --min-helper"
 [ -z "$TAG_SHA" ] || [[ "$TAG_SHA" =~ ^[0-9a-f]{64}$ ]] || usage_err "--tag-compose-sha256 must be 64 hex"
 [ -z "$MAX_BACKUP_AGE" ] || [[ "$MAX_BACKUP_AGE" =~ ^[0-9]+$ ]] || usage_err "bad --max-backup-age-s"
+BACKUP_MS=""
+if [ -n "$BACKUP_TIME" ]; then
+  if [[ "$BACKUP_TIME" =~ ^[0-9]{12,14}$ ]]; then BACKUP_MS=$BACKUP_TIME
+  elif [[ "$BACKUP_TIME" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T ]] && s_=$(date -d "$BACKUP_TIME" +%s 2>/dev/null); then BACKUP_MS=$((s_ * 1000))
+  else usage_err "--backup-time must be epoch ms or ISO 8601 (e.g. 2026-11-12T00:30:00Z)"; fi
+fi
 if [ "$MODE" = pre ]; then
   [ -n "$STICK" ] || usage_err "pre needs --stick <stick disk root>"
 else
@@ -77,6 +88,10 @@ else
   [ -n "$TAG_SHA" ] || usage_err "post needs --tag-compose-sha256 (sha256 of git show 1.1:compose.yaml)"
   [ -n "$STICK" ] || usage_err "post needs --stick <stick disk root> for the drift check"
 fi
+# Kid's rule: nothing under /disks/ is read except the --stick path (never Disk B).
+for v_ in "${SNAP_ARG:-}" "$ENGINE_DIR" "$OUT"; do
+  case "$(realpath -m -- "${v_:-/}")" in /disks|/disks/*) usage_err "refusing a path under /disks/ other than --stick: $v_" ;; esac
+done
 if [ -n "$FX" ]; then FX=$(cd "$FX" && pwd) || usage_err "--fixture dir missing"; fi
 
 # All host paths, prefixed in fixture mode.
@@ -85,7 +100,6 @@ INST_DIR=$(P "/instances/$INSTANCE")
 APPS_DIR=$(P /apps)
 SERVICES_DIR=$(P /services)
 SETTINGS=$(P /var/lib/idea/usage/settings.json)
-DISKS=$(P /disks)
 SNAP_DIR=$(P "${SNAP_ARG:-/.pre-update/$INSTANCE}")
 HELPER=/usr/local/sbin/idea-app-data
 EVIDENCE_ROOT=$(P /home/pi/kid-evidence)
@@ -104,7 +118,7 @@ if [ "$DRY" = 1 ]; then
   cat <<PLAN
 DRY RUN ($MODE): nothing is run or written. instance=$INSTANCE app=$APP_ID
 reads: $INST_DIR (compose.yaml x-app, stat data/tailscale, presence of .env data/keys tailscaled.state)
-       $APPS_DIR $SERVICES_DIR $SETTINGS $DISKS/*/BACKUP.yaml $SNAP_DIR ${STICK:-<no stick>}
+       $APPS_DIR $SERVICES_DIR $SETTINGS $SNAP_DIR ${STICK:-<no stick>}
 runs:  git -C $ENGINE_DIR rev-parse HEAD; $SUDO -n $HELPER version
        $DOCKER ps -aq --filter label=com.docker.compose.project=$INSTANCE
        $DOCKER inspect --format <id|name|image|status|health|service, no Env> <ids>
@@ -326,21 +340,14 @@ if [ "$MODE" = pre ]; then
   rec free_root "${avail:-none}"; rec instance_bytes "$size"
   if [[ "$avail" =~ ^[0-9]+$ ]] && [ "$avail" -ge "$need" ]; then res PASS P15 free-space "/ avail=$avail need>=$need (instance~$size, du may undercount root-only files)"
   else res FAIL P15 free-space "/ avail=${avail:-?} need>=$need"; fi
-  # P16 newest backup age (BACKUP.yaml links, read only)
-  now=$(date +%s%3N); newest=""; where=""
-  for y in "$DISKS"/*/BACKUP.yaml; do
-    [ -r "$y" ] || continue
-    t=$(awk -v id="$INSTANCE" '/instanceId:/{m=($NF==id)} m&&/lastBackup:/{print $NF; m=0}' "$y" | tr -d "\"'" | sort -n | tail -1)
-    if [[ "$t" =~ ^[0-9]+$ ]] && { [ -z "$newest" ] || [ "$t" -gt "$newest" ]; }; then newest=$t; where=$y; fi
-  done
-  if [ -z "$newest" ]; then
-    rec backup_age_s none
-    if [ -n "$MAX_BACKUP_AGE" ]; then res FAIL P16 backup-age "no backup of $INSTANCE in $DISKS/*/BACKUP.yaml"
-    else res INFO P16 backup-age "no backup of $INSTANCE found in $DISKS/*/BACKUP.yaml"; fi
+  # P16 newest backup age: from --backup-time only (Engine store). Never read under /disks/.
+  if [ -z "$BACKUP_MS" ]; then
+    rec backup_age_s skipped
+    res INFO P16 backup-age "skipped: supply --backup-time"
   else
-    age=$(( (now - newest) / 1000 )); rec backup_age_s "$age"
-    if [ -n "$MAX_BACKUP_AGE" ] && [ "$age" -gt "$MAX_BACKUP_AGE" ]; then res FAIL P16 backup-age "${age}s old > $MAX_BACKUP_AGE ($where)"
-    else res INFO P16 backup-age "${age}s old ($where)"; fi
+    age=$(( ($(date +%s%3N) - BACKUP_MS) / 1000 )); rec backup_age_s "$age"; rec backup_time "$BACKUP_TIME"
+    if [ -n "$MAX_BACKUP_AGE" ] && [ "$age" -gt "$MAX_BACKUP_AGE" ]; then res FAIL P16 backup-age "${age}s old > $MAX_BACKUP_AGE (--backup-time $BACKUP_TIME)"
+    else res INFO P16 backup-age "${age}s old (--backup-time $BACKUP_TIME)"; fi
   fi
   # P17 /apps listing
   apps=$(find "$APPS_DIR" -mindepth 1 -maxdepth 1 -printf '%f\n' 2>/dev/null | sort | tr '\n' ' ')
