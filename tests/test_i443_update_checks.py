@@ -42,7 +42,23 @@ case "$1" in
 esac
 """
 CURL_STUB = '#!/usr/bin/env bash\ncat "$I443_FX/stub/health.json"\n'
-SUDO_STUB = '#!/usr/bin/env bash\n[ "$1 $3" = "-n version" ] && cat "$I443_FX/stub/helper" || exit 1\n'
+# sudo stub: `sudo -n <helper> version` prints stub/helper. `sudo -n find ...` works only
+# when stub/sudo-find exists; it plays root by lifting the mode of the dirs listed in
+# stub/sudo-root-dirs (the test made them 0000) for the one call, and logs its argv.
+SUDO_STUB = r"""#!/usr/bin/env bash
+S="$I443_FX/stub"
+if [ "$1 $3" = "-n version" ]; then cat "$S/helper"; exit; fi
+if [ "$1 $2" = "-n find" ]; then
+  printf '%s\n' "$*" >> "$S/sudo.log"
+  [ -e "$S/sudo-find" ] || { echo "sudo: a password is required" >&2; exit 1; }
+  dirs=(); [ -f "$S/sudo-root-dirs" ] && mapfile -t dirs < "$S/sudo-root-dirs"
+  for d in ${dirs[@]+"${dirs[@]}"}; do chmod 700 "$d"; done
+  shift 2; find "$@"; rc=$?
+  for ((i=${#dirs[@]}-1; i>=0; i--)); do chmod 000 "${dirs[$i]}"; done
+  exit $rc
+fi
+exit 1
+"""
 
 
 
@@ -460,6 +476,125 @@ class UpdateChecksTests(unittest.TestCase):
         q11 = self.line(r.stdout, "Q11")
         self.assertTrue(q11.startswith("FAIL"), q11)
         self.assertIn("data/data/tailscale", q11)
+
+    # Q11 as pi against a root 0700 /.pre-update (the 10:19 CET idea03 landing, idea#443)
+    def lock(self, *dirs):
+        """chmod 0000 (innermost first; pass outermost first) and tell the sudo stub which dirs root may enter."""
+        paths = [str(d) for d in dirs]
+        for d in reversed(paths):
+            os.chmod(d, 0)
+        self.addCleanup(lambda: [os.chmod(d, 0o755) for d in paths if os.path.exists(d)])
+        (self.f.stub / "sudo-root-dirs").write_text("".join(d + "\n" for d in paths))
+
+    def sudo_log(self):
+        p = self.f.stub / "sudo.log"
+        return p.read_text() if p.exists() else ""
+
+    def test_q11_warns_when_snapshot_root_only_and_no_sudo(self):
+        self.f.pre()
+        self.f.apply_update()
+        self.lock(self.f.fx / ".pre-update")
+        r = self.f.post()
+        q11 = self.line(r.stdout, "Q11")
+        self.assertTrue(q11.startswith("WARN Q11 snapshot-no-secrets: cannot list"), q11)
+        self.assertIn("sudo -n find unavailable", q11)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("-n find", self.sudo_log())
+
+    def test_q11_warns_not_fails_when_snapshot_dir_unreadable_without_sudo(self):
+        self.f.pre()
+        self.f.apply_update()
+        self.lock(self.f.fx / ".pre-update" / INST)
+        r = self.f.post()
+        q11 = self.line(r.stdout, "Q11")
+        self.assertTrue(q11.startswith("WARN"), q11)
+        self.assertNotIn("FAIL Q11", r.stdout)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_q11_lists_via_sudo_and_passes_clean_snapshot(self):
+        self.f.pre()
+        self.f.apply_update()
+        (self.f.stub / "sudo-find").write_text("")
+        self.lock(self.f.fx / ".pre-update", self.f.fx / ".pre-update" / INST)
+        r = self.f.post()
+        q11 = self.line(r.stdout, "Q11")
+        self.assertTrue(q11.startswith("PASS"), q11)
+        self.assertIn("listed via sudo", q11)
+        self.assertNotIn("snapshot holds data/.env", r.stdout)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        # names only: every sudo call is a find that prints names, never reads or runs anything
+        calls = [c for c in self.sudo_log().splitlines() if c]
+        self.assertTrue(calls)
+        for c in calls:
+            self.assertTrue(c.startswith("-n find "), c)
+            for bad in ("-exec", "-ok", "-delete", "-fprint", "-ls"):
+                self.assertNotIn(bad, c.split())
+        listing = (self.f.fx / "home/pi/kid-evidence/post/pre-update-listing.txt").read_text()
+        self.assertIn("f COMPLETE\n", listing)
+        self.assertIn("snapshot_listed_via=sudo\n", (self.f.fx / "home/pi/kid-evidence/post/baseline.env").read_text())
+
+    def test_q11_passes_directly_when_listable(self):
+        self.f.pre()
+        self.f.apply_update()
+        r = self.f.post()
+        q11 = self.line(r.stdout, "Q11")
+        self.assertTrue(q11.startswith("PASS"), q11)
+        self.assertIn("listed via direct", q11)
+        self.assertEqual(self.sudo_log(), "")
+
+    def test_q11_env_in_snapshot_is_info_and_pass(self):
+        self.f.pre()
+        self.f.apply_update()
+        snap = self.f.fx / ".pre-update" / INST
+        (snap / "data/.env").write_text(SECRET_ENV)
+        (self.f.stub / "sudo-find").write_text("")
+        self.lock(self.f.fx / ".pre-update", snap)
+        r = self.f.post()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertTrue(self.line(r.stdout, "Q11").startswith("PASS"), r.stdout)
+        self.assertIn("INFO Q11 snapshot-env: snapshot holds data/.env, root-only", r.stdout.splitlines())
+        self.assertNotIn("WARN Q11", r.stdout)
+        os.chmod(self.f.fx / ".pre-update", 0o755)
+        self.assert_no_secrets(self.f.fx / "home/pi/kid-evidence/post", r.stdout)
+
+    def test_q11_secret_path_via_sudo_fails(self):
+        self.f.pre()
+        self.f.apply_update()
+        snap = self.f.fx / ".pre-update" / INST
+        (snap / "data/data/keys").mkdir(parents=True)
+        (snap / "data/data/keys/pull_key").write_text("x")
+        (self.f.stub / "sudo-find").write_text("")
+        self.lock(self.f.fx / ".pre-update", snap)
+        r = self.f.post()
+        q11 = self.line(r.stdout, "Q11")
+        self.assertTrue(q11.startswith("FAIL"), q11)
+        self.assertIn("data/data/keys", q11)
+        self.assertEqual(r.returncode, 1)
+
+    def test_q11_incomplete_snapshot_fails(self):
+        self.f.pre()
+        self.f.apply_update()
+        (self.f.fx / ".pre-update" / INST / "COMPLETE").unlink()
+        r = self.f.post()
+        q11 = self.line(r.stdout, "Q11")
+        self.assertTrue(q11.startswith("FAIL"), q11)
+        self.assertIn("incomplete", q11)
+
+    def test_q11_missing_snapshot_fails(self):
+        self.f.pre()
+        self.f.apply_update()
+        snap = self.f.fx / ".pre-update" / INST
+        snap.rename(snap.with_name("moved"))
+        r = self.f.post()
+        q11 = self.line(r.stdout, "Q11")
+        self.assertTrue(q11.startswith("FAIL Q11 snapshot-no-secrets: no "), q11)
+        # behind a root-only parent, sudo find tells "missing" apart from "cannot list"
+        (self.f.stub / "sudo-find").write_text("")
+        shutil.rmtree(self.f.fx / "home/pi/kid-evidence/post")
+        self.lock(self.f.fx / ".pre-update")
+        r = self.f.post()
+        q11 = self.line(r.stdout, "Q11")
+        self.assertTrue(q11.startswith("FAIL Q11 snapshot-no-secrets: no "), q11)
 
     def test_post_needs_pre_and_args(self):
         r = self.f.run("post", "--stick", "/disks/sdc1")
