@@ -112,7 +112,7 @@ class E2eTarFallbackTests(unittest.TestCase):
             self.assertIn("apps/usage-dashboard-1.3/collector/build-info.json", listed)
             self.assertIn("apps/usage-dashboard-1.3/compose.yaml", listed)
             planned = (dest / "dry-run-meta" / "planned-tars.txt").read_text(encoding="utf-8")
-            self.assertIn("services/ghcr.io_koenswings_usage-dashboard-web:1.2.tar", planned)
+            self.assertIn("services/ghcr.io_koenswings_usage-dashboard-web:1.3.tar", planned)
             self.assertIn("services/python:3.12-slim-bookworm.tar", planned)
             self.assertIn("services/tailscale_tailscale:v1.88.3.tar", planned)
             commands = (dest / "dry-run-meta" / "planned-commands.txt").read_text(encoding="utf-8")
