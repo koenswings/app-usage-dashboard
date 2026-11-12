@@ -4,7 +4,7 @@
  * Comparison lives only in this module. The values here are defaults that an
  * operator can change in Settings. Effective values come from /meta.thresholds
  * (served with thresholdsConfigured: true). If that object is absent, these
- * defaults are used. Grey (no data) never counts as amber.
+ * defaults are used. No data never counts as amber.
  * Tones follow the collector in PR #2 (Kid 7880247, not yet pushed).
  */
 import type { ScorecardInputs, ScorecardThresholds } from "../api/types";
@@ -116,7 +116,7 @@ export const THRESHOLD_FIELDS: ThresholdFieldMeta[] = [
   {
     id: "helpAfterAmberWeeks",
     label: "Help after amber weeks",
-    meaning: "Offer help after this many consecutive school weeks with any line amber. A grey week neither counts nor breaks the streak; a green week resets it. A school with no pulled data yet is offered help at once.",
+    meaning: "Offer help after this many consecutive school weeks with any line amber. A week with no data neither counts nor breaks the streak; a green week resets it. A school with no pulled data yet is offered help at once.",
     kind: "int",
     min: 1,
   },
@@ -391,7 +391,7 @@ export function helpRulesText(thresholds: ScorecardThresholds): string {
   const unusedWord = unusedAfter === 1 ? "school week" : "school weeks";
   return (
     `Help is offered after ${helpAfter} consecutive ${helpWord} with any line amber. ` +
-    "A grey week (no data) neither counts toward that streak nor breaks it; a green week resets it. " +
+    "A week with no data neither counts toward that streak nor breaks it; a green week resets it. " +
     "A school with no pulled data yet is offered help at once. " +
     `A school counts as unused if it is still amber with no improvement ${unusedAfter} ${unusedWord} after help was offered. ` +
     "Unused schools are not listed in the offer-help banner."

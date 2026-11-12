@@ -186,9 +186,9 @@ export function SettingsPage(props: SettingsPageProps) {
       <FleetNav week={props.week} current="settings" />
       <div class="wrap">
         <h2>Scorecard thresholds</h2>
-        <p class="muted">
+        <p class="muted" data-testid="settings-intro">
           These are the starting U-7 cut-offs Koen approved. They grade each school week.
-          Grey (no data) never counts as amber. Set up is a yes/no check and has no number.
+          No data never counts as amber. Set up is a yes/no check and has no number.
         </p>
         <Show when={!props.writable}>
           <p class="status-banner" data-testid="settings-readonly-note" role="status">
