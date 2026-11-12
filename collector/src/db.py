@@ -155,7 +155,7 @@ def now_rfc3339() -> str:
 
 def connect(path: str) -> sqlite3.Connection:
     os.makedirs(os.path.dirname(os.path.abspath(path)) or ".", exist_ok=True)
-    conn = sqlite3.connect(path, timeout=30, check_same_thread=False)
+    conn = sqlite3.connect(os.path.abspath(path), timeout=30, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode = WAL")
     conn.execute("PRAGMA foreign_keys = ON")
@@ -164,6 +164,21 @@ def connect(path: str) -> sqlite3.Connection:
     if row is None:
         conn.execute("INSERT INTO meta(key, value) VALUES ('schema_version', ?)", (str(SCHEMA_VERSION),))
         conn.commit()
+    return conn
+
+
+def open_request(path: str) -> sqlite3.Connection:
+    """A new connection to an existing store, for one HTTP request.
+
+    The API server is threaded and the pull/uplink loop keeps its own
+    connection. Sharing one sqlite3.Connection across threads raises
+    ProgrammingError ('bad parameter or other API misuse', SQLITE_MISUSE).
+    WAL plus a 30s timeout lets a request connection coexist with the loop.
+    """
+    conn = sqlite3.connect(path, timeout=30, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA foreign_keys = ON")
     return conn
 
 

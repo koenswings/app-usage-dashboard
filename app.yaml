@@ -25,7 +25,7 @@ services:
     upstream: python
     upstream_tag: "3.12-slim-bookworm"
     image: ghcr.io/koenswings/usage-dashboard-collector
-    current_version: "1.4"
+    current_version: "1.5"
     notes: >
       Baked image FROM the pinned python:3.12-slim-bookworm digest plus
       openssh-client, netcat-openbsd and tzdata (idea#461). Shipped as a
