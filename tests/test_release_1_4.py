@@ -1,8 +1,8 @@
 """idea#461: usage-dashboard 1.4 release compose.
 
 Version labels and USAGE_DASHBOARD_VERSION are 1.4. The web digest pin is
-kept from 1.3. The collector image is a baked python+packages pin; the
-digest is unbuilt (64 zeros) until the arm64 image is built on a Pi.
+kept from 1.3. The collector image is a baked python+packages pin from
+the idea03 arm64 build (sha256:dd2ff032…).
 Entrypoints and startup scripts must not install packages at runtime.
 """
 import re
@@ -17,9 +17,9 @@ WEB_PIN = (
     "ghcr.io/koenswings/usage-dashboard-web:1.3"
     "@sha256:6ec777fb89b84cae93cc592b5cb96b9dea070c71cb25e892a8294af3f10f5dfc"
 )
-UNBUILT_COLLECTOR_DIGEST = "0" * 64
 COLLECTOR_PIN = (
-    "ghcr.io/koenswings/usage-dashboard-collector:1.4@sha256:" + UNBUILT_COLLECTOR_DIGEST
+    "ghcr.io/koenswings/usage-dashboard-collector:1.4"
+    "@sha256:dd2ff032e15ba54da53f16ee54c43cad11a61b55ef8580e117142fe01fbee241"
 )
 # Command-like package installs. Dockerfile RUN lines are not scanned.
 RUNTIME_INSTALL_RE = re.compile(
@@ -79,12 +79,11 @@ class Release14Tests(unittest.TestCase):
         self.assertNotIn("usage-dashboard-web:1.4@", text)
         self.assertNotIn("DIGEST_PLACEHOLDER", text)
 
-    def test_collector_pin_is_unbuilt_zero_digest(self):
+    def test_collector_pin_is_dd2ff032(self):
         text = self._text()
         self.assertIn("    image: " + COLLECTOR_PIN + "\n", text)
         self.assertNotIn("image: python:3.12-slim-bookworm", text)
-        # The 64-zero digest is the unbuilt marker; replace after the Pi build.
-        self.assertIn(UNBUILT_COLLECTOR_DIGEST, text)
+        self.assertNotIn("sha256:" + ("0" * 64), text)
 
     def test_migration_note_is_1_3_to_1_4_no_data_migration(self):
         text = self._text()

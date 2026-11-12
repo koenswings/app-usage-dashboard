@@ -136,12 +136,11 @@ services:
   collector:
     # Custom image FROM the pinned python:3.12-slim-bookworm digest
     # (idea#322, linux/arm64 verified 2026-11-11) plus openssh-client,
-    # netcat-openbsd and tzdata (idea#461). The digest below is unbuilt
-    # (64 zeros) until the arm64 image is built on a claimed pool Pi;
-    # then run script/pin-collector-digest.sh. ./collector stays
-    # bind-mounted at /app. pull_policy: never so a start cannot try
-    # to pull an unpublished name.
-    image: ghcr.io/koenswings/usage-dashboard-collector:1.4@sha256:0000000000000000000000000000000000000000000000000000000000000000
+    # netcat-openbsd and tzdata (idea#461). Built on idea03 2026-11-12
+    # (throwaway buildx, linux/arm64, single-platform --load). ./collector
+    # stays bind-mounted at /app. pull_policy: never so a start cannot
+    # try to pull an unpublished name.
+    image: ghcr.io/koenswings/usage-dashboard-collector:1.4@sha256:dd2ff032e15ba54da53f16ee54c43cad11a61b55ef8580e117142fe01fbee241
     labels:
       x-app-version: "1.4"
     restart: unless-stopped
