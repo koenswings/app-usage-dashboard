@@ -146,13 +146,25 @@ class Fixture:
 
     def write_sums(self):
         root = self.stick
-        b = "apps/" + APP
+        bdir = root / "apps" / APP
         lines = []
-        for p in sorted((root / b).rglob("*")):
+        for p in sorted(bdir.rglob("*")):
             if p.is_file() and p.name != "SHA256SUMS":
-                rel = p.relative_to(root).as_posix()
-                lines.append("%s  %s" % (sha256(p), rel))
-        (root / b / "SHA256SUMS").write_text("\n".join(lines) + "\n")
+                lines.append("%s  %s" % (sha256(p), p.relative_to(bdir).as_posix()))
+        (bdir / "SHA256SUMS").write_text("\n".join(lines) + "\n")
+        # Isolated-tree disk-root SHA256SUMS. sha256sum --check only verifies
+        # listed paths; unlisted top-level Disk B content is not a failure.
+        root_lines = []
+        for p in sorted(root.rglob("*")):
+            if not p.is_file():
+                continue
+            rel = p.relative_to(root).as_posix()
+            if rel == "SHA256SUMS":
+                continue
+            if rel.startswith("apps/") or rel.startswith("services/"):
+                root_lines.append("%s  %s" % (sha256(p), rel))
+        if root_lines:
+            (root / "SHA256SUMS").write_text("\n".join(root_lines) + "\n")
 
     def set_status(self, state, pub):
         (self.stub / "status.json").write_text(json.dumps(

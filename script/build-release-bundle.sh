@@ -14,7 +14,8 @@
 #      its `git ls-files` copy includes the file);
 #   4. run build-app-bundle.sh, which writes SHA256SUMS over the file;
 #   5. check the bundle: build-info.json present, listed in SHA256SUMS, holds
-#      the commit and version, `sha256sum -c` passes, and check-bundle-safe.py
+#      the commit and version, `cd apps/<id> && sha256sum --check --strict SHA256SUMS`
+#      (Engine defaultVerifySums) passes, and check-bundle-safe.py
 #      finds no data/, .env or exclude/hookExclude path (copyBundle overwrites
 #      every top-level bundle name in instances/<id>).
 # The same commit always gives the same build-info.json bytes.
@@ -84,13 +85,18 @@ BUNDLE_REL=${BUNDLE_ABS#"$ROOT"/}
 BI="$BUNDLE_REL/collector/build-info.json"
 
 [ -f "$ROOT/$BI" ] || die "$BI missing from the bundle"
-grep -qE "^[0-9a-f]{64}  $(printf '%s' "$BI" | sed 's/[.+]/\\&/g')\$" "$ROOT/$BUNDLE_REL/SHA256SUMS" || die "$BI is not listed in SHA256SUMS"
+# Bundle SHA256SUMS is bundle-relative (Engine defaultVerifySums / sumsLookUsable).
+BI_REL="collector/build-info.json"
+grep -qE "^[0-9a-f]{64}  $(printf '%s' "$BI_REL" | sed 's/[.+]/\\&/g')\$" "$ROOT/$BUNDLE_REL/SHA256SUMS" || die "$BI_REL is not listed in SHA256SUMS"
 python3 - "$ROOT/$BI" "$SHA" "$VERSION" <<'PY' || die "build-info.json content check failed"
 import json, sys
 d = json.load(open(sys.argv[1], encoding="utf-8"))
 assert d == {"version": sys.argv[3], "commit": sys.argv[2]}, d
 PY
-(cd "$ROOT" && sha256sum --quiet --strict -c "$BUNDLE_REL/SHA256SUMS") || die "SHA256SUMS check failed"
+(cd "$ROOT/$BUNDLE_REL" && sha256sum --quiet --strict --check SHA256SUMS) || die "bundle SHA256SUMS check failed"
+if [ -f "$ROOT/SHA256SUMS" ]; then
+  (cd "$ROOT" && sha256sum --quiet --strict --check SHA256SUMS) || die "disk-root SHA256SUMS check failed"
+fi
 # copyBundle overwrites instances/<id> with every top-level bundle name: no data/,
 # no .env, nothing in x-app.backup exclude/hookExclude; SHA256SUMS lists compose.yaml.
 python3 "$HERE/check-bundle-safe.py" "$ROOT/$BUNDLE_REL" || die "bundle would clobber live instance state"

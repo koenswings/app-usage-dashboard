@@ -31,8 +31,10 @@ if [ "${ALLOW_UNTAGGED:-}" = 1 ]; then V="0.0-dev+$(git -C "$A" rev-parse --shor
   [ "$(git -C "$A" rev-parse "refs/tags/$F^{commit}")" = "$(git -C "$A" rev-parse HEAD)" ] || { echo "not HEAD" >&2; exit 1; }; V=$F; fi
 B="apps/usage-dashboard-$V"; mkdir -p "$R/$B"
 (cd "$A" && git ls-files -z | tar --null -T - -cf -) | tar -xpf - -C "$R/$B"
-(cd "$R" && find "$B" -type f ! -name SHA256SUMS | LC_ALL=C sort | while read -r f; do sha256sum -- "$f"; done) > "$R/apps/.sums.$$"
-mv "$R/apps/.sums.$$" "$R/$B/SHA256SUMS"
+(cd "$R/$B" && find . -type f ! -name SHA256SUMS | sed 's|^\./||' | LC_ALL=C sort | while read -r f; do sha256sum -- "$f"; done) > "$R/$B/SHA256SUMS"
+# Isolated-tree disk-root SHA256SUMS (services/*.tar + apps/**). sha256sum --check
+# only verifies listed paths; unlisted live-disk content is not a failure.
+(cd "$R" && { find apps \( -type f -o -type l \); find services -maxdepth 1 -type f -name '*.tar' 2>/dev/null || true; } | LC_ALL=C sort -u | while read -r f; do sha256sum -- "$f"; done) > "$R/SHA256SUMS"
 echo "ok: $R/$B ($(wc -l < "$R/$B/SHA256SUMS") files in SHA256SUMS)"
 """
 DOCKER_STUB = '#!/usr/bin/env bash\n[ "$1" = save ] && { echo "placeholder $2"; exit 0; }\nexit 9\n'
@@ -68,7 +70,7 @@ class BuildReleaseBundleTests(unittest.TestCase):
             (self.app / rel).chmod(0o755)
         subprocess.run(g + ["add", "-A", "script"], check=True)
         subprocess.run(g + ["commit", "-qm", "test", "--allow-empty"], check=True)
-        subprocess.run(g + ["tag", "1.1"], check=True)  # local throwaway clone only
+        subprocess.run(g + ["tag", "-f", "1.1"], check=True)  # throwaway clone; repo already has official tag 1.1
         self.sha = subprocess.check_output(["git", "-C", str(self.app), "rev-parse", "HEAD"], text=True).strip()
         self.stub = self.t / "build-app-bundle.sh"
         self.stub.write_text(STUB_BAB)
@@ -98,8 +100,10 @@ class BuildReleaseBundleTests(unittest.TestCase):
         self.assertTrue(bi.is_file())
         self.assertEqual(json.loads(bi.read_text()), {"version": "1.1", "commit": self.sha})
         sums = (b / "SHA256SUMS").read_text()
-        self.assertIn("%s  apps/%s/collector/build-info.json\n" % (sha256(bi), app_id), sums)
-        subprocess.run(["sha256sum", "--quiet", "--strict", "-c", "apps/%s/SHA256SUMS" % app_id], cwd=root, check=True)
+        self.assertIn("%s  collector/build-info.json\n" % sha256(bi), sums)
+        subprocess.run(["sha256sum", "--quiet", "--strict", "--check", "SHA256SUMS"], cwd=b, check=True)
+        if (root / "SHA256SUMS").is_file():
+            subprocess.run(["sha256sum", "--quiet", "--strict", "--check", "SHA256SUMS"], cwd=root, check=True)
         self.assertFalse((b / "data").exists())
         self.assertFalse((b / ".env").exists())
         # health resolves the commit from the bundled file
@@ -151,7 +155,7 @@ class BuildReleaseBundleTests(unittest.TestCase):
         tag_compose = subprocess.check_output(["git", "-C", str(self.app), "show", "1.1:compose.yaml"])
         self.assertEqual((root / "apps/usage-dashboard-1.1/compose.yaml").read_bytes(), tag_compose)
         sums = (root / "apps/usage-dashboard-1.1/SHA256SUMS").read_text()
-        self.assertRegex(sums, r"(?m)^[0-9a-f]{64}  apps/usage-dashboard-1\.1/compose\.yaml$")
+        self.assertRegex(sums, r"(?m)^[0-9a-f]{64}  compose\.yaml$")
 
 
 class CheckBundleSafeTests(unittest.TestCase):
@@ -166,11 +170,10 @@ class CheckBundleSafeTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def sums(self, skip=()):
-        root = self.b.parents[1]
         lines = []
         for p in sorted(self.b.rglob("*")):
             if p.is_file() and p.name != "SHA256SUMS" and p.name not in skip:
-                lines.append("%s  %s" % (sha256(p), p.relative_to(root).as_posix()))
+                lines.append("%s  %s" % (sha256(p), p.relative_to(self.b).as_posix()))
         (self.b / "SHA256SUMS").write_text("".join(l + "\n" for l in lines))
 
     def run_safe(self, *args):
