@@ -6,9 +6,12 @@
 # and has no per-app hook, so a build-info.json written into the checkout
 # (gitignored) never reaches the bundle, and GET /api/v1/health reports no
 # commit. This wrapper keeps build-app-bundle.sh unchanged:
-#   1. clone the checkout's HEAD commit (and its tags) into a throwaway dir;
+#   1. fetch HEAD and tags into a throwaway clone and check out --ref
+#      (refs/tags/$REF^{commit}, or HEAD when ALLOW_UNTAGGED=1). Never use
+#      FETCH_HEAD: a following tags fetch overwrites it, and checkout would
+#      land on the lowest tag (e.g. 1.1) instead of the requested ref;
 #   2. write collector/build-info.json there with script/write-build-info.sh:
-#      {"version": <x-app.version>, "commit": <full HEAD sha>};
+#      {"version": <x-app.version>, "commit": <full commit sha>};
 #   3. `git add -f` it in the throwaway clone's INDEX only (no commit, HEAD is
 #      still the tag commit, so build-app-bundle.sh's tag==HEAD check holds and
 #      its `git ls-files` copy includes the file);
@@ -26,7 +29,8 @@
 #
 # --ref must equal compose.yaml x-app.version (e.g. 1.1) unless ALLOW_UNTAGGED=1
 # (dev bundle 0.0-dev+<sha12>; build-info.json still carries x-app.version).
-# Builds from the COMMITTED HEAD; uncommitted changes are not bundled.
+# Builds from the --ref tag (or committed HEAD when ALLOW_UNTAGGED=1);
+# uncommitted changes are not bundled.
 # Env passed through to build-app-bundle.sh: DOCKER, ALLOW_UNTAGGED.
 set -euo pipefail
 die() { echo "ERROR: $*" >&2; exit 1; }
@@ -40,7 +44,7 @@ while [ $# -gt 0 ]; do
     --disk-root) ROOT="${2:-}"; shift 2 ;;
     --ref) REF="${2:-}"; shift 2 ;;
     --app-dir) APP_DIR="${2:-}"; shift 2 ;;
-    -h|--help) sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,34p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) die "unknown arg: $1" ;;
   esac
 done
@@ -51,9 +55,9 @@ git -C "$APP_DIR" rev-parse --git-dir >/dev/null 2>&1 || die "--app-dir is not a
 ROOT=$(cd "$ROOT" && pwd)
 BAB=$(cd "$(dirname "$BAB")" && pwd)/$(basename "$BAB")
 
-SHA=$(git -C "$APP_DIR" rev-parse HEAD)
+HEAD_SHA=$(git -C "$APP_DIR" rev-parse HEAD)
 if [ -n "$(git -C "$APP_DIR" status --porcelain --untracked-files=no)" ]; then
-  echo "WARNING: $APP_DIR has uncommitted changes; they are NOT bundled (building $SHA)" >&2
+  echo "WARNING: $APP_DIR has uncommitted changes; they are NOT bundled (HEAD is $HEAD_SHA)" >&2
 fi
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/usage-dashboard-bundle.XXXXXX")
@@ -61,10 +65,16 @@ cleanup() { case "$WORK" in "${TMPDIR:-/tmp}"/usage-dashboard-bundle.*) rm -r --
 trap cleanup EXIT
 SRC="$WORK/src"
 git init -q "$SRC"
-git -C "$SRC" fetch -q --no-tags "$APP_DIR" HEAD
+# Named refs only. Do not check out FETCH_HEAD: the tags fetch below rewrites it.
+git -C "$SRC" fetch -q --no-tags "$APP_DIR" "+HEAD:refs/heads/src-head"
 git -C "$SRC" fetch -q "$APP_DIR" 'refs/tags/*:refs/tags/*' 2>/dev/null || true
-git -C "$SRC" -c advice.detachedHead=false checkout -q --detach FETCH_HEAD 2>/dev/null \
-  || git -C "$SRC" -c advice.detachedHead=false checkout -q --detach "$SHA"
+if [ "${ALLOW_UNTAGGED:-}" = 1 ]; then
+  SHA=$(git -C "$SRC" rev-parse --verify "refs/heads/src-head")
+else
+  SHA=$(git -C "$SRC" rev-parse --verify "refs/tags/${REF}^{commit}") \
+    || die "--ref '$REF' is not a git tag in $APP_DIR"
+fi
+git -C "$SRC" -c advice.detachedHead=false checkout -q --detach "$SHA"
 [ "$(git -C "$SRC" rev-parse HEAD)" = "$SHA" ] || die "throwaway clone is not at $SHA"
 
 VERSION=$(awk '/^x-app:/{x=1;next} x&&/^[^ #]/{x=0} x&&/^  version:/{v=$2; gsub(/"/,"",v); print v; exit}' "$SRC/compose.yaml")

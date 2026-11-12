@@ -68,14 +68,13 @@ class BuildReleaseBundleTests(unittest.TestCase):
         for rel in ("script/build-release-bundle.sh", "script/check-bundle-safe.py", "script/write-build-info.sh"):
             (self.app / rel).write_bytes((REPO / rel).read_bytes())
             (self.app / rel).chmod(0o755)
-        # Working-tree compose (1.2 bump) must be in the clone: the wrapper
-        # builds committed HEAD only, and official tag 1.1 would otherwise
-        # steal FETCH_HEAD from the script's tag fetch.
+        # Working-tree compose and scripts must be committed: the wrapper
+        # builds the --ref tag only. Leave official tag 1.1 in place (it
+        # points at a different commit) so a tags fetch cannot steal checkout.
         (self.app / "compose.yaml").write_bytes((REPO / "compose.yaml").read_bytes())
         subprocess.run(g + ["add", "-A", "script", "compose.yaml"], check=True)
         subprocess.run(g + ["commit", "-qm", "test", "--allow-empty"], check=True)
-        subprocess.run(["git", "-C", str(self.app), "tag", "-d", "1.1"], check=True, capture_output=True)
-        subprocess.run(g + ["tag", "-f", "1.2"], check=True)  # throwaway clone; official 1.2 is tagged later
+        subprocess.run(g + ["tag", "-f", "1.2"], check=True)  # throwaway clone; official 1.2 stays on origin
         self.sha = subprocess.check_output(["git", "-C", str(self.app), "rev-parse", "HEAD"], text=True).strip()
         self.stub = self.t / "build-app-bundle.sh"
         self.stub.write_text(STUB_BAB)
@@ -143,6 +142,72 @@ class BuildReleaseBundleTests(unittest.TestCase):
         r, _ = self.build(self.stub, ref="1.3")
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("does not equal compose.yaml x-app.version", r.stderr)
+
+    def test_ref_1_2_builds_from_1_2_commit_when_1_1_tag_also_present(self):
+        """A second older tag must not divert --ref 1.2 onto the 1.1 commit."""
+        repo = self.t / "two_tags"
+        repo.mkdir()
+        g = ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t"]
+        subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+        (repo / "script").mkdir()
+        (repo / "collector").mkdir()
+        for rel in ("script/build-release-bundle.sh", "script/check-bundle-safe.py",
+                    "script/write-build-info.sh"):
+            dest = repo / rel
+            dest.write_bytes((REPO / rel).read_bytes())
+            dest.chmod(0o755)
+        compose = (REPO / "compose.yaml").read_text()
+
+        def stamp(version, marker):
+            lines = []
+            replaced = False
+            for line in compose.splitlines(True):
+                if line.startswith("  version:"):
+                    lines.append('  version: "%s"\n' % version)
+                    replaced = True
+                else:
+                    lines.append(line)
+            if not replaced:
+                raise AssertionError("compose.yaml has no x-app version line to stamp")
+            (repo / "compose.yaml").write_text("".join(lines))
+            (repo / "marker.txt").write_text(marker + "\n")
+
+        stamp("1.1", "from-1.1")
+        subprocess.run(g + ["add", "-A"], check=True)
+        subprocess.run(g + ["commit", "-qm", "tag 1.1"], check=True)
+        subprocess.run(g + ["tag", "1.1"], check=True)
+        sha_11 = subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"], text=True).strip()
+        stamp("1.2", "from-1.2")
+        subprocess.run(g + ["add", "-A"], check=True)
+        subprocess.run(g + ["commit", "-qm", "tag 1.2"], check=True)
+        subprocess.run(g + ["tag", "1.2"], check=True)
+        sha_12 = subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"], text=True).strip()
+        self.assertNotEqual(sha_11, sha_12)
+        self.assertEqual(
+            subprocess.check_output(
+                ["git", "-C", str(repo), "rev-parse", "refs/tags/1.1^{commit}"], text=True
+            ).strip(),
+            sha_11,
+        )
+
+        root = self.t / "two_tags_root"
+        root.mkdir()
+        env = dict(os.environ, DOCKER=str(self.docker))
+        env.pop("ALLOW_UNTAGGED", None)
+        r = subprocess.run(
+            [str(repo / "script/build-release-bundle.sh"),
+             "--build-app-bundle", str(self.stub),
+             "--disk-root", str(root), "--ref", "1.2", "--app-dir", str(repo)],
+            capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        b = root / "apps" / "usage-dashboard-1.2"
+        self.assertEqual((b / "marker.txt").read_text(), "from-1.2\n")
+        self.assertEqual(
+            json.loads((b / "collector/build-info.json").read_text()),
+            {"version": "1.2", "commit": sha_12},
+        )
+        self.assertNotIn(sha_11, (b / "collector/build-info.json").read_text())
 
     def test_untagged_dev_bundle_still_carries_xapp_version(self):
         r, root = self.build(self.stub, untagged=True)
