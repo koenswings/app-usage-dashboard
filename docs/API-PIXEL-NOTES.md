@@ -105,7 +105,7 @@ Names taken as proposed. Pushback/notes live in the Kid report to you: `learnerS
 
 All additive; `idea-usage-api/1` unchanged. Full rules and the Set up truth table are in `docs/API.md` § idea#462.
 
-- **Use `scorecard.setupStatus.complete` for the Set up line** (`true` on track, `false` needs help, `null` no data) instead of re-implementing U-7 in `setupIsComplete`. `kolibri` / `nextcloud` carry `missing` / `unknown` reasons (`coach`, `class`, `enrolledLearner`, `teacherBeyondSeed`, `learnerBeyondSeed`, `noOwnKolibri`, `noOwnNextcloud`) and `passingInstanceIds` for the Settings note. Against a 1.1 collector (no `setupStatus`) fall back to your old rule.
+- **Use `scorecard.setupStatus.complete` for the Set up line** (`true` on track, `false` needs help, `null` no data) instead of re-implementing U-7 in `setupIsComplete`. `kolibri` / `nextcloud` carry `missing` / `unknown` reasons (`coach`, `class`, `enrolledLearner`, `teacherBeyondSeed`, `learnerBeyondSeed`, `noOwnKolibri`, `noOwnNextcloud`) and `passingInstanceIds` for the Settings note. Against a 1.1 collector (no `setupStatus`) show No data.
 - `scorecard.setup`: names unchanged (`classes`, `learnersRegistered`, `learnersEnrolled` now filled, `teachers` = Kolibri coaches, `admins`, `nextcloudTeacherBeyondSeed`, `nextcloudLearnerBeyondSeed`), plus `kolibriCoachBeyondSeed` (the value the Kolibri coach condition uses). All are the max across own copies.
 - `census` is the same copy set and values as `scorecard.setup`, plus `coachesBeyondSeed`.
 - `scorecard.copies: {kolibri, nextcloud, kiwix}` lists the own instance ids behind the scorecard.
