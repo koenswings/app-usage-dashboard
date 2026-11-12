@@ -1,7 +1,7 @@
 """idea#462: usage-dashboard 1.2 release compose.
 
 Version labels and USAGE_DASHBOARD_VERSION are 1.2. The web digest pin is
-still the 1.0/1.1 image (placeholder) until the idea03 buildx export.
+the idea03 buildx linux/arm64 image (single-platform manifest).
 """
 import re
 import subprocess
@@ -12,8 +12,8 @@ REPO = Path(__file__).resolve().parents[1]
 CHECK = REPO / "script" / "check-compose.mjs"
 COMPOSE = REPO / "compose.yaml"
 WEB_PIN = (
-    "ghcr.io/koenswings/usage-dashboard-web:1.0"
-    "@sha256:9b5501f0690f02146217595f177496612d107aefd2bd56c181f84c7f1c678139"
+    "ghcr.io/koenswings/usage-dashboard-web:1.2"
+    "@sha256:706fdd6833d5131cffe80e2410ace37899b8942fa8b0cb5d3e8088a103edde45"
 )
 
 
@@ -40,10 +40,11 @@ class Release12Tests(unittest.TestCase):
         self.assertNotIn('x-app-version: "1.0"', text)
         self.assertNotIn("USAGE_DASHBOARD_VERSION=1.1", text)
 
-    def test_web_pin_is_placeholder_9b5501f0(self):
+    def test_web_pin_is_706fdd68(self):
         text = self._text()
         self.assertIn("    image: " + WEB_PIN + "\n", text)
-        self.assertRegex(text, r"(?m)^    # PLACEHOLDER:")
+        self.assertNotIn("PLACEHOLDER", text)
+        self.assertNotIn("usage-dashboard-web:1.0@", text)
 
     def test_migration_note_is_1_1_to_1_2_no_data_migration(self):
         text = self._text()

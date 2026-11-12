@@ -185,9 +185,7 @@ services:
     entrypoint: ["/bin/sh", "/app/entrypoint.sh"]
 
   web:
-    # PLACEHOLDER: 1.0 web image (same pin as 1.1). Replace with the 1.2
-    # web digest after the idea03 buildx export and pin step.
-    image: ghcr.io/koenswings/usage-dashboard-web:1.0@sha256:9b5501f0690f02146217595f177496612d107aefd2bd56c181f84c7f1c678139
+    image: ghcr.io/koenswings/usage-dashboard-web:1.2@sha256:706fdd6833d5131cffe80e2410ace37899b8942fa8b0cb5d3e8088a103edde45
     labels:
       x-app-version: "1.2"
     restart: unless-stopped

@@ -8,11 +8,6 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 CHECK = REPO / "script" / "check-compose.mjs"
 COMPOSE = REPO / "compose.yaml"
-WEB_PIN = (
-    "ghcr.io/koenswings/usage-dashboard-web:1.0"
-    "@sha256:9b5501f0690f02146217595f177496612d107aefd2bd56c181f84c7f1c678139"
-)
-
 VERIFY_BLOCK = """    verify:
       present:
         - .env
@@ -73,10 +68,6 @@ class Release11Tests(unittest.TestCase):
             if on and m:
                 out.append(m.group(1))
         return out
-
-    def test_web_pin_is_still_9b5501f0_until_1_2_image_lands(self):
-        # 1.2 keeps this pin as a placeholder until the new web digest is pinned.
-        self.assertIn("    image: " + WEB_PIN + "\n", self._text())
 
     def test_backup_method_hook_present(self):
         text = self._text()

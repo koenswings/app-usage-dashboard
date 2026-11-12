@@ -96,7 +96,7 @@ class E2eTarFallbackTests(unittest.TestCase):
                 cwd=str(REPO),
             )
             self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-            bundle = dest / "apps" / "usage-dashboard-1.0"
+            bundle = dest / "apps" / "usage-dashboard-1.2"
             info = bundle / "collector" / "build-info.json"
             sums = bundle / "SHA256SUMS"
             self.assertTrue((bundle / "compose.yaml").is_file())
@@ -105,14 +105,14 @@ class E2eTarFallbackTests(unittest.TestCase):
             commit = subprocess.check_output(
                 ["git", "-C", str(REPO), "rev-parse", "HEAD"], text=True
             ).strip()
-            self.assertEqual(data["version"], "1.0")
+            self.assertEqual(data["version"], "1.2")
             self.assertEqual(data["commit"], commit)
             self.assertTrue(sums.is_file())
             listed = sums.read_text(encoding="utf-8")
-            self.assertIn("apps/usage-dashboard-1.0/collector/build-info.json", listed)
-            self.assertIn("apps/usage-dashboard-1.0/compose.yaml", listed)
+            self.assertIn("apps/usage-dashboard-1.2/collector/build-info.json", listed)
+            self.assertIn("apps/usage-dashboard-1.2/compose.yaml", listed)
             planned = (dest / "dry-run-meta" / "planned-tars.txt").read_text(encoding="utf-8")
-            self.assertIn("services/ghcr.io_koenswings_usage-dashboard-web:1.0.tar", planned)
+            self.assertIn("services/ghcr.io_koenswings_usage-dashboard-web:1.2.tar", planned)
             self.assertIn("services/python:3.12-slim-bookworm.tar", planned)
             self.assertIn("services/tailscale_tailscale:v1.88.3.tar", planned)
             commands = (dest / "dry-run-meta" / "planned-commands.txt").read_text(encoding="utf-8")
@@ -123,7 +123,7 @@ class E2eTarFallbackTests(unittest.TestCase):
             self.assertIn("script/verify-service-tar.sh compose.yaml services", commands)
             self.assertNotIn("docker build", commands)
             self.assertIn("ghcr.io/koenswings/usage-dashboard-web@" + pin.split("@", 1)[1], commands)
-            self.assertIn("installApp usage-dashboard-1.0", commands)
+            self.assertIn("installApp usage-dashboard-1.2", commands)
             self.assertIn("--source", commands)
             self.assertIn("--fresh", commands)
             self.assertIn("--keep", commands)
@@ -155,7 +155,7 @@ class E2eTarFallbackTests(unittest.TestCase):
                 (repo / "script" / f.name).write_bytes(f.read_bytes())
                 (repo / "script" / f.name).chmod(f.stat().st_mode)
             text = (REPO / "compose.yaml").read_text(encoding="utf-8")
-            text = re.sub(r"image: ghcr.io/koenswings/usage-dashboard-web:1.0@sha256:[0-9a-f]{64}",
+            text = re.sub(r"image: ghcr.io/koenswings/usage-dashboard-web:\S+@sha256:[0-9a-f]{64}",
                           "image: usage-dashboard-web:local-abc", text)
             (repo / "compose.yaml").write_text(text, encoding="utf-8")
             result = subprocess.run([str(repo / "script" / "e2e-tar-fallback.sh"), "--dry-run", "--dest", str(Path(tmp) / "d")],

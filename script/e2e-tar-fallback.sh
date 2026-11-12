@@ -2,7 +2,7 @@
 # e2e-tar-fallback.sh — end-to-end installApp test of the services/ tar fallback.
 #
 # The Engine loads the web image from
-# <diskRoot>/services/ghcr.io_koenswings_usage-dashboard-web:1.0.tar
+# <diskRoot>/services/<serviceImageTarName of the compose web pin>
 # (a sibling of apps/, see docs/packaging.md) instead of running
 # `docker pull` on ghcr. This script stages the App Disk bundle, exports the
 # web tar of the compose pin with `script/publish-web-image.sh --export-tar`
@@ -44,8 +44,8 @@ REPO=$(cd "$HERE/.." && pwd)
 SEND="$HERE/send-engine-command.mjs"
 WRITE_BUILD_INFO="$HERE/write-build-info.sh"
 APP_NAME=usage-dashboard
-APP_VERSION=1.0
-APP_ID="${APP_NAME}-${APP_VERSION}"
+APP_VERSION=""
+APP_ID=""
 PUBLISH="$HERE/publish-web-image.sh"
 VERIFY="$HERE/verify-service-tar.sh"
 # Web image: the compose pin (repo:tag@sha256:...), its saveName and parts.
@@ -110,6 +110,11 @@ done
 [ -f "$REPO/compose.yaml" ] || die "compose.yaml not found in $REPO"
 [ -x "$PUBLISH" ] || die "publish-web-image.sh is not executable"
 [ -x "$VERIFY" ] || die "verify-service-tar.sh is not executable"
+APP_VERSION=$(awk '/^x-app:/{x=1;next} x&&/^[^ #]/{x=0} x&&/^  version:/{
+  v=$2; gsub(/"/,"",v); print v; exit
+}' "$REPO/compose.yaml")
+[ -n "$APP_VERSION" ] || die "could not read x-app.version from compose.yaml"
+APP_ID="${APP_NAME}-${APP_VERSION}"
 
 WEB_REF=$(awk '/^services:/{s=1;next} s&&/^[^ #]/{s=0} s&&/^  web:/{w=1;next} w&&/^  [A-Za-z0-9_-]+:/{w=0} w&&/^    image:/{print $2; exit}' "$REPO/compose.yaml" | tr -d "\"'")
 case "$WEB_REF" in
@@ -544,8 +549,8 @@ assert_no_web_pull() {
   if grep -E 'Pulling service image[[:space:]]+usage-dashboard-web|docker image pull[^[:space:]]*[[:space:]]+usage-dashboard-web' "$combined" >/dev/null 2>&1; then
     die "Engine log shows a registry pull of usage-dashboard-web (see $combined)"
   fi
-  if grep -F 'usage-dashboard-web:1.0' "$combined" | grep -E 'Pulling service image|docker image pull' >/dev/null 2>&1; then
-    die "Engine log shows a registry pull of usage-dashboard-web:1.0 (see $combined)"
+  if grep -F "$WEB_IMAGE" "$combined" | grep -E 'Pulling service image|docker image pull' >/dev/null 2>&1; then
+    die "Engine log shows a registry pull of $WEB_IMAGE (see $combined)"
   fi
   if grep -F "Loading the service image" "$combined" | grep -F "usage-dashboard-web" >/dev/null 2>&1; then
     log "Engine log: loaded usage-dashboard-web from the service tar (no pull)"
@@ -1088,13 +1093,13 @@ run_dry() {
   printf '%s\n' "${planned[@]}" > "$RUN_DIR/planned-tars.txt"
   # No docker daemon in dry-run: checksum the staged bundle only.
   write_sums "$root"
-  python3 - "$root/apps/$APP_ID/collector/build-info.json" "$COMMIT" <<'PY'
+  python3 - "$root/apps/$APP_ID/collector/build-info.json" "$COMMIT" "$APP_VERSION" <<'PY'
 import json, sys
-path, expect = sys.argv[1], sys.argv[2]
+path, expect, version = sys.argv[1], sys.argv[2], sys.argv[3]
 data = json.load(open(path))
-assert data["version"] == "1.0", data
+assert data["version"] == version, data
 assert data["commit"] == expect, data
-print("PASS: staged collector/build-info.json version=1.0 commit=" + expect)
+print("PASS: staged collector/build-info.json version=" + version + " commit=" + expect)
 PY
   cat > "$RUN_DIR/planned-commands.txt" <<EOF
 # Planned Engine / Docker steps (not executed in --dry-run)
