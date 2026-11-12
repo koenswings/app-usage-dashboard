@@ -4,13 +4,17 @@
 // Default: every service's x-app-version label == x-app.version
 // (and == --tag when given). Exit 1 on any problem.
 //
-// --release (idea#375 U-10): also require the web service to use a
-// digest-pinned ghcr image
+// --release (idea#375 U-10, idea#461): every service must use a
+// digest-pinned image (repo:tag@sha256:<64 hex>) with no build: block.
+// The web service must be
 //   ghcr.io/koenswings/usage-dashboard-web:<version>@sha256:<64 hex>
 //   (a :<version>-<shortsha>@sha256:<64 hex> pin is also accepted)
-// with no build: block, and (idea#446) an x-app.backup.verify block when
-// the backup method is hook. Fails if a packaging placeholder
-// (DIGEST_PLACEHOLDER, SHORTSHA, <DIGEST>) is still present.
+// and the collector service must be
+//   ghcr.io/koenswings/usage-dashboard-collector:<version>@sha256:<64 hex>
+//   (same optional -<shortsha> suffix).
+// Also (idea#446) an x-app.backup.verify block when the backup method is
+// hook. Fails if a packaging placeholder (DIGEST_PLACEHOLDER, SHORTSHA,
+// <DIGEST>) is still present.
 //
 // Engine idea#322 saveName() rejects a digest-only pin (no tag), so the
 // release form is repo:tag@sha256:digest, not repo@sha256:digest.
@@ -19,6 +23,9 @@ import { readFileSync } from 'node:fs';
 
 const PLACEHOLDER_RE = /DIGEST_PLACEHOLDER|<DIGEST>|SHORTSHA|REPLACE_ME_WITH_PUBLISHED_DIGEST/i;
 const GHCR_PIN_RE = /^ghcr\.io\/koenswings\/usage-dashboard-web:\d+\.\d+[0-9A-Za-z._+-]*@sha256:[0-9a-f]{64}$/;
+const COLLECTOR_PIN_RE = /^ghcr\.io\/koenswings\/usage-dashboard-collector:\d+\.\d+[0-9A-Za-z._+-]*@sha256:[0-9a-f]{64}$/;
+// Same rule as agent-app-dev lib/check-compose.mjs TAG_DIGEST_PIN (idea#49).
+const TAG_DIGEST_PIN = /^(?:[a-z0-9.-]+(?::[0-9]+)?\/)?[a-z0-9]+(?:[._-][a-z0-9]+)*(?:\/[a-z0-9]+(?:[._-][a-z0-9]+)*)*:[A-Za-z0-9_][A-Za-z0-9._-]{0,127}@sha256:[0-9a-f]{64}$/;
 
 const stripQuotes = (value) => String(value).trim().replace(/^['"]|['"]$/g, '');
 
@@ -61,8 +68,8 @@ const serviceBlock = (text, serviceName) => {
   return out.length ? out.join('\n') : null;
 };
 
-const webImage = (text) => {
-  const block = serviceBlock(text, 'web');
+const serviceImage = (text, serviceName) => {
+  const block = serviceBlock(text, serviceName);
   if (!block) return null;
   for (const line of block.split('\n')) {
     if (/^\s*#/.test(line)) continue;
@@ -72,11 +79,15 @@ const webImage = (text) => {
   return null;
 };
 
-const webHasBuild = (text) => {
-  const block = serviceBlock(text, 'web');
+const webImage = (text) => serviceImage(text, 'web');
+
+const serviceHasBuild = (text, serviceName) => {
+  const block = serviceBlock(text, serviceName);
   if (!block) return false;
   return /^    build:\s*$/m.test(block) || /^    build:\s+\S/m.test(block);
 };
+
+const webHasBuild = (text) => serviceHasBuild(text, 'web');
 
 
 const envValue = (block, name) => {
@@ -397,16 +408,41 @@ export function checkCompose(text, { tag, release } = {}) {
   checkBackupVerify(text, errs, { release });
 
   if (release) {
-    const image = webImage(text);
-    if (!image) {
-      errs.push('release web service has no image:');
-    } else if (!GHCR_PIN_RE.test(image)) {
+    const svcNames = [];
+    let inServices = false;
+    for (const line of text.split('\n')) {
+      if (line === 'services:') {
+        inServices = true;
+        continue;
+      }
+      if (inServices && /^\S/.test(line) && !line.startsWith('#')) inServices = false;
+      const sm = inServices && line.match(/^  ([A-Za-z0-9_-]+):\s*$/);
+      if (sm) svcNames.push(sm[1]);
+    }
+    for (const name of svcNames) {
+      const image = serviceImage(text, name);
+      if (!image) {
+        errs.push(`release service ${name} has no image:`);
+      } else if (!TAG_DIGEST_PIN.test(image)) {
+        errs.push(
+          `release service ${name} image must be <repo>:<tag>@sha256:<64-hex> (idea#322 tag+digest), got '${image}'`
+        );
+      }
+      if (serviceHasBuild(text, name)) {
+        errs.push(`release service ${name} must drop the build: block`);
+      }
+    }
+    const web = serviceImage(text, 'web');
+    if (web && !GHCR_PIN_RE.test(web)) {
       errs.push(
-        `release web image must be ghcr.io/koenswings/usage-dashboard-web:<version>@sha256:<64-hex> (idea#322 tag+digest; optional -<shortsha> suffix is accepted), got '${image}'`
+        `release web image must be ghcr.io/koenswings/usage-dashboard-web:<version>@sha256:<64-hex> (idea#322 tag+digest; optional -<shortsha> suffix is accepted), got '${web}'`
       );
     }
-    if (webHasBuild(text)) {
-      errs.push('release web service must drop the build: block');
+    const collector = serviceImage(text, 'collector');
+    if (collector && !COLLECTOR_PIN_RE.test(collector)) {
+      errs.push(
+        `release collector image must be ghcr.io/koenswings/usage-dashboard-collector:<version>@sha256:<64-hex> (idea#322 tag+digest; optional -<shortsha> suffix is accepted), got '${collector}'`
+      );
     }
   }
   return errs;

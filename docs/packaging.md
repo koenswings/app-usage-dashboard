@@ -16,10 +16,10 @@ commit without an instance `.env` hack.
 ## How `/health` gets `commit`
 
 `GET /api/v1/health` is served by the **collector**, not the web container.
-The collector runs the stock `python:3.12-slim-bookworm` image with
-`./collector` bind-mounted at `/app`. Baking `COMMIT` into the web image
-(or into `collector/Dockerfile`, which compose does not use) does not change
-what `/health` returns.
+The collector runs a baked image (`ghcr.io/koenswings/usage-dashboard-collector`,
+python:3.12-slim-bookworm plus openssh-client, netcat-openbsd and tzdata)
+with `./collector` bind-mounted at `/app`. Baking `COMMIT` into the web
+image or into the collector image does not change what `/health` returns.
 
 Resolution order (`collector/src/buildinfo.py`):
 
@@ -286,6 +286,33 @@ index digest, the Engine's idea#322 notes (PR #296) record that a plain save
 keeps the index (`.Id` = index digest). The first real save of `9b5501f0`
 (Atlas's idea03 refresh) checks that with step 3 of the runbook below.
 
+## Release 1.4 (idea#461)
+
+1.4 fixes a first-boot crash: 1.3's collector ran `apt-get` in
+`entrypoint.sh` to install `openssh-client`, `netcat-openbsd` and `tzdata`.
+On a fresh install the collector shares the userspace Tailscale netns
+(`network_mode: service:tailscale`, `TS_ACCEPT_DNS=false`) and cannot
+resolve `deb.debian.org`, so the container exits 100 and health stays 502
+(W2 hub move, 2026-11-12). 1.4 bakes those packages into a collector image
+and the entrypoint never installs anything.
+
+The image is `ghcr.io/koenswings/usage-dashboard-collector:1.4`, built on
+a claimed arm64 pool Pi with a throwaway buildx builder (same tar-only
+path as the 1.3 web image; see `script/publish-collector-image.sh`).
+Compose pins `repo:tag@sha256:<digest>`. The service tar name is
+`ghcr.io_koenswings_usage-dashboard-collector:1.4.tar` and goes in
+`<diskRoot>/services/` or the System Disk `/services`, next to the
+unchanged web tar (`ghcr.io_koenswings_usage-dashboard-web:1.3.tar` —
+the 1.3 web pin is kept, as 1.1 kept the 1.0 web pin).
+
+`updateApp` to 1.4 recreates the collector container and loads the new
+tar. `./data` and `./data/tailscale` stay in place; do not copy, re-auth
+or restart the Tailscale state or service. After the pin is filled,
+`script/check-compose.mjs --release` requires every service (including
+collector) to be digest-pinned with no `build:` block.
+
+There is no data migration (`1.3→1.4`).
+
 ## Pin-change runbook
 
 The tar name only depends on `repo:tag`, so when the pin moves, the old tar
@@ -414,7 +441,8 @@ existing web tar aside and exports
 with `script/publish-web-image.sh --export-tar /services --pin <compose pin>`
 (never a local build; the script refuses an unpinned web image). It also saves
 the other compose service tars the Engine will load
-(`python:3.12-slim-bookworm`, `tailscale_tailscale:v1.88.3`) and runs
+(`ghcr.io_koenswings_usage-dashboard-collector:<version>`,
+`tailscale_tailscale:v1.88.3`) and runs
 `script/verify-service-tar.sh compose.yaml /services` on all of them. `nginx:1.28-alpine` is only the web image
 build base, not a compose service, so it is not saved as a service tar.
 The names `repo:tag` and `repo@<pin>` are then removed (names only, no

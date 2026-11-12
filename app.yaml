@@ -21,14 +21,16 @@ services:
         tag_pattern: "^v\\d+\\.\\d+\\.\\d+$"
 
   - name: collector
-    build: official
+    build: custom
     upstream: python
     upstream_tag: "3.12-slim-bookworm"
-    image: python
-    current_version: "3.12-slim-bookworm"
+    image: ghcr.io/koenswings/usage-dashboard-collector
+    current_version: "1.4"
     notes: >
-      Official python image. collector/entrypoint.sh installs openssh-client on
-      first start (idea has internet). A Dockerfile is included for a later baked image.
+      Baked image FROM the pinned python:3.12-slim-bookworm digest plus
+      openssh-client, netcat-openbsd and tzdata (idea#461). Shipped as a
+      service tar and pinned by digest, like web. entrypoint.sh never
+      installs packages. ./collector stays bind-mounted at /app.
 
   - name: web
     build: official
