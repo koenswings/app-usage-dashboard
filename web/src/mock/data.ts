@@ -137,6 +137,7 @@ function emptyScorecard(): ScorecardInputs {
       sessionsOwn: null,
       distinctArticlesOwn: null,
     },
+    setupStatus: null,
   };
 }
 
@@ -197,11 +198,26 @@ const nhariraScorecard: ScorecardInputs = {
     officeRead: 7,
     officeEdit: 5,
     officeEstimatedMinutes: 107,
+    documentsCreated: 4,
+    documentsCreatedTeacherLearner: 3,
+    documentsCreatedAdmin: 1,
+    appsOpened: { files: 46, richdocuments: 12, photos: 0 },
   },
   wikipedia: {
     pageViewsOwn: 142,
     sessionsOwn: 11,
     distinctArticlesOwn: 38,
+  },
+  setupStatus: {
+    complete: true,
+    kolibri: { complete: true, missing: [], unknown: [], passingInstanceIds: ['kolibri-a1b2c3'] },
+    nextcloud: { complete: true, missing: [], unknown: [], passingInstanceIds: ['nextcloud-own'] },
+    rule: 'u7-2026-11-11',
+  },
+  copies: {
+    kolibri: ['kolibri-a1b2c3', 'kolibri-unlisted-62561'],
+    nextcloud: ['nextcloud-own', 'nextcloud-extra'],
+    kiwix: ['kiwix-own'],
   },
 };
 
@@ -286,12 +302,23 @@ const chigondaScorecard: ScorecardInputs = {
     officeRead: 0,
     officeEdit: 0,
     officeEstimatedMinutes: 0,
+    documentsCreated: null,
+    documentsCreatedTeacherLearner: null,
+    documentsCreatedAdmin: null,
+    appsOpened: { files: 3 },
   },
   wikipedia: {
     pageViewsOwn: 8,
     sessionsOwn: 2,
     distinctArticlesOwn: 3,
   },
+  setupStatus: {
+    complete: false,
+    kolibri: { complete: false, missing: ['coach', 'class', 'enrolledLearner'], unknown: [], passingInstanceIds: [] },
+    nextcloud: { complete: null, missing: [], unknown: ['teacherBeyondSeed', 'learnerBeyondSeed'], passingInstanceIds: [] },
+    rule: 'u7-2026-11-11',
+  },
+  copies: { kolibri: ['kolibri-chigonda'], nextcloud: ['nextcloud-chigonda'], kiwix: ['kiwix-chigonda'] },
 };
 
 const emptyCensus: Census = {
@@ -516,8 +543,8 @@ export const nhariraKolibri: KolibriInstanceWeek[] = [
     clock: { synced: true, correctedBoots: 0 },
     setup: nhariraCensus,
     signins: {
-      learner: { users: 18, sessions: 27, minutes: 122 },
-      coach: { users: 2, sessions: 11, minutes: 186 },
+      learner: { users: 18, usersBeyondSeed: 17, sessions: 27, minutes: 122 },
+      coach: { users: 2, usersBeyondSeed: 1, sessions: 11, minutes: 186 },
       admin: { users: 1, sessions: 6, minutes: 74 },
     },
     guest: { visits: 4, seconds: 19 * 60 },
@@ -682,6 +709,8 @@ export const nhariraNextcloud: NextcloudInstanceWeek[] = [
       mime: { text: 8, sheet: 3, slides: 1 },
     },
     appsOpened: { files: 46, richdocuments: 12, photos: 0 },
+    documentsCreated: 4,
+    documentsCreatedByGroup: { admin: 1, teacher: 3, learner: 0 },
     workflows: {
       worksheetShares: 1,
       editShares: 1,
@@ -719,7 +748,9 @@ export const nhariraNextcloud: NextcloudInstanceWeek[] = [
       byGroup: { admin: 0, teacher: 1, learner: 0 },
       mime: { text: 1, sheet: 0, slides: 0 },
     },
-    appsOpened: { files: 5 },
+    appsOpened: {},
+    documentsCreated: null,
+    documentsCreatedByGroup: null,
     workflows: {
       worksheetShares: 0,
       editShares: 0,

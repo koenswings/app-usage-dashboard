@@ -88,3 +88,13 @@ export function formatUnit(value: number | null, singular: string, plural: strin
   if (value === null) return '—';
   return `${value} ${value === 1 ? singular : plural}`;
 }
+
+/** Singular or plural noun for a count; null keeps the plural ("—" is shown as the value). */
+export function pluralWord(value: number | null, singular: string, plural: string): string {
+  return value === 1 ? singular : plural;
+}
+
+/** "1 learner registered", "3 learners registered", "— learners registered" for null. */
+export function formatCountPhrase(value: number | null, singular: string, plural: string): string {
+  return `${formatCount(value)} ${pluralWord(value, singular, plural)}`;
+}

@@ -83,7 +83,7 @@ export function ScorecardCard(props: ScorecardCardProps) {
                             <i class={`scorecard-line__icon scorecard-line__icon--${item().tone}`} aria-hidden="true" />
                             {item().label}
                           </span>
-                          <span class="scorecard-line__detail">{item().detail}</span>
+                          <span class="scorecard-line__detail" title={item().detail}>{item().detail}</span>
                           <span class="scorecard-line__word">{item().word}</span>
                         </div>
                       )}

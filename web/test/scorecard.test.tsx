@@ -129,27 +129,30 @@ describe('U-7 line evaluation', () => {
     });
   });
 
-  it('Set up is yes when registered learners and teachers are both > 0', () => {
+  it('Set up follows the collector U-7 verdict and never recomputes it', () => {
     const inputs = nharira();
+    const status = (complete: boolean | null) => ({
+      complete,
+      kolibri: { complete, missing: [], unknown: [], passingInstanceIds: [] },
+      nextcloud: null,
+      rule: 'u7-2026-11-11',
+    });
+    inputs.setupStatus = status(true);
     expect(evaluateLine('setup', inputs, DEFAULT_THRESHOLDS).tone).toBe('onTrack');
-    inputs.setup.teachers = 0;
+    inputs.setupStatus = status(false);
     expect(evaluateLine('setup', inputs, DEFAULT_THRESHOLDS).tone).toBe('needsHelp');
-    inputs.setup.teachers = 1;
-    inputs.setup.learnersRegistered = 1;
-    inputs.setup.classes = 0;
-    inputs.setup.learnersEnrolled = 0;
-    expect(evaluateLine('setup', inputs, DEFAULT_THRESHOLDS).tone).toBe('onTrack');
-    inputs.setup.classes = null;
-    inputs.setup.learnersRegistered = null;
-    inputs.setup.teachers = null;
-    inputs.setup.nextcloudTeacherBeyondSeed = 2;
-    inputs.setup.nextcloudLearnerBeyondSeed = 0;
-    expect(evaluateLine('setup', inputs, DEFAULT_THRESHOLDS).tone).toBe('onTrack');
-    inputs.setup.nextcloudTeacherBeyondSeed = 0;
-    expect(evaluateLine('setup', inputs, DEFAULT_THRESHOLDS).tone).toBe('needsHelp');
-    inputs.setup.nextcloudTeacherBeyondSeed = null;
-    inputs.setup.nextcloudLearnerBeyondSeed = null;
+    inputs.setupStatus = status(null);
     expect(evaluateLine('setup', inputs, DEFAULT_THRESHOLDS).tone).toBe('noData');
+    // Census inputs alone (a 1.1 collector without the verdict) never grade Set up.
+    inputs.setupStatus = undefined;
+    inputs.setup.learnersRegistered = 5;
+    inputs.setup.teachers = 2;
+    inputs.setup.classes = 3;
+    inputs.setup.learnersEnrolled = 5;
+    expect(evaluateLine('setup', inputs, DEFAULT_THRESHOLDS).tone).toBe('noData');
+    // The verdict wins even when the census looks complete.
+    inputs.setupStatus = status(false);
+    expect(evaluateLine('setup', inputs, DEFAULT_THRESHOLDS).tone).toBe('needsHelp');
   });
 
   it('Teaching cycle needs the item count and at least one assigned learner visit', () => {
@@ -354,6 +357,7 @@ describe('U-7 line evaluation', () => {
     empty.setup.learnersEnrolled = null;
     empty.setup.nextcloudTeacherBeyondSeed = null;
     empty.setup.nextcloudLearnerBeyondSeed = null;
+    empty.setupStatus = null;
     empty.teachingCycle.lessonsCreated = null;
     empty.teachingCycle.lessonsVisible = null;
     empty.teachingCycle.quizzesCreated = null;

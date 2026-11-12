@@ -130,7 +130,7 @@ export const THRESHOLD_FIELDS: ThresholdFieldMeta[] = [
 ];
 
 export const SETUP_RULE_MEANING =
-  "Yes when registered learners and teachers are both more than zero. Without a Kolibri census, yes when a Nextcloud beyond-seed count is more than zero. This is a yes/no check with no number to edit.";
+  "Yes when the school's own Kolibri has at least one coach, at least one class and learners enrolled in a class, and its own Nextcloud has teacher and learner accounts beyond the seed accounts (U-7). The collector checks this on each own copy and sends the verdict; an app the school has no own copy of does not count against it. This is a yes/no check with no number to edit.";
 
 export function cloneThresholds(value: ScorecardThresholds): ScorecardThresholds {
   return {
@@ -272,16 +272,14 @@ export function nextcloudWorkflowActions(inputs: ScorecardInputs): number | null
   return parts.reduce<number>((sum, value) => sum + (value ?? 0), 0);
 }
 
-export function setupIsComplete(inputs: ScorecardInputs): boolean | null {
-  const { classes, learnersRegistered, teachers, nextcloudTeacherBeyondSeed, nextcloudLearnerBeyondSeed } =
-    inputs.setup;
-  if (classes !== null || learnersRegistered !== null || teachers !== null) {
-    return (learnersRegistered ?? 0) > 0 && (teachers ?? 0) > 0;
-  }
-  if (nextcloudTeacherBeyondSeed === null && nextcloudLearnerBeyondSeed === null) {
-    return null;
-  }
-  return (nextcloudTeacherBeyondSeed ?? 0) > 0 || (nextcloudLearnerBeyondSeed ?? 0) > 0;
+/**
+ * The Set up line is the collector's U-7 verdict (`scorecard.setupStatus.complete`,
+ * idea#462). The UI never recomputes the rule. A collector that does not send
+ * the verdict (1.1) grades Set up as No data, and No data never counts.
+ */
+export function setupComplete(inputs: ScorecardInputs): boolean | null {
+  const complete = inputs.setupStatus?.complete;
+  return typeof complete === "boolean" ? complete : null;
 }
 
 export function evaluateLine(
@@ -300,7 +298,7 @@ export function evaluateLine(
       return { id, tone, word: wordForTone(tone) };
     }
     case "setup": {
-      const complete = setupIsComplete(inputs);
+      const complete = setupComplete(inputs);
       if (complete === null) return { id, tone: "noData", word: wordForTone("noData") };
       const tone: LineTone = complete ? "onTrack" : "needsHelp";
       return { id, tone, word: wordForTone(tone) };

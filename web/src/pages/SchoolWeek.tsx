@@ -5,7 +5,16 @@ import { PresenceStrip } from '../components/shared/PresenceStrip';
 import { ScorecardCard } from '../components/shared/ScorecardCard';
 import { ClockWeekWarning } from '../components/InstanceMeta';
 import { SchoolNav } from '../components/SchoolNav';
-import { formatCount, formatDataFrom, formatDateTime, formatMinutes, formatPercent } from '../lib/format';
+import {
+  formatCount,
+  formatCountPhrase,
+  formatDataFrom,
+  formatDateTime,
+  formatMinutes,
+  formatPercent,
+} from '../lib/format';
+import { appSetupSentence, appSetupWord } from '../lib/setup';
+import { shortInstanceId } from '../lib/instances';
 import { isMonitoringOff, MONITORING_OFF_MESSAGE, showStale } from '../lib/monitoring';
 import { buildHeadlines, buildPill, buildScorecardLines } from '../lib/scorecardView';
 
@@ -36,13 +45,15 @@ export function SchoolWeek(props: SchoolWeekProps) {
       id: 'learners',
       label: 'Learners registered',
       value: formatCount(census().learnersRegistered),
-      sub: `${formatCount(census().learnersEnrolled)} enrolled in a class`,
+      sub:
+        `${formatCount(census().learnersEnrolled)} enrolled in a class · ` +
+        `${formatCount(census().learnersRegisteredDelta)} added this week`,
     },
     {
       id: 'teachers',
-      label: 'Teachers / coaches',
+      label: 'Coaches',
       value: formatCount(census().teachers),
-      sub: `${formatCount(census().admins)} admin · own instance, not Demo`,
+      sub: `${formatCountPhrase(census().admins, 'admin', 'admins')} · own Kolibri, not Demo`,
     },
     {
       id: 'share',
@@ -52,6 +63,27 @@ export function SchoolWeek(props: SchoolWeekProps) {
     },
   ];
   const kpiIds = () => kpis().map((item) => item.id);
+  const setupStatus = () => score().setupStatus ?? null;
+  const setupApps = () => {
+    const status = setupStatus();
+    if (!status) return [];
+    return [
+      { id: 'kolibri', label: 'Own Kolibri', app: status.kolibri },
+      { id: 'nextcloud', label: 'Own Nextcloud', app: status.nextcloud },
+    ];
+  };
+  const setupAppIds = () => setupApps().map((item) => item.id);
+  const copies = () => score().copies ?? null;
+  const copyGroups = () => {
+    const graded = copies();
+    if (!graded) return [];
+    return [
+      { id: 'kolibri', label: 'Kolibri', ids: graded.kolibri ?? [] },
+      { id: 'nextcloud', label: 'Nextcloud', ids: graded.nextcloud ?? [] },
+      { id: 'kiwix', label: 'Wikipedia', ids: graded.kiwix ?? [] },
+    ];
+  };
+  const copyGroupIds = () => copyGroups().map((item) => item.id);
   const kolibriMinutes = () => {
     const parts = [
       score().learnersOperate.learnerMinutes,
@@ -139,6 +171,61 @@ export function SchoolWeek(props: SchoolWeekProps) {
             dataFromLabel={formatDataFrom(props.data.dataFrom)}
           />
         </div>
+        <Show when={!monitoringOff()}>
+          <section class="panel setup-check" data-testid="setup-check">
+            <strong>Set up check (U-7)</strong>
+            <Show
+              when={setupStatus()}
+              fallback={<p data-testid="setup-check-no-data">No data</p>}
+            >
+              <table>
+                <tbody>
+                  <For each={setupAppIds()}>
+                    {(id) => {
+                      const row = () => setupApps().find((item) => item.id === id);
+                      return (
+                        <Show when={row()}>
+                          {(item) => (
+                            <tr data-testid={`setup-check-${item().id}`}>
+                              <td>{item().label}</td>
+                              <td class="setup-check__word">{appSetupWord(item().app)}</td>
+                              <td>{appSetupSentence(item().app)}</td>
+                            </tr>
+                          )}
+                        </Show>
+                      );
+                    }}
+                  </For>
+                </tbody>
+              </table>
+            </Show>
+            <Show when={copies()}>
+              <p class="muted" data-testid="graded-copies">
+                Graded copies:{' '}
+                <For each={copyGroupIds()}>
+                  {(id) => {
+                    const group = () => copyGroups().find((item) => item.id === id);
+                    return (
+                      <Show when={group()}>
+                        {(item) => (
+                          <span class="graded-copies__group">
+                            {item().label}{' '}
+                            <span title={item().ids.join(', ')}>
+                              {item().ids.length > 0
+                                ? item().ids.map(shortInstanceId).join(', ')
+                                : 'none'}
+                            </span>
+                            .{' '}
+                          </span>
+                        )}
+                      </Show>
+                    );
+                  }}
+                </For>
+              </p>
+            </Show>
+          </section>
+        </Show>
       </div>
     </>
   );

@@ -272,6 +272,43 @@ export interface ScorecardSetupInputs {
   nextcloudLearnerBeyondSeed: number | null;
 }
 
+/**
+ * One U-7 Set up requirement (idea#462, Kid's collector proposal). The first
+ * three are checked on the school's own Kolibri, the last two on its own Nextcloud.
+ */
+export type SetupPart = 'coach' | 'class' | 'enrolledLearner' | 'teacherBeyondSeed' | 'learnerBeyondSeed';
+
+export interface AppSetupStatus {
+  /** null = no own copy with an ok day, or an input is null. */
+  complete: boolean | null;
+  /** Parts that are known and fail; [] when complete or unknown. */
+  missing: SetupPart[];
+  /** Parts whose input is null (e.g. an old hook). */
+  unknown: SetupPart[];
+  /** Own copies that meet the rule on their own. */
+  passingInstanceIds: string[];
+}
+
+/**
+ * The collector's U-7 Set up verdict. The UI shows `complete` as the Set up
+ * line and never recomputes the rule.
+ */
+export interface SetupStatus {
+  complete: boolean | null;
+  /** null = no own Kolibri copy this week. */
+  kolibri: AppSetupStatus | null;
+  /** null = no own Nextcloud copy this week. */
+  nextcloud: AppSetupStatus | null;
+  rule: string;
+}
+
+/** Own instance ids that fed this scorecard; [] = no own copy. */
+export interface ScorecardCopies {
+  kolibri: string[];
+  nextcloud: string[];
+  kiwix: string[];
+}
+
 export interface ScorecardTeachingInputs {
   lessonsCreated: number | null;
   lessonsVisible: number | null;
@@ -344,6 +381,14 @@ export interface ScorecardNextcloudInputs {
   officeRead: number | null;
   officeEdit: number | null;
   officeEstimatedMinutes: number | null;
+  /** Office documents created this week by anyone, own copies summed. Null until the Nextcloud hook sends it. */
+  documentsCreated?: number | null;
+  /** Documents created by a teacher or learner. Null under the same conditions. */
+  documentsCreatedTeacherLearner?: number | null;
+  /** Documents created by an admin. */
+  documentsCreatedAdmin?: number | null;
+  /** App id → open count summed over own copies; null when not measured. */
+  appsOpened?: Record<string, number> | null;
 }
 
 export interface ScorecardWikipediaInputs {
@@ -363,6 +408,10 @@ export interface ScorecardInputs {
   learnersOperate: ScorecardLearnersOperateInputs;
   nextcloud: ScorecardNextcloudInputs;
   wikipedia: ScorecardWikipediaInputs;
+  /** The collector's U-7 Set up verdict (idea#462). Missing on a 1.1 collector. */
+  setupStatus?: SetupStatus | null;
+  /** Which own copies were graded (idea#462). Optional. */
+  copies?: ScorecardCopies | null;
 }
 
 export interface SchoolHeadlines {
@@ -545,6 +594,8 @@ export interface UplinkResponse {
 export interface RoleActivity {
   /** Distinct accounts of this role; null for guest. */
   users: number | null;
+  /** Lower bound of distinct accounts beyond the seed accounts; optional. */
+  usersBeyondSeed?: number | null;
   sessions: number;
   minutes: number;
 }
@@ -721,6 +772,10 @@ export interface NextcloudInstanceWeek extends InstanceEnvelope {
   /** App id → open count. May be missing or empty. */
   appsOpened: Record<string, number> | null;
   workflows: NextcloudWorkflows | null;
+  /** Office documents created this week (summed over ok days). Null until the Nextcloud hook sends it. */
+  documentsCreated?: number | null;
+  /** Documents created by role, same keys as office.byGroup. */
+  documentsCreatedByGroup?: { admin: number; teacher: number; learner: number } | null;
 }
 
 export interface NextcloudWeekResponse {
