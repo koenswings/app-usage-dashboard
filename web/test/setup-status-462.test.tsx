@@ -85,7 +85,7 @@ describe('Set up uses the collector verdict (setupStatus.complete)', () => {
   it('lists missing and unknown parts in plain words on the fleet line', () => {
     const inputs = scorecardFor(DEP_CHIGONDA, SAMPLE_WEEK);
     expect(lineDetail('setup', inputs)).toBe(
-      'Missing: coach, class, enrolment · Nextcloud not known',
+      'Kolibri: coach, class, enrolment · Nextcloud: not known',
     );
     expect(lineDetail('setup', scorecardFor(DEP_NHARIRA, SAMPLE_WEEK))).toBe('Own Kolibri and Nextcloud set up');
     expect(setupDetail(null)).toBe('—');
@@ -126,12 +126,44 @@ describe('Set up uses the collector verdict (setupStatus.complete)', () => {
       kolibri: { complete: false, missing: ['noOwnKolibri'], unknown: [], passingInstanceIds: [] },
       nextcloud: { complete: false, missing: ['noOwnNextcloud'], unknown: [], passingInstanceIds: [] },
     }));
-    expect(detail).toBe('Missing: no own Kolibri, no own Nextcloud');
+    expect(detail).toBe('Kolibri: no own copy · Nextcloud: no own copy');
     expect(detail).not.toMatch(/does not count/);
     // Unknown collector codes must not leak and must not say "in the own undefined".
     const odd = { complete: false, missing: ['futureCheck' as never], unknown: [], passingInstanceIds: [] };
     expect(appSetupSentence(odd)).toBe('Missing a requirement.');
     expect(appSetupSentence(odd)).not.toMatch(/futureCheck|undefined/);
+  });
+
+  it('does not list a part as missing when it is also unknown, and uses short per-app fleet wording', () => {
+    const duplicated = status({
+      complete: false,
+      kolibri: {
+        complete: false,
+        missing: ['coach', 'class', 'enrolledLearner'],
+        unknown: ['enrolledLearner'],
+        passingInstanceIds: [],
+      },
+      nextcloud: {
+        complete: false,
+        missing: ['teacherBeyondSeed', 'learnerBeyondSeed'],
+        unknown: ['teacherBeyondSeed', 'learnerBeyondSeed'],
+        passingInstanceIds: [],
+      },
+    });
+    expect(setupDetail(duplicated)).toBe('Kolibri: coach, class; not known · Nextcloud: not known');
+    expect(setupDetail(duplicated)).not.toMatch(/enrolment.*enrolment|teachers.*teachers|Missing:/);
+    expect(appSetupSentence(duplicated.kolibri)).toBe(
+      'Missing a coach and a class in the own Kolibri. Not known yet: learners enrolled in a class in the own Kolibri.',
+    );
+    expect(appSetupSentence(duplicated.nextcloud)).toBe(
+      'Not known yet: teacher accounts beyond the seeds and learner accounts beyond the seeds in the own Nextcloud.',
+    );
+    const allMissing = status({
+      complete: false,
+      kolibri: { complete: false, missing: ['coach', 'class', 'enrolledLearner'], unknown: [], passingInstanceIds: [] },
+      nextcloud: { complete: false, missing: ['teacherBeyondSeed', 'learnerBeyondSeed'], unknown: [], passingInstanceIds: [] },
+    });
+    expect(setupDetail(allMissing)).toBe('Kolibri: coach, class, enrolment · Nextcloud: teachers, learners');
   });
 
   it('describes U-7 in the Settings note', () => {

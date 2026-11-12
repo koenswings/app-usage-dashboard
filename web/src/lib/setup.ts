@@ -5,10 +5,10 @@ const SHORT: Record<SetupPart, string> = {
   coach: 'coach',
   class: 'class',
   enrolledLearner: 'enrolment',
-  teacherBeyondSeed: 'Nextcloud teachers',
-  learnerBeyondSeed: 'Nextcloud learners',
-  noOwnKolibri: 'no own Kolibri',
-  noOwnNextcloud: 'no own Nextcloud',
+  teacherBeyondSeed: 'teachers',
+  learnerBeyondSeed: 'learners',
+  noOwnKolibri: 'no own copy',
+  noOwnNextcloud: 'no own copy',
 };
 
 /** Plain words for the school page; the app ("in the own Kolibri") is added by the sentence. */
@@ -68,36 +68,38 @@ export function setupPartLong(part: SetupPart): string {
   return LONG[part] ?? 'a requirement';
 }
 
-function uniqueParts(status: SetupStatus, key: 'missing' | 'unknown'): SetupPart[] {
-  const parts: SetupPart[] = [];
-  for (const app of [status.kolibri, status.nextcloud]) {
-    for (const part of app?.[key] ?? []) {
-      if (!parts.includes(part)) parts.push(part);
-    }
-  }
-  return parts;
+/** Missing parts that are not also unknown: unknown is not a confirmed miss. */
+export function confirmedMissing(app: AppSetupStatus): SetupPart[] {
+  const unknown = new Set(app.unknown);
+  return app.missing.filter((part) => !unknown.has(part));
 }
 
-/** One-line Set up detail from the collector verdict; "—" when there is nothing to say. */
+function appFleetDetail(name: 'Kolibri' | 'Nextcloud', app: AppSetupStatus | null | undefined): string | null {
+  if (!app) return null;
+  const missing = confirmedMissing(app);
+  const unknown = app.unknown;
+  if (missing.length === 0 && unknown.length === 0) return null;
+  const bits: string[] = [];
+  const noOwn = missing.filter(isNoOwnPart);
+  const other = missing.filter((part) => !isNoOwnPart(part));
+  if (noOwn.length > 0) bits.push('no own copy');
+  if (other.length > 0) bits.push(other.map(setupPartShort).join(', '));
+  if (unknown.length > 0) bits.push('not known');
+  return `${name}: ${bits.join('; ')}`;
+}
+
+/** One-line Set up detail for the fleet card; "—" when there is nothing to say. */
 export function setupDetail(status: SetupStatus | null | undefined): string {
   if (!status) return '—';
-  const missing = uniqueParts(status, 'missing');
-  const unknown = uniqueParts(status, 'unknown');
   if (status.complete === true) {
     const apps = [status.kolibri ? 'Kolibri' : null, status.nextcloud ? 'Nextcloud' : null].filter(Boolean);
     return apps.length > 0 ? `Own ${apps.join(' and ')} set up` : 'Set up';
   }
-  const parts: string[] = [];
-  if (missing.length > 0) parts.push(`Missing: ${missing.map(setupPartShort).join(', ')}`);
-  if (unknown.length > 0) {
-    const apps = [
-      status.kolibri && status.kolibri.unknown.length > 0 ? 'Kolibri' : null,
-      status.nextcloud && status.nextcloud.unknown.length > 0 ? 'Nextcloud' : null,
-    ].filter(Boolean);
-    parts.push(`${apps.join(' and ')} not known`);
-  }
-  if (parts.length === 0) return '—';
-  return parts.join(' · ');
+  const parts = [
+    appFleetDetail('Kolibri', status.kolibri),
+    appFleetDetail('Nextcloud', status.nextcloud),
+  ].filter((part): part is string => part != null);
+  return parts.length > 0 ? parts.join(' · ') : '—';
 }
 
 export type AppSetupWord = 'Set up' | 'Not set up' | 'No data';
@@ -114,8 +116,9 @@ export function appSetupSentence(app: AppSetupStatus | null | undefined): string
   if (app === null || app === undefined) return 'No data this week.';
   const sentences: string[] = [];
   if (app.complete === true) sentences.push('Every requirement is met.');
-  const noOwn = app.missing.filter(isNoOwnPart);
-  const otherMissing = app.missing.filter((part) => !isNoOwnPart(part));
+  const missing = confirmedMissing(app);
+  const noOwn = missing.filter(isNoOwnPart);
+  const otherMissing = missing.filter((part) => !isNoOwnPart(part));
   if (noOwn.length > 0) sentences.push(`${noOwn.map(setupPartLong).join('. ')}.`);
   if (otherMissing.length > 0) sentences.push(`Missing ${partsPhrase(otherMissing)}.`);
   if (app.unknown.length > 0) sentences.push(`Not known yet: ${partsPhrase(app.unknown)}.`);
