@@ -1,9 +1,10 @@
 import { For, Show } from 'solid-js';
-import type { KolibriContentRow, KolibriInstanceWeek, KolibriWeekResponse } from '../api/types';
+import type { Census, KolibriContentRow, KolibriInstanceWeek, KolibriWeekResponse } from '../api/types';
 import { instanceKey } from '../api/types';
 import { ClockWeekWarning, InstanceMeta } from '../components/InstanceMeta';
 import { SchoolNav } from '../components/SchoolNav';
-import { formatCount, formatUnit } from '../lib/format';
+import { shortIdsForDuplicateNames } from '../lib/instances';
+import { formatCount, formatCountPhrase, formatUnit } from '../lib/format';
 import { roleLabel } from '../lib/labels';
 
 interface KolibriPageProps {
@@ -15,7 +16,27 @@ function contentId(row: KolibriContentRow): string {
   return `${row.channel}|${row.title}|${row.role}`;
 }
 
-function InstancePanel(props: { instance: KolibriInstanceWeek }) {
+/** "18" or "18 (16 beyond seeds)" when the collector sends the beyond-seed count. */
+export function signedInUsersText(activity: { users: number | null; usersBeyondSeed?: number | null }): string {
+  const base = formatCount(activity.users);
+  const beyond = activity.usersBeyondSeed;
+  if (activity.users === null || beyond === null || beyond === undefined) return base;
+  return `${base} (${formatCount(beyond)} beyond seeds)`;
+}
+
+/** One copy's own census in plain words; every null part reads "—". */
+export function censusText(setup: Census | null | undefined): string {
+  if (!setup) return 'No data';
+  return [
+    formatCountPhrase(setup.classes, 'class', 'classes'),
+    `${formatCountPhrase(setup.learnersRegistered, 'learner registered', 'learners registered')} ` +
+      `(${formatCount(setup.learnersEnrolled)} enrolled in a class)`,
+    formatCountPhrase(setup.teachers, 'coach', 'coaches'),
+    formatCountPhrase(setup.admins, 'admin', 'admins'),
+  ].join(' · ');
+}
+
+function InstancePanel(props: { instance: KolibriInstanceWeek; shortId?: string | null }) {
   const signins = () => props.instance.signins;
   const guest = () => props.instance.guest;
   const teaching = () => props.instance.teaching;
@@ -26,7 +47,7 @@ function InstancePanel(props: { instance: KolibriInstanceWeek }) {
     if (!activity || !guestRow) return [];
     return [
       { id: 'learner', label: 'Learners', activity: activity.learner },
-      { id: 'coach', label: 'Teachers', activity: activity.coach },
+      { id: 'coach', label: 'Coaches', activity: activity.coach },
       { id: 'admin', label: 'Admin', activity: activity.admin },
       {
         id: 'guest',
@@ -55,6 +76,8 @@ function InstancePanel(props: { instance: KolibriInstanceWeek }) {
         clock={props.instance.clock}
         collectedAt={props.instance.collectedAt}
         showNoData={!hasPayload()}
+        shortId={props.shortId}
+        instanceId={instanceKey(props.instance)}
       />
       <Show when={hasPayload() && teaching()}>
         {(cycle) => (
@@ -67,12 +90,17 @@ function InstancePanel(props: { instance: KolibriInstanceWeek }) {
           </p>
         )}
       </Show>
+      <Show when={hasPayload()}>
+        <p class="muted" data-testid="kolibri-copy-census">
+          Census: {censusText(props.instance.setup)}
+        </p>
+      </Show>
       <Show when={hasPayload() && roles().length > 0}>
         <table>
           <thead>
             <tr>
               <th>Role</th>
-              <th class="right">Accounts</th>
+              <th class="right">Signed-in users</th>
               <th class="right">Sessions</th>
               <th class="right">Minutes</th>
             </tr>
@@ -86,7 +114,7 @@ function InstancePanel(props: { instance: KolibriInstanceWeek }) {
                     {(item) => (
                       <tr>
                         <td>{item().label}</td>
-                        <td class="right">{formatCount(item().activity.users)}</td>
+                        <td class="right">{signedInUsersText(item().activity)}</td>
                         <td class="right">{item().activity.sessions}</td>
                         <td class="right">{item().activity.minutes}</td>
                       </tr>
@@ -97,6 +125,7 @@ function InstancePanel(props: { instance: KolibriInstanceWeek }) {
             </For>
           </tbody>
         </table>
+        <p class="muted">Signed-in users: at least this many different accounts signed in (busiest day of the week).</p>
       </Show>
       <Show when={hasPayload() && content().length > 0}>
         <h3 class="section-heading">Content this week</h3>
@@ -138,6 +167,7 @@ function InstancePanel(props: { instance: KolibriInstanceWeek }) {
 
 export function KolibriPage(props: KolibriPageProps) {
   const ids = () => props.data.instances.map(instanceKey);
+  const shortIds = () => shortIdsForDuplicateNames(props.data.instances);
 
   return (
     <>
@@ -154,7 +184,7 @@ export function KolibriPage(props: KolibriPageProps) {
             const instance = () => props.data.instances.find((item) => instanceKey(item) === id);
             return (
               <Show when={instance()}>
-                {(item) => <InstancePanel instance={item()} />}
+                {(item) => <InstancePanel instance={item()} shortId={shortIds().get(id)} />}
               </Show>
             );
           }}

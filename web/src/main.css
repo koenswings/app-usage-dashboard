@@ -190,6 +190,12 @@ h2 { font-size: 15px; margin: 22px 0 10px; color: var(--navy); }
 .scorecard-line__word { font-weight: 600; color: var(--ink); text-align: right; overflow-wrap: anywhere; }
 .scorecard-line__detail { color: var(--muted); text-align: right; overflow-wrap: anywhere; }
 .scorecard-line__label { overflow-wrap: anywhere; }
+/* Fleet cards keep each line's detail on one line at laptop widths (idea#462). */
+.schools .scorecard-line { grid-template-columns: max-content minmax(0, 1fr) max-content; gap: 12px; }
+.schools .scorecard-line__detail {
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; overflow-wrap: normal;
+}
+.schools .scorecard-line__word { white-space: nowrap; }
 .scorecard-card__stats {
   display: flex; gap: 16px; margin-top: 10px; padding-top: 10px;
   border-top: 1px solid var(--line); flex-wrap: wrap;
@@ -268,6 +274,21 @@ td { padding: 7px 8px; border-bottom: 1px solid #f1f5f9; }
 .instance-meta { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .section-heading { font-size: 13px; margin-top: 16px; color: var(--navy); }
 .table-wrap { overflow-x: auto; max-width: 100%; }
+.uplink-grid { align-items: start; }
+.setup-check { margin-top: 14px; }
+.setup-check table { margin-top: 6px; }
+.setup-check__word { font-weight: 600; color: var(--ink); white-space: nowrap; }
+.uplink-days { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.uplink-day { border: 1px solid var(--line); border-radius: 8px; background: #f8fafc; }
+.uplink-day[open] { background: var(--card); }
+.uplink-day__summary {
+  display: grid; grid-template-columns: max-content minmax(0, 1fr) max-content; gap: 12px;
+  align-items: baseline; padding: 8px 10px; cursor: pointer; font-size: 12px;
+}
+.uplink-day__label { font-weight: 600; color: var(--ink); }
+.uplink-day__counts { color: var(--muted); }
+.uplink-day__range { color: var(--muted); font-variant-numeric: tabular-nums; }
+.uplink-day__table { max-height: 320px; overflow-y: auto; border-top: 1px solid var(--line); }
 .clock-warning {
   background: var(--amber-bg);
   color: var(--amber);
@@ -435,14 +456,17 @@ td { padding: 7px 8px; border-bottom: 1px solid #f1f5f9; }
 .site-footer span { color: #e2e8f0; }
 .site-footer__version { color: #64748b; font-variant-numeric: tabular-nums; }
 
+@media (max-width: 1520px) {
+  .schools { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 @media (max-width: 1280px) {
-  .schools { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .grid4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 1100px) {
   .schools, .grid3, .grid4, .grid2 { grid-template-columns: 1fr; }
-  .scorecard-line { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .scorecard-line, .schools .scorecard-line { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .scorecard-line__word { grid-column: 1 / -1; text-align: left; }
+  .schools .scorecard-line__detail { white-space: normal; overflow-wrap: anywhere; }
   .settings-field__control, .settings-field input { width: 100%; }
   .wrap, .nav, .help-banner, .sample-note, .site-header, .site-footer { padding-left: 16px; padding-right: 16px; }
   .help-banner, .sample-note { margin-left: 16px; margin-right: 16px; }

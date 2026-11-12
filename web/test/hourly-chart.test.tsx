@@ -36,7 +36,8 @@ describe('weekly distinctArticles wording', () => {
         hourlyChartMinWeeklyViews={20}
       />
     ));
-    expect(container.textContent).toMatch(/most different articles in one day/);
+    expect(container.textContent).toMatch(/distinct articles \(most in one day\)/);
+    expect(container.textContent).not.toMatch(/most different articles/);
     expect(container.textContent).not.toMatch(/week(?:'s|’s)? distinct total/i);
   });
 });

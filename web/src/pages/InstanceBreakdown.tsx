@@ -1,7 +1,9 @@
 import { For, Show } from 'solid-js';
 import type { InstancesResponse } from '../api/types';
 import { instanceKey } from '../api/types';
+import { InstanceShortId } from '../components/InstanceMeta';
 import { SchoolNav } from '../components/SchoolNav';
+import { shortIdsForDuplicateNames } from '../lib/instances';
 import { appDisplayName, copyKindLabel, hookStatusLabel } from '../lib/labels';
 
 interface InstanceBreakdownProps {
@@ -11,6 +13,8 @@ interface InstanceBreakdownProps {
 
 export function InstanceBreakdown(props: InstanceBreakdownProps) {
   const ids = () => props.data.instances.map(instanceKey);
+  const shortIds = () =>
+    shortIdsForDuplicateNames(props.data.instances, (item) => item.name || appDisplayName(item.app));
 
   return (
     <>
@@ -43,7 +47,10 @@ export function InstanceBreakdown(props: InstanceBreakdownProps) {
                       <Show when={row()}>
                         {(item) => (
                           <tr data-testid={`instance-row-${instanceKey(item())}`}>
-                            <td>{item().name || appDisplayName(item().app)}</td>
+                            <td>
+                              {item().name || appDisplayName(item().app)}
+                              <InstanceShortId shortId={shortIds().get(id)} instanceId={id} />
+                            </td>
                             <td>{copyKindLabel(item().demo, item().listed)}</td>
                             <td>{hookStatusLabel(item().hookStatus, item().skipReason)}</td>
                             <td>{item().note || '—'}</td>

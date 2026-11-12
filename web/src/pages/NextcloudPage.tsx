@@ -3,6 +3,7 @@ import type { NextcloudInstanceWeek, NextcloudWeekResponse, RoleCount } from '..
 import { instanceKey } from '../api/types';
 import { ClockWeekWarning, InstanceMeta } from '../components/InstanceMeta';
 import { SchoolNav } from '../components/SchoolNav';
+import { shortIdsForDuplicateNames } from '../lib/instances';
 import { formatCount, formatMinutes } from '../lib/format';
 import { nextcloudAppName, roleLabel } from '../lib/labels';
 
@@ -11,17 +12,34 @@ interface NextcloudPageProps {
   school: string;
 }
 
+/** "No data" when the hook sent no apps object, "None recorded" when it sent an empty one. */
+export function appsOpenedText(apps: Record<string, number> | null | undefined): string {
+  if (apps === null || apps === undefined) return 'No data';
+  const ids = Object.keys(apps);
+  if (ids.length === 0) return 'None recorded';
+  return ids.map((id) => `${nextcloudAppName(id)} ${formatCount(apps[id] ?? null)}`).join(' · ');
+}
+
+export function documentsCreatedText(value: number | null | undefined): string {
+  return value === null || value === undefined ? 'No data' : formatCount(value);
+}
+
+export function documentsByGroupText(
+  byGroup: { admin: number; teacher: number; learner: number } | null | undefined,
+): string {
+  if (!byGroup) return 'No data';
+  return `${roleLabel('admin')} ${formatCount(byGroup.admin ?? null)} · ${roleLabel('teacher')} ${formatCount(byGroup.teacher ?? null)} · ${roleLabel('learner')} ${formatCount(byGroup.learner ?? null)}`;
+}
+
 function roleCountText(count: RoleCount): string {
   return `${formatCount(count.total)} total · ${formatCount(count.beyondSeed)} beyond seed`;
 }
 
-function InstancePanel(props: { instance: NextcloudInstanceWeek }) {
+function InstancePanel(props: { instance: NextcloudInstanceWeek; shortId?: string | null }) {
   const setup = () => props.instance.setup;
   const logins = () => props.instance.logins;
   const office = () => props.instance.office;
   const workflows = () => props.instance.workflows;
-  const apps = () => props.instance.appsOpened ?? {};
-  const appIds = () => Object.keys(apps());
   const otherGroupIds = () => Object.keys(setup()?.otherGroups ?? {});
   const hasPayload = () =>
     props.instance.hookStatus === 'ok' && setup() !== null && logins() !== null;
@@ -62,6 +80,15 @@ function InstancePanel(props: { instance: NextcloudInstanceWeek }) {
         },
       );
     }
+    list.push(
+      { id: 'docs-created', label: 'Documents created', value: documentsCreatedText(props.instance.documentsCreated) },
+      {
+        id: 'docs-created-group',
+        label: 'Documents created by role',
+        value: documentsByGroupText(props.instance.documentsCreatedByGroup),
+      },
+      { id: 'apps-opened', label: 'Apps opened', value: appsOpenedText(props.instance.appsOpened) },
+    );
     if (flow) {
       list.push({
         id: 'workflows',
@@ -84,6 +111,8 @@ function InstancePanel(props: { instance: NextcloudInstanceWeek }) {
         clock={props.instance.clock}
         collectedAt={props.instance.collectedAt}
         showNoData={!hasPayload()}
+        shortId={props.shortId}
+        instanceId={instanceKey(props.instance)}
       />
       <Show when={hasPayload()}>
         <table>
@@ -123,20 +152,13 @@ function InstancePanel(props: { instance: NextcloudInstanceWeek }) {
           </For>
         </p>
       </Show>
-      <Show when={hasPayload() && appIds().length > 0}>
-        <p class="muted">
-          Apps opened:{' '}
-          <For each={appIds()}>
-            {(id) => <span>{nextcloudAppName(id)} {apps()[id]}. </span>}
-          </For>
-        </p>
-      </Show>
     </section>
   );
 }
 
 export function NextcloudPage(props: NextcloudPageProps) {
   const ids = () => props.data.instances.map(instanceKey);
+  const shortIds = () => shortIdsForDuplicateNames(props.data.instances);
 
   return (
     <>
@@ -153,7 +175,7 @@ export function NextcloudPage(props: NextcloudPageProps) {
             const instance = () => props.data.instances.find((item) => instanceKey(item) === id);
             return (
               <Show when={instance()}>
-                {(item) => <InstancePanel instance={item()} />}
+                {(item) => <InstancePanel instance={item()} shortId={shortIds().get(id)} />}
               </Show>
             );
           }}

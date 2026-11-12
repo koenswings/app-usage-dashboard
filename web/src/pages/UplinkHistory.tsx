@@ -2,9 +2,14 @@ import { For, Show } from 'solid-js';
 import type { PresenceSegment, UplinkResponse } from '../api/types';
 import { PresenceStrip } from '../components/shared/PresenceStrip';
 import { SchoolNav } from '../components/SchoolNav';
-import { formatDateTime } from '../lib/format';
+import { formatDateTime, formatUnit } from '../lib/format';
 import { MONITORING_OFF_MESSAGE } from '../lib/monitoring';
-import { UPLINK_NOT_MEASURED_MESSAGE, uplinkNotMeasured } from '../lib/uplink';
+import {
+  UPLINK_NOT_MEASURED_MESSAGE,
+  groupSamplesByDay,
+  uplinkNotMeasured,
+  uplinkTransitionsEmptyText,
+} from '../lib/uplink';
 import { fridayOf } from '../lib/week';
 
 interface UplinkHistoryProps {
@@ -20,7 +25,8 @@ function reachableWord(online: boolean): string {
 
 export function UplinkHistory(props: UplinkHistoryProps) {
   const zone = () => props.data.timezone.timeZone;
-  const sampleIds = () => props.data.samples.map((sample) => `${sample.timestamp}|${sample.engine}`);
+  const days = () => groupSamplesByDay(props.data.samples, zone());
+  const dayIds = () => days().map((day) => day.day);
   const transitionIds = () => props.data.transitions.map((item) => `${item.timestamp}|${item.fromState}|${item.toState}`);
 
   return (
@@ -55,10 +61,12 @@ export function UplinkHistory(props: UplinkHistoryProps) {
           </div>
         </Show>
         <Show when={!uplinkNotMeasured(props.data.measured)}>
-        <div class="grid2">
+        <div class="grid2 uplink-grid">
           <section class="panel">
             <strong>When reachability changed</strong>
-            <Show when={props.data.transitions.length === 0}><p>No data</p></Show>
+            <Show when={props.data.transitions.length === 0}>
+              <p data-testid="uplink-transitions-empty">{uplinkTransitionsEmptyText(props.data.measured)}</p>
+            </Show>
             <Show when={props.data.transitions.length > 0}>
               <div class="table-wrap">
                 <table>
@@ -91,36 +99,64 @@ export function UplinkHistory(props: UplinkHistoryProps) {
               </div>
             </Show>
           </section>
-          <section class="panel">
+          <section class="panel" data-testid="uplink-samples">
             <strong>Reachability samples</strong>
             <Show when={props.data.samples.length === 0}><p>No data</p></Show>
             <Show when={props.data.samples.length > 0}>
-              <div class="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>When</th>
-                      <th>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <For each={sampleIds()}>
-                      {(id) => {
-                        const row = () => props.data.samples.find((item) => `${item.timestamp}|${item.engine}` === id);
-                        return (
-                          <Show when={row()}>
-                            {(item) => (
-                              <tr>
-                                <td>{formatDateTime(item().timestamp, zone())}</td>
-                                <td>{reachableWord(item().online)}</td>
-                              </tr>
-                            )}
-                          </Show>
-                        );
-                      }}
-                    </For>
-                  </tbody>
-                </table>
+              <p class="muted">
+                One row per day in kit local time. Open a day to see every check.
+              </p>
+              <div class="uplink-days">
+                <For each={dayIds()}>
+                  {(dayId) => {
+                    const day = () => days().find((item) => item.day === dayId);
+                    return (
+                      <Show when={day()}>
+                        {(item) => (
+                          <details class="uplink-day" data-testid={`uplink-day-${item().day}`}>
+                            <summary class="uplink-day__summary">
+                              <span class="uplink-day__label">{item().label}</span>
+                              <span class="uplink-day__counts">
+                                {formatUnit(item().total, 'check', 'checks')} · {item().reachable} reachable ·{' '}
+                                {item().notReachable} not reachable to us
+                              </span>
+                              <span class="uplink-day__range">
+                                {item().firstTime}–{item().lastTime}
+                              </span>
+                            </summary>
+                            <div class="table-wrap uplink-day__table">
+                              <table>
+                                <thead>
+                                  <tr>
+                                    <th>When</th>
+                                    <th>Status</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  <For each={item().samples.map((sample) => sample.id)}>
+                                    {(id) => {
+                                      const row = () => item().samples.find((sample) => sample.id === id);
+                                      return (
+                                        <Show when={row()}>
+                                          {(sample) => (
+                                            <tr>
+                                              <td>{formatDateTime(sample().timestamp, zone())}</td>
+                                              <td>{reachableWord(sample().online)}</td>
+                                            </tr>
+                                          )}
+                                        </Show>
+                                      );
+                                    }}
+                                  </For>
+                                </tbody>
+                              </table>
+                            </div>
+                          </details>
+                        )}
+                      </Show>
+                    );
+                  }}
+                </For>
               </div>
             </Show>
           </section>

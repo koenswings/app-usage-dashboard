@@ -28,12 +28,31 @@ interface InstanceMetaProps {
   clock: ClockHonesty | null;
   collectedAt: string | null;
   showNoData?: boolean;
+  /** Short id shown next to the name when another copy on the page has the same name. */
+  shortId?: string | null;
+  /** Full instance id, used as the tooltip for the short id. */
+  instanceId?: string;
+}
+
+export function InstanceShortId(props: { shortId?: string | null; instanceId?: string }) {
+  return (
+    <Show when={props.shortId}>
+      {(id) => (
+        <span class="instance-id" data-testid="instance-short-id" title={props.instanceId}>
+          {' '}· {id()}
+        </span>
+      )}
+    </Show>
+  );
 }
 
 export function InstanceMeta(props: InstanceMetaProps) {
   return (
     <>
-      <strong>{props.name}</strong>
+      <strong>
+        {props.name}
+        <InstanceShortId shortId={props.shortId} instanceId={props.instanceId} />
+      </strong>
       <div class="instance-meta">
         <span class={copyKindClass(props.demo, props.listed)}>
           {copyKindLabel(props.demo, props.listed)}

@@ -58,7 +58,7 @@ Scorecard grade cut-offs are the U-7 starting thresholds Koen approved on idea#3
 | `helpAfterAmberWeeks` | `3` (integer ≥ 1) |
 | `unusedAfterHelpWeeks` | `4` (integer ≥ 1) |
 
-Set up is a yes/no check (registered learners and teachers both > 0; without a Kolibri census, a Nextcloud beyond-seed count > 0) and has no number.
+Set up is a yes/no check with no number. The collector decides it (U-7: a coach, a class and learners enrolled in a class in the own Kolibri; teacher and learner accounts beyond the seeds in the own Nextcloud) and the UI shows `scorecard.setupStatus.complete` as On track, Needs help or No data.
 
 ## Pages against proposal §2
 

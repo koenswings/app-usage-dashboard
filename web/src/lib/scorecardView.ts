@@ -5,14 +5,14 @@ import {
   evaluateLine,
   pillForCard,
   pillWord,
-  setupIsComplete,
   teachingCycleItemCount,
   learnerSessionShare,
   nextcloudWorkflowActions,
   type CardPill,
   type ScorecardLineId,
 } from '../config/thresholds';
-import { formatCount, formatMinutes, formatPercent, formatUnit } from './format';
+import { formatCount, formatMinutes, formatPercent, formatUnit, pluralWord } from './format';
+import { setupDetail } from './setup';
 import type { ScorecardHeadlineView, ScorecardLineView } from '../components/shared/ScorecardCard';
 
 export function lineDetail(id: ScorecardLineId, inputs: ScorecardInputs): string {
@@ -22,19 +22,8 @@ export function lineDetail(id: ScorecardLineId, inputs: ScorecardInputs): string
       if (schoolDaysOn === null) return '—';
       return `${schoolDaysOn} / ${schoolDaysExpected} school days on`;
     }
-    case 'setup': {
-      const complete = setupIsComplete(inputs);
-      const { teachers, learnersRegistered, nextcloudTeacherBeyondSeed, nextcloudLearnerBeyondSeed } =
-        inputs.setup;
-      if (complete === null) return '—';
-      if (learnersRegistered !== null || teachers !== null) {
-        return `${formatCount(learnersRegistered)} learners registered · ${formatCount(teachers)} teachers`;
-      }
-      return (
-        `Nextcloud beyond seed: ${formatCount(nextcloudTeacherBeyondSeed)} teachers, ` +
-        `${formatCount(nextcloudLearnerBeyondSeed)} learners`
-      );
-    }
+    case 'setup':
+      return setupDetail(inputs.setupStatus);
     case 'teachingCycle': {
       const items = teachingCycleItemCount(inputs);
       const sessions = inputs.teachingCycle.learnerSessionsOnAssigned;
@@ -103,9 +92,13 @@ export function buildPill(
 
 export function buildHeadlines(headlines: SchoolHeadlines): ScorecardHeadlineView[] {
   return [
-    { id: 'classes', value: formatCount(headlines.classes), label: 'classes' },
-    { id: 'learners', value: formatCount(headlines.learnersRegistered), label: 'learners registered' },
-    { id: 'teachers', value: formatCount(headlines.teachers), label: 'teachers' },
+    { id: 'classes', value: formatCount(headlines.classes), label: pluralWord(headlines.classes, 'class', 'classes') },
+    {
+      id: 'learners',
+      value: formatCount(headlines.learnersRegistered),
+      label: pluralWord(headlines.learnersRegistered, 'learner registered', 'learners registered'),
+    },
+    { id: 'teachers', value: formatCount(headlines.teachers), label: pluralWord(headlines.teachers, 'coach', 'coaches') },
     { id: 'kolibri', value: formatMinutes(headlines.kolibriMinutes), label: 'Kolibri time' },
   ];
 }
