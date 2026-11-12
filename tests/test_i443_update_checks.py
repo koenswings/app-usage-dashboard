@@ -45,6 +45,55 @@ CURL_STUB = '#!/usr/bin/env bash\ncat "$I443_FX/stub/health.json"\n'
 SUDO_STUB = '#!/usr/bin/env bash\n[ "$1 $3" = "-n version" ] && cat "$I443_FX/stub/helper" || exit 1\n'
 
 
+
+# docker inspect --format uses Go text/template with missingkey=error. A
+# container with no healthcheck has no State.Health key; {{if .State.Health}}
+# then fails with "map has no entry for key Health".
+_GO_INSPECT_TMPL = r"""package main
+import (
+  "encoding/json"
+  "fmt"
+  "os"
+  "text/template"
+)
+func main() {
+  tmpl, err := template.New("f").Option("missingkey=error").Parse(os.Args[1])
+  if err != nil { fmt.Fprintln(os.Stderr, err); os.Exit(2) }
+  var data any
+  if err := json.NewDecoder(os.Stdin).Decode(&data); err != nil { fmt.Fprintln(os.Stderr, err); os.Exit(2) }
+  if err := tmpl.Execute(os.Stdout, data); err != nil { fmt.Fprintln(os.Stderr, err); os.Exit(1) }
+}
+"""
+
+
+def containers_check_format():
+    text = SCRIPT.read_text(encoding="utf-8")
+    # the P04/Q-shared inspect format inside containers_check
+    key = "inspect --format '"
+    i = text.find(key)
+    if i < 0:
+        raise AssertionError("containers_check inspect format not found")
+    i += len(key)
+    j = text.find("'", i)
+    if j < 0:
+        raise AssertionError("unclosed inspect format")
+    return text[i:j]
+
+
+def apply_inspect_format(fmt, obj):
+    with tempfile.TemporaryDirectory() as tmp:
+        src = Path(tmp) / "apply.go"
+        src.write_text(_GO_INSPECT_TMPL)
+        r = subprocess.run(
+            ["go", "run", str(src), fmt],
+            input=json.dumps(obj),
+            text=True,
+            capture_output=True,
+            cwd=tmp,
+        )
+    return r
+
+
 def sha256(p: Path) -> str:
     return hashlib.sha256(p.read_bytes()).hexdigest()
 
@@ -146,13 +195,25 @@ class Fixture:
 
     def write_sums(self):
         root = self.stick
-        b = "apps/" + APP
+        bdir = root / "apps" / APP
         lines = []
-        for p in sorted((root / b).rglob("*")):
+        for p in sorted(bdir.rglob("*")):
             if p.is_file() and p.name != "SHA256SUMS":
-                rel = p.relative_to(root).as_posix()
-                lines.append("%s  %s" % (sha256(p), rel))
-        (root / b / "SHA256SUMS").write_text("\n".join(lines) + "\n")
+                lines.append("%s  %s" % (sha256(p), p.relative_to(bdir).as_posix()))
+        (bdir / "SHA256SUMS").write_text("\n".join(lines) + "\n")
+        # Isolated-tree disk-root SHA256SUMS. sha256sum --check only verifies
+        # listed paths; unlisted top-level Disk B content is not a failure.
+        root_lines = []
+        for p in sorted(root.rglob("*")):
+            if not p.is_file():
+                continue
+            rel = p.relative_to(root).as_posix()
+            if rel == "SHA256SUMS":
+                continue
+            if rel.startswith("apps/") or rel.startswith("services/"):
+                root_lines.append("%s  %s" % (sha256(p), rel))
+        if root_lines:
+            (root / "SHA256SUMS").write_text("\n".join(root_lines) + "\n")
 
     def set_status(self, state, pub):
         (self.stub / "status.json").write_text(json.dumps(
@@ -403,6 +464,54 @@ class UpdateChecksTests(unittest.TestCase):
     def test_post_needs_pre_and_args(self):
         r = self.f.run("post", "--stick", "/disks/sdc1")
         self.assertEqual(r.returncode, 2)
+
+
+    def test_p04_inspect_format_handles_container_without_health_key(self):
+        """Collector-like inspect JSON has no State.Health; the live template must still work.
+
+        On idea03 the 1.0 collector has no Health key. The old
+        `{{if .State.Health}}` format made docker inspect exit 1, and P04
+        reported collector=absent even though the container was running.
+        """
+        fmt = containers_check_format()
+        self.assertIn('index .State "Health"', fmt)
+        self.assertNotIn("if .State.Health", fmt)
+        collector = {
+            "Id": "44cc875fffb3" + "0" * 52,
+            "Name": "/usage-dashboard-8fhwrslsrq78xtswed4-collector-1",
+            "Config": {
+                "Image": "python:3.12-slim-bookworm",
+                "Labels": {"com.docker.compose.service": "collector"},
+            },
+            "State": {"Status": "running"},  # no Health key
+        }
+        web = {
+            "Id": "1efcb9f3b065" + "0" * 52,
+            "Name": "/usage-dashboard-8fhwrslsrq78xtswed4-web-1",
+            "Config": {
+                "Image": "ghcr.io/koenswings/usage-dashboard-web:1.0",
+                "Labels": {"com.docker.compose.service": "web"},
+            },
+            "State": {"Status": "running", "Health": {"Status": "healthy"}},
+        }
+        r = apply_inspect_format(fmt, collector)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        parts = r.stdout.strip().split("|")
+        self.assertEqual(len(parts), 6, r.stdout)
+        self.assertEqual(parts[3], "running")
+        self.assertEqual(parts[4], "none")
+        self.assertEqual(parts[5], "collector")
+        r = apply_inspect_format(fmt, web)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        parts = r.stdout.strip().split("|")
+        self.assertEqual(parts[3], "running")
+        self.assertEqual(parts[4], "healthy")
+        self.assertEqual(parts[5], "web")
+        # the old format must still fail on a container with no Health key
+        old = '{{.Id}}|{{.Name}}|{{.Config.Image}}|{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}|{{index .Config.Labels "com.docker.compose.service"}}'
+        r = apply_inspect_format(old, collector)
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn("Health", r.stderr)
 
     def test_shellcheck_clean(self):
         sc = shutil.which("shellcheck")

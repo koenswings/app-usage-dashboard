@@ -11,8 +11,10 @@ So the bundle must not ship:
     slash or a leading dot is instance-relative), nor a parent of one,
   - a .env (copyBundle skips it, but it must never travel in a bundle).
 It also checks what the Engine needs to offer and verify the bundle
-(UpdateApp.ts sumsLookUsable :442-443, full sha256sum --check --strict):
-SHA256SUMS exists, is non-empty, lists compose.yaml, and every bundle file is
+(UpdateApp.ts sumsLookUsable, defaultVerifySums: cd into the bundle and
+`sha256sum --check --strict SHA256SUMS`): SHA256SUMS exists, is non-empty,
+lists a bare compose.yaml (bundle-relative; a disk-root-relative
+apps/<id>/compose.yaml line is also accepted), and every bundle file is
 listed. --tree checks a git checkout's tracked files instead (no SHA256SUMS).
 
 Usage:
@@ -154,6 +156,8 @@ def main(argv: list[str]) -> int:
             return 2
         sums = bundle / "SHA256SUMS"
         sums_text = sums.read_text(encoding="utf-8") if sums.is_file() else ""
+        # Engine contract: SHA256SUMS is bundle-relative. Accept the older
+        # disk-root-relative layout (apps/<id>/...) as well.
         prefix = "apps/%s/" % bundle.name
         fails = check(bundle_files(bundle), (bundle / "compose.yaml").read_text(encoding="utf-8"), sums_text, prefix)
         label = "bundle %s" % bundle

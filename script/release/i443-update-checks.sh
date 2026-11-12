@@ -179,8 +179,11 @@ containers_check() { # id
   local ids line bad=0 n=0 detail=""
   ids=$("$DOCKER" ps -aq --filter "label=com.docker.compose.project=$INSTANCE" 2>/dev/null)
   if [ -z "$ids" ]; then res FAIL "$1" containers "no containers for project $INSTANCE"; return; fi
+  # `index .State "Health"`: a container with no healthcheck (the collector)
+  # has no State.Health key. `{{if .State.Health}}` fails docker's template
+  # (`map has no entry for key Health`) and this check reported collector=absent.
   for id in $ids; do
-    line=$("$DOCKER" inspect --format '{{.Id}}|{{.Name}}|{{.Config.Image}}|{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}|{{index .Config.Labels "com.docker.compose.service"}}' "$id" 2>/dev/null) || { bad=1; continue; }
+    line=$("$DOCKER" inspect --format '{{.Id}}|{{.Name}}|{{.Config.Image}}|{{.State.Status}}|{{if index .State "Health"}}{{.State.Health.Status}}{{else}}none{{end}}|{{index .Config.Labels "com.docker.compose.service"}}' "$id" 2>/dev/null) || { bad=1; continue; }
     IFS='|' read -r fid _name image status health svc <<<"$line"
     n=$((n + 1))
     CID[$svc]=$fid
@@ -241,14 +244,22 @@ tars_check() { # id label compose
   if [ "$rc" = 0 ]; then res PASS "$1" "$2" "verify-service-tar vs $SERVICES_DIR: $summary"
   else res FAIL "$1" "$2" "verify-service-tar rc=$rc: ${summary:-see $2.verify-service-tar.log}"; fi
 }
-sums_check() { # dir prefix -> 0 if sha256sum -c strict passes and every file listed
+sums_check() { # dir apps/<appId> -> 0 if Engine-style bundle sums pass and every bundle file is listed
+  # Bundle SHA256SUMS is self-contained (UpdateApp.ts defaultVerifySums): cd into
+  # the bundle and sha256sum --check --strict SHA256SUMS. Unlisted files at the
+  # disk root (other apps, META.yaml, BACKUP.yaml, backups/) are not a failure.
+  # If a disk-root SHA256SUMS is present, sha256sum --check --strict it too
+  # (listed paths only; do not require every file on the disk to be listed).
   local root=$1 b=$2 extra
   [ -f "$root/$b/SHA256SUMS" ] || { echo "no SHA256SUMS"; return 1; }
-  (cd "$root" && sha256sum --quiet --strict -c "$b/SHA256SUMS" >/dev/null 2>&1) || { echo "sha256sum -c failed"; return 1; }
-  extra=$(comm -23 <(cd "$root" && find "$b" \( -type f -o -type l \) ! -path "$b/SHA256SUMS" ! -path "$b/.idea-*" | sort) \
+  (cd "$root/$b" && sha256sum --quiet --strict --check SHA256SUMS >/dev/null 2>&1) || { echo "sha256sum -c failed"; return 1; }
+  extra=$(comm -23 <(cd "$root/$b" && find . \( -type f -o -type l \) ! -path ./SHA256SUMS ! -path './.idea-*' | sed 's|^\./||' | sort) \
                    <(sed -E 's/^[0-9a-f]{64} [ *]//' "$root/$b/SHA256SUMS" | sort))
   [ -z "$extra" ] || { echo "unlisted: $(echo "$extra" | head -3 | tr '\n' ' ')"; return 1; }
-  grep -Eq "^[0-9a-f]{64} [ *]$b/compose.yaml$" "$root/$b/SHA256SUMS" || { echo "compose.yaml not listed"; return 1; }
+  grep -Eq '^[0-9a-f]{64} [ *]\.?/?compose\.yaml$' "$root/$b/SHA256SUMS" || { echo "compose.yaml not listed"; return 1; }
+  if [ -s "$root/SHA256SUMS" ] && grep -Eq '^[0-9a-f]{64} [ *]' "$root/SHA256SUMS"; then
+    (cd "$root" && sha256sum --quiet --strict --check SHA256SUMS >/dev/null 2>&1) || { echo "disk-root sha256sum -c failed"; return 1; }
+  fi
   echo "$(wc -l < "$root/$b/SHA256SUMS") files OK"
 }
 evidence_scan() {
@@ -396,10 +407,11 @@ else
   else res FAIL Q09 drift-stick "/apps ${ac:-missing} != stick ${stc:-missing}"; fi
   # copyBundle skips SHA256SUMS, so check /apps/<appId> files against the stick's sums
   if [ -f "$STICK_BUNDLE/SHA256SUMS" ] && [ -d "$APPS_DIR/$APP_ID" ]; then
-    pref="apps/$APP_ID/"
-    bad=$(grep -E "^[0-9a-f]{64} [ *]$pref" "$STICK_BUNDLE/SHA256SUMS" | while read -r h f; do
-      f=${f#\*}; rel=${f#"$pref"}
-      [ "$(sha "$APPS_DIR/$APP_ID/$rel")" = "$h" ] || echo "$rel"
+    # Bundle SHA256SUMS is bundle-relative (bare compose.yaml, collector/..., never apps/<id>/).
+    bad=$(grep -E '^[0-9a-f]{64} [ *]' "$STICK_BUNDLE/SHA256SUMS" | while read -r h f; do
+      f=${f#\*}
+      [ "$f" = "SHA256SUMS" ] && continue
+      [ "$(sha "$APPS_DIR/$APP_ID/$f")" = "$h" ] || echo "$f"
     done | head -5 | tr '\n' ' ')
     if [ -z "$bad" ]; then res PASS Q10 apps-files "/apps/$APP_ID matches stick SHA256SUMS"
     else res FAIL Q10 apps-files "differ from stick SHA256SUMS: $bad"; fi

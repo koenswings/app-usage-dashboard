@@ -112,9 +112,9 @@ Bundle stick (Steve, idea#443): the Engine docks a disk only with a valid
 and agent-app-dev `check-app-disk-tree.sh` also wants `diskId`, `diskName`,
 `created` and `lastDocked` (epoch ms; `src/data/Meta.ts DiskMeta`). It is an
 App Disk because `apps/` exists (`Disk.ts:609-617`). The offer needs
-`apps/usage-dashboard-1.1/SHA256SUMS` non-empty and listing `compose.yaml`
-(`UpdateApp.ts:442-443 sumsLookUsable`); updateApp runs a full
-`sha256sum --check --strict` on it. The stick's `services/*.tar` are not used:
+`apps/usage-dashboard-1.1/SHA256SUMS` non-empty and listing a bare
+`compose.yaml` (bundle-relative; `UpdateApp.ts sumsLookUsable`); updateApp
+runs `cd apps/<appId> && sha256sum --check --strict SHA256SUMS`. The stick's `services/*.tar` are not used:
 the start loads images only from idea03's own `/services` or skips the load
 when the pin is local (`Instance.ts:1402-1426`, `674-700`).
 
