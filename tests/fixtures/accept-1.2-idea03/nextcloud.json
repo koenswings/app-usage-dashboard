@@ -1,0 +1,399 @@
+{
+  "schema": "idea-usage-api/1",
+  "deploymentId": "dep-idea03-e2e-051c079",
+  "weekStart": "2026-11-09",
+  "clockTrusted": false,
+  "instances": [
+    {
+      "instance": "nextcloud-files-b-001",
+      "instanceId": "nextcloud-files-b-001",
+      "name": "nextcloud-files-b-001",
+      "app": "nextcloud",
+      "demo": false,
+      "listed": true,
+      "hookStatus": "no-hook",
+      "skipReason": null,
+      "clock": null,
+      "collectedAt": "2026-11-12T03:29:22+01:00",
+      "setup": null,
+      "logins": null,
+      "office": null,
+      "appsOpened": null,
+      "workflows": null,
+      "documentsCreated": null,
+      "documentsCreatedByGroup": null
+    },
+    {
+      "instance": "nextcloud-7svijocdl5x39ypxz5x",
+      "instanceId": "nextcloud-7svijocdl5x39ypxz5x",
+      "name": "i413-Nextcloud",
+      "app": "nextcloud",
+      "demo": false,
+      "listed": true,
+      "hookStatus": "ok",
+      "skipReason": null,
+      "clock": {
+        "synced": false,
+        "correctedBoots": 0
+      },
+      "collectedAt": "2026-11-11T07:51:53+01:00",
+      "setup": {
+        "admin": {
+          "total": 1,
+          "beyondSeed": 0
+        },
+        "teacher": {
+          "total": 1,
+          "beyondSeed": 0
+        },
+        "learner": {
+          "total": 1,
+          "beyondSeed": 0
+        },
+        "otherGroups": {}
+      },
+      "logins": {
+        "admin": {
+          "total": 1,
+          "beyondSeed": 0
+        },
+        "teacher": {
+          "total": 1,
+          "beyondSeed": 0
+        },
+        "learner": {
+          "total": 2,
+          "beyondSeed": 0
+        }
+      },
+      "office": {
+        "opens": 1,
+        "distinctDocuments": 1,
+        "read": 0,
+        "edit": 1,
+        "estimatedMinutes": 15,
+        "byGroup": {
+          "admin": 0,
+          "teacher": 1,
+          "learner": 0
+        },
+        "mime": {
+          "text": 1,
+          "sheet": 0,
+          "slides": 0
+        }
+      },
+      "appsOpened": null,
+      "workflows": {
+        "worksheetShares": 0,
+        "editShares": 0,
+        "fileDropLinks": 0,
+        "fileDropUploads": 0,
+        "schoolFilesShares": 0,
+        "byGroup": {
+          "worksheetShares": {
+            "admin": 0,
+            "teacher": 0,
+            "learner": 0
+          },
+          "editShares": {
+            "admin": 0,
+            "teacher": 0,
+            "learner": 0
+          },
+          "fileDropUploads": {
+            "admin": 0,
+            "teacher": 0,
+            "learner": 0
+          },
+          "schoolFilesShares": {
+            "admin": 0,
+            "teacher": 0,
+            "learner": 0
+          }
+        }
+      },
+      "documentsCreated": null,
+      "documentsCreatedByGroup": null
+    },
+    {
+      "instance": "nextcloud-bqffncvs9vvlgsu4fa1",
+      "instanceId": "nextcloud-bqffncvs9vvlgsu4fa1",
+      "name": "i413-Nextcloud",
+      "app": "nextcloud",
+      "demo": false,
+      "listed": true,
+      "hookStatus": "ok",
+      "skipReason": null,
+      "clock": {
+        "synced": false,
+        "correctedBoots": 0
+      },
+      "collectedAt": "2026-11-11T08:03:28+01:00",
+      "setup": {
+        "admin": {
+          "total": 1,
+          "beyondSeed": 0
+        },
+        "teacher": {
+          "total": 1,
+          "beyondSeed": 0
+        },
+        "learner": {
+          "total": 1,
+          "beyondSeed": 0
+        },
+        "otherGroups": {}
+      },
+      "logins": {
+        "admin": {
+          "total": 1,
+          "beyondSeed": 0
+        },
+        "teacher": {
+          "total": 1,
+          "beyondSeed": 0
+        },
+        "learner": {
+          "total": 2,
+          "beyondSeed": 0
+        }
+      },
+      "office": {
+        "opens": 1,
+        "distinctDocuments": 1,
+        "read": 0,
+        "edit": 1,
+        "estimatedMinutes": 15,
+        "byGroup": {
+          "admin": 0,
+          "teacher": 1,
+          "learner": 0
+        },
+        "mime": {
+          "text": 1,
+          "sheet": 0,
+          "slides": 0
+        }
+      },
+      "appsOpened": null,
+      "workflows": {
+        "worksheetShares": 0,
+        "editShares": 0,
+        "fileDropLinks": 0,
+        "fileDropUploads": 0,
+        "schoolFilesShares": 0,
+        "byGroup": {
+          "worksheetShares": {
+            "admin": 0,
+            "teacher": 0,
+            "learner": 0
+          },
+          "editShares": {
+            "admin": 0,
+            "teacher": 0,
+            "learner": 0
+          },
+          "fileDropUploads": {
+            "admin": 0,
+            "teacher": 0,
+            "learner": 0
+          },
+          "schoolFilesShares": {
+            "admin": 0,
+            "teacher": 0,
+            "learner": 0
+          }
+        }
+      },
+      "documentsCreated": null,
+      "documentsCreatedByGroup": null
+    },
+    {
+      "instance": "nextcloud-4dk5yj033wm6adp2772",
+      "instanceId": "nextcloud-4dk5yj033wm6adp2772",
+      "name": "i413-Nextcloud",
+      "app": "nextcloud",
+      "demo": false,
+      "listed": true,
+      "hookStatus": "ok",
+      "skipReason": null,
+      "clock": {
+        "synced": false,
+        "correctedBoots": 0
+      },
+      "collectedAt": "2026-11-11T07:14:49+01:00",
+      "setup": {
+        "admin": {
+          "total": 1,
+          "beyondSeed": 0
+        },
+        "teacher": {
+          "total": 1,
+          "beyondSeed": 0
+        },
+        "learner": {
+          "total": 1,
+          "beyondSeed": 0
+        },
+        "otherGroups": {}
+      },
+      "logins": {
+        "admin": {
+          "total": 1,
+          "beyondSeed": 0
+        },
+        "teacher": {
+          "total": 1,
+          "beyondSeed": 0
+        },
+        "learner": {
+          "total": 1,
+          "beyondSeed": 0
+        }
+      },
+      "office": {
+        "opens": 1,
+        "distinctDocuments": 1,
+        "read": 0,
+        "edit": 1,
+        "estimatedMinutes": 15,
+        "byGroup": {
+          "admin": 0,
+          "teacher": 1,
+          "learner": 0
+        },
+        "mime": {
+          "text": 1,
+          "sheet": 0,
+          "slides": 0
+        }
+      },
+      "appsOpened": null,
+      "workflows": {
+        "worksheetShares": 0,
+        "editShares": 0,
+        "fileDropLinks": 0,
+        "fileDropUploads": 0,
+        "schoolFilesShares": 0,
+        "byGroup": {
+          "worksheetShares": {
+            "admin": 0,
+            "teacher": 0,
+            "learner": 0
+          },
+          "editShares": {
+            "admin": 0,
+            "teacher": 0,
+            "learner": 0
+          },
+          "fileDropUploads": {
+            "admin": 0,
+            "teacher": 0,
+            "learner": 0
+          },
+          "schoolFilesShares": {
+            "admin": 0,
+            "teacher": 0,
+            "learner": 0
+          }
+        }
+      },
+      "documentsCreated": null,
+      "documentsCreatedByGroup": null
+    },
+    {
+      "instance": "nextcloud-a2wvxra1ke4co1a5sye",
+      "instanceId": "nextcloud-a2wvxra1ke4co1a5sye",
+      "name": "i413-Nextcloud",
+      "app": "nextcloud",
+      "demo": false,
+      "listed": true,
+      "hookStatus": "ok",
+      "skipReason": null,
+      "clock": {
+        "synced": false,
+        "correctedBoots": 0
+      },
+      "collectedAt": "2026-11-11T06:35:46+01:00",
+      "setup": {
+        "admin": {
+          "total": 1,
+          "beyondSeed": 0
+        },
+        "teacher": {
+          "total": 1,
+          "beyondSeed": 0
+        },
+        "learner": {
+          "total": 1,
+          "beyondSeed": 0
+        },
+        "otherGroups": {}
+      },
+      "logins": {
+        "admin": {
+          "total": 1,
+          "beyondSeed": 0
+        },
+        "teacher": {
+          "total": 1,
+          "beyondSeed": 0
+        },
+        "learner": {
+          "total": 1,
+          "beyondSeed": 0
+        }
+      },
+      "office": {
+        "opens": 0,
+        "distinctDocuments": 0,
+        "read": 0,
+        "edit": 0,
+        "estimatedMinutes": 0,
+        "byGroup": {
+          "admin": 0,
+          "teacher": 0,
+          "learner": 0
+        },
+        "mime": {
+          "text": 0,
+          "sheet": 0,
+          "slides": 0
+        }
+      },
+      "appsOpened": null,
+      "workflows": {
+        "worksheetShares": 0,
+        "editShares": 0,
+        "fileDropLinks": 0,
+        "fileDropUploads": 0,
+        "schoolFilesShares": 0,
+        "byGroup": {
+          "worksheetShares": {
+            "admin": 0,
+            "teacher": 0,
+            "learner": 0
+          },
+          "editShares": {
+            "admin": 0,
+            "teacher": 0,
+            "learner": 0
+          },
+          "fileDropUploads": {
+            "admin": 0,
+            "teacher": 0,
+            "learner": 0
+          },
+          "schoolFilesShares": {
+            "admin": 0,
+            "teacher": 0,
+            "learner": 0
+          }
+        }
+      },
+      "documentsCreated": null,
+      "documentsCreatedByGroup": null
+    }
+  ]
+}

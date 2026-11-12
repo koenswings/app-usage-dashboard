@@ -1,0 +1,356 @@
+{
+  "schema": "idea-usage-api/1",
+  "deploymentId": "dep-idea03-e2e-051c079",
+  "weekStart": "2026-11-09",
+  "clockTrusted": false,
+  "instances": [
+    {
+      "instance": "kolibri-2htevnk74t5hszft809",
+      "instanceId": "kolibri-2htevnk74t5hszft809",
+      "name": "i413-Kolibri",
+      "app": "kolibri",
+      "demo": false,
+      "listed": true,
+      "hookStatus": "ok",
+      "skipReason": null,
+      "clock": {
+        "synced": false,
+        "correctedBoots": 0
+      },
+      "collectedAt": "2026-11-11T08:03:28+01:00",
+      "flags": [
+        "sharedLearnerAccount"
+      ],
+      "setup": {
+        "classes": 0,
+        "classesDelta": 0,
+        "learnersRegistered": 1,
+        "learnersRegisteredDelta": 1,
+        "learnersEnrolled": 0,
+        "teachers": 1,
+        "teachersDelta": 0,
+        "admins": 1,
+        "coachesBeyondSeed": 0
+      },
+      "signins": {
+        "learner": {
+          "users": 1,
+          "usersBeyondSeed": 0,
+          "sessions": 2,
+          "minutes": 12
+        },
+        "coach": {
+          "users": 1,
+          "usersBeyondSeed": 0,
+          "sessions": 1,
+          "minutes": 0
+        },
+        "admin": {
+          "users": 1,
+          "usersBeyondSeed": 0,
+          "sessions": 1,
+          "minutes": 0
+        }
+      },
+      "guest": {
+        "visits": 0,
+        "seconds": 0
+      },
+      "teaching": {
+        "lessonsCreated": 0,
+        "lessonsVisible": 0,
+        "quizzesCreated": 0,
+        "quizzesStarted": 0,
+        "quizzesEnded": 0
+      },
+      "content": [
+        {
+          "channel": "i413",
+          "title": "i413-past-day",
+          "kind": "video",
+          "role": "learner",
+          "visits": 1,
+          "seconds": 72,
+          "completions": 0,
+          "assigned": false
+        },
+        {
+          "channel": "Khan Academy (English - US curriculum)",
+          "title": "Visually adding fractions: 5/6+1/4",
+          "kind": "video",
+          "role": "learner",
+          "visits": 1,
+          "seconds": 45,
+          "completions": 0,
+          "assigned": false
+        },
+        {
+          "channel": "Khan Academy (English - US curriculum)",
+          "title": "Visually subtracting fractions: 3/4-5/8",
+          "kind": "video",
+          "role": "learner",
+          "visits": 1,
+          "seconds": 45,
+          "completions": 0,
+          "assigned": false
+        }
+      ]
+    },
+    {
+      "instance": "kolibri-4ege8c1n8kdfbtgxpd6",
+      "instanceId": "kolibri-4ege8c1n8kdfbtgxpd6",
+      "name": "i413-Kolibri",
+      "app": "kolibri",
+      "demo": false,
+      "listed": true,
+      "hookStatus": "ok",
+      "skipReason": null,
+      "clock": {
+        "synced": false,
+        "correctedBoots": 0
+      },
+      "collectedAt": "2026-11-11T07:51:53+01:00",
+      "flags": [
+        "sharedLearnerAccount"
+      ],
+      "setup": {
+        "classes": 0,
+        "classesDelta": 0,
+        "learnersRegistered": 1,
+        "learnersRegisteredDelta": 1,
+        "learnersEnrolled": 0,
+        "teachers": 1,
+        "teachersDelta": 0,
+        "admins": 1,
+        "coachesBeyondSeed": 0
+      },
+      "signins": {
+        "learner": {
+          "users": 1,
+          "usersBeyondSeed": 0,
+          "sessions": 2,
+          "minutes": 12
+        },
+        "coach": {
+          "users": 1,
+          "usersBeyondSeed": 0,
+          "sessions": 1,
+          "minutes": 0
+        },
+        "admin": {
+          "users": 1,
+          "usersBeyondSeed": 0,
+          "sessions": 1,
+          "minutes": 0
+        }
+      },
+      "guest": {
+        "visits": 0,
+        "seconds": 0
+      },
+      "teaching": {
+        "lessonsCreated": 0,
+        "lessonsVisible": 0,
+        "quizzesCreated": 0,
+        "quizzesStarted": 0,
+        "quizzesEnded": 0
+      },
+      "content": [
+        {
+          "channel": "i413",
+          "title": "i413-past-day",
+          "kind": "video",
+          "role": "learner",
+          "visits": 1,
+          "seconds": 72,
+          "completions": 0,
+          "assigned": false
+        },
+        {
+          "channel": "Khan Academy (English - US curriculum)",
+          "title": "Visually adding fractions: 5/6+1/4",
+          "kind": "video",
+          "role": "learner",
+          "visits": 1,
+          "seconds": 45,
+          "completions": 0,
+          "assigned": false
+        },
+        {
+          "channel": "Khan Academy (English - US curriculum)",
+          "title": "Visually subtracting fractions: 3/4-5/8",
+          "kind": "video",
+          "role": "learner",
+          "visits": 1,
+          "seconds": 45,
+          "completions": 0,
+          "assigned": false
+        }
+      ]
+    },
+    {
+      "instance": "kolibri-6urtu9xj5nt3ojmfknc",
+      "instanceId": "kolibri-6urtu9xj5nt3ojmfknc",
+      "name": "i413-Kolibri",
+      "app": "kolibri",
+      "demo": false,
+      "listed": true,
+      "hookStatus": "ok",
+      "skipReason": null,
+      "clock": {
+        "synced": false,
+        "correctedBoots": 0
+      },
+      "collectedAt": "2026-11-11T06:35:47+01:00",
+      "flags": [
+        "sharedLearnerAccount"
+      ],
+      "setup": {
+        "classes": 0,
+        "classesDelta": 0,
+        "learnersRegistered": 1,
+        "learnersRegisteredDelta": 1,
+        "learnersEnrolled": 0,
+        "teachers": 1,
+        "teachersDelta": 0,
+        "admins": 1,
+        "coachesBeyondSeed": 0
+      },
+      "signins": {
+        "learner": {
+          "users": 0,
+          "usersBeyondSeed": 0,
+          "sessions": 0,
+          "minutes": 0
+        },
+        "coach": {
+          "users": 0,
+          "usersBeyondSeed": 0,
+          "sessions": 0,
+          "minutes": 0
+        },
+        "admin": {
+          "users": 0,
+          "usersBeyondSeed": 0,
+          "sessions": 0,
+          "minutes": 0
+        }
+      },
+      "guest": {
+        "visits": 0,
+        "seconds": 0
+      },
+      "teaching": {
+        "lessonsCreated": 0,
+        "lessonsVisible": 0,
+        "quizzesCreated": 0,
+        "quizzesStarted": 0,
+        "quizzesEnded": 0
+      },
+      "content": [
+        {
+          "channel": "Khan Academy (English - US curriculum)",
+          "title": "Visually adding fractions: 5/6+1/4",
+          "kind": "video",
+          "role": "learner",
+          "visits": 1,
+          "seconds": 45,
+          "completions": 0,
+          "assigned": false
+        },
+        {
+          "channel": "Khan Academy (English - US curriculum)",
+          "title": "Visually subtracting fractions: 3/4-5/8",
+          "kind": "video",
+          "role": "learner",
+          "visits": 1,
+          "seconds": 45,
+          "completions": 0,
+          "assigned": false
+        }
+      ]
+    },
+    {
+      "instance": "kolibri-x5pfdilbu5hhodwyije",
+      "instanceId": "kolibri-x5pfdilbu5hhodwyije",
+      "name": "i413-Kolibri",
+      "app": "kolibri",
+      "demo": false,
+      "listed": true,
+      "hookStatus": "ok",
+      "skipReason": null,
+      "clock": {
+        "synced": false,
+        "correctedBoots": 0
+      },
+      "collectedAt": "2026-11-11T07:14:49+01:00",
+      "flags": [
+        "sharedLearnerAccount"
+      ],
+      "setup": {
+        "classes": 0,
+        "classesDelta": 0,
+        "learnersRegistered": 1,
+        "learnersRegisteredDelta": 1,
+        "learnersEnrolled": 0,
+        "teachers": 1,
+        "teachersDelta": 0,
+        "admins": 1,
+        "coachesBeyondSeed": 0
+      },
+      "signins": {
+        "learner": {
+          "users": 1,
+          "usersBeyondSeed": 0,
+          "sessions": 1,
+          "minutes": 0
+        },
+        "coach": {
+          "users": 1,
+          "usersBeyondSeed": 0,
+          "sessions": 1,
+          "minutes": 0
+        },
+        "admin": {
+          "users": 1,
+          "usersBeyondSeed": 0,
+          "sessions": 1,
+          "minutes": 0
+        }
+      },
+      "guest": {
+        "visits": 0,
+        "seconds": 0
+      },
+      "teaching": {
+        "lessonsCreated": 0,
+        "lessonsVisible": 0,
+        "quizzesCreated": 0,
+        "quizzesStarted": 0,
+        "quizzesEnded": 0
+      },
+      "content": [
+        {
+          "channel": "Khan Academy (English - US curriculum)",
+          "title": "Visually adding fractions: 5/6+1/4",
+          "kind": "video",
+          "role": "learner",
+          "visits": 1,
+          "seconds": 45,
+          "completions": 0,
+          "assigned": false
+        },
+        {
+          "channel": "Khan Academy (English - US curriculum)",
+          "title": "Visually subtracting fractions: 3/4-5/8",
+          "kind": "video",
+          "role": "learner",
+          "visits": 1,
+          "seconds": 45,
+          "completions": 0,
+          "assigned": false
+        }
+      ]
+    }
+  ]
+}
