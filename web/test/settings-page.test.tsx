@@ -53,6 +53,11 @@ describe('Settings page', () => {
     expect(getByTestId('settings-setup').textContent).toMatch(/at least one coach, at least one class and learners enrolled in a class/);
     expect(getByTestId('settings-setup').textContent).toMatch(/teacher and learner accounts beyond the seed accounts/);
     expect(getByTestId('settings-setup').textContent).not.toMatch(/registered learners and teachers are both more than zero/);
+    expect(getByTestId('settings-intro').textContent).toMatch(/No data never counts as amber/);
+    expect(getByTestId('settings-intro').textContent).not.toMatch(/Grey|grey/);
+    expect(getByTestId('settings-setup').textContent).not.toMatch(/does not count/);
+    expect(getByTestId('settings-field-helpAfterAmberWeeks').textContent).toMatch(/week with no data/);
+    expect(getByTestId('settings-field-helpAfterAmberWeeks').textContent).not.toMatch(/Grey|grey/);
     expect(getByTestId('settings-field-nextcloudMinActions').textContent).toMatch(/teacher or learner/);
     expect(getByTestId('settings-field-nextcloudMinActions').textContent).toMatch(
       /File drop uploads count toward the person who owns the drop link, because uploaders are anonymous/,

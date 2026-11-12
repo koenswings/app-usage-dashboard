@@ -4,6 +4,7 @@ import { HelpTimeline } from '../src/pages/HelpTimeline';
 import { overviewFor, SAMPLE_WEEK } from '../src/mock/data';
 import type { HelpEventsResponse } from '../src/api/types';
 import { API_SCHEMA } from '../src/api/types';
+import { DEFAULT_THRESHOLDS, THRESHOLD_FIELDS, helpRulesText } from '../src/config/thresholds';
 
 describe('offer-help wording', () => {
   it('phrases the fleet banner as offer help and never retract', () => {
@@ -33,5 +34,16 @@ describe('offer-help wording', () => {
     ));
     expect(container.textContent).toMatch(/Offer help/);
     expect(container.textContent).not.toMatch(/retract/i);
+    expect(container.textContent).not.toMatch(/Grey|grey/);
+    expect(container.textContent).toMatch(/A week with no data neither counts/);
+  });
+
+  it('help rule copy never says Grey', () => {
+    const text = helpRulesText(DEFAULT_THRESHOLDS);
+    expect(text).toMatch(/A week with no data neither counts toward that streak nor breaks it/);
+    expect(text).not.toMatch(/Grey|grey/);
+    for (const field of THRESHOLD_FIELDS) {
+      expect(field.meaning, field.id).not.toMatch(/Grey|grey/);
+    }
   });
 });
