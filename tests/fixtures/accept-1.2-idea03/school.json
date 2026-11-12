@@ -1,0 +1,218 @@
+{
+  "schema": "idea-usage-api/1",
+  "weekStart": "2026-11-09",
+  "weekEnd": "2026-11-13",
+  "deploymentId": "dep-idea03-e2e-051c079",
+  "school": "idea03 e2e 051c079",
+  "engine": "idea03",
+  "lastPulled": "2026-11-12T11:08:55+00:00",
+  "stale": false,
+  "dataFrom": null,
+  "hasUsageData": true,
+  "monitoringEnabled": true,
+  "thresholdsConfigured": true,
+  "sampleData": false,
+  "timezone": {
+    "timeZone": "Europe/Brussels",
+    "utcOffset": "+01:00",
+    "label": "kit local time (Europe/Brussels, UTC+1)"
+  },
+  "scorecard": {
+    "available": {
+      "schoolDaysOn": 2,
+      "schoolDaysExpected": 5,
+      "schoolHoursOnMinutes": 841,
+      "bootsPerSchoolDay": [
+        0,
+        0,
+        2,
+        2,
+        0
+      ],
+      "longestGapMinutes": 3
+    },
+    "setup": {
+      "classes": 0,
+      "learnersRegistered": 1,
+      "learnersEnrolled": 0,
+      "teachers": 1,
+      "admins": 1,
+      "nextcloudTeacherBeyondSeed": 0,
+      "nextcloudLearnerBeyondSeed": 0,
+      "kolibriCoachBeyondSeed": 0
+    },
+    "setupStatus": {
+      "complete": false,
+      "kolibri": {
+        "complete": false,
+        "missing": [
+          "coach",
+          "class",
+          "enrolledLearner"
+        ],
+        "unknown": [],
+        "passingInstanceIds": []
+      },
+      "nextcloud": {
+        "complete": null,
+        "missing": [
+          "teacherBeyondSeed",
+          "learnerBeyondSeed"
+        ],
+        "unknown": [
+          "teacherBeyondSeed",
+          "learnerBeyondSeed"
+        ],
+        "passingInstanceIds": []
+      },
+      "rule": "u7-2026-11-11"
+    },
+    "copies": {
+      "kolibri": [
+        "kolibri-2htevnk74t5hszft809",
+        "kolibri-4ege8c1n8kdfbtgxpd6",
+        "kolibri-6urtu9xj5nt3ojmfknc",
+        "kolibri-x5pfdilbu5hhodwyije"
+      ],
+      "nextcloud": [
+        "nextcloud-4dk5yj033wm6adp2772",
+        "nextcloud-7svijocdl5x39ypxz5x",
+        "nextcloud-a2wvxra1ke4co1a5sye",
+        "nextcloud-bqffncvs9vvlgsu4fa1"
+      ],
+      "kiwix": [
+        "kiwix-9p3ere4f6nmxch2llzi",
+        "kiwix-d9nm5bodps9ukivnyts",
+        "kiwix-iogyoms7aan8cctj42p",
+        "kiwix-qcbs9qfuemynfrkuho2"
+      ]
+    },
+    "teachingCycle": {
+      "lessonsCreated": 0,
+      "lessonsVisible": 0,
+      "quizzesCreated": 0,
+      "quizzesStarted": 0,
+      "learnerSessionsOnAssigned": 0,
+      "assignedShareOfLearnerVisits": 0
+    },
+    "learnersOperate": {
+      "learnerSessions": 5,
+      "learnerMinutes": 24,
+      "coachSessions": 3,
+      "coachMinutes": 0,
+      "adminSessions": 3,
+      "adminMinutes": 0,
+      "guestVisits": 0,
+      "guestMinutes": 0,
+      "learnerShareOfMinutes": 1
+    },
+    "nextcloud": {
+      "worksheetShares": 0,
+      "worksheetSharesTeacherLearner": 0,
+      "worksheetSharesAdmin": 0,
+      "editShares": 0,
+      "editSharesTeacherLearner": 0,
+      "editSharesAdmin": 0,
+      "fileDropLinks": 0,
+      "fileDropUploads": 0,
+      "fileDropUploadsTeacherLearner": 0,
+      "fileDropUploadsAdmin": 0,
+      "schoolFilesShares": 0,
+      "schoolFilesSharesTeacherLearner": 0,
+      "schoolFilesSharesAdmin": 0,
+      "officeOpens": 3,
+      "officeOpensTeacherLearner": 3,
+      "officeOpensAdmin": 0,
+      "officeDistinctDocuments": 3,
+      "officeRead": 0,
+      "officeEdit": 3,
+      "officeEstimatedMinutes": 45,
+      "documentsCreated": null,
+      "documentsCreatedTeacherLearner": null,
+      "documentsCreatedAdmin": null,
+      "appsOpened": null
+    },
+    "wikipedia": {
+      "pageViewsOwn": 21,
+      "sessionsOwn": 5,
+      "distinctArticlesOwn": 5
+    }
+  },
+  "census": {
+    "classes": 0,
+    "classesDelta": 0,
+    "learnersRegistered": 1,
+    "learnersRegisteredDelta": 1,
+    "learnersEnrolled": 0,
+    "teachers": 1,
+    "teachersDelta": 0,
+    "admins": 1,
+    "coachesBeyondSeed": 0
+  },
+  "presence": {
+    "timezone": {
+      "timeZone": "Europe/Brussels",
+      "utcOffset": "+01:00",
+      "label": "kit local time (Europe/Brussels, UTC+1)"
+    },
+    "segments": [
+      {
+        "state": "gapUnknown",
+        "start": "2026-11-09T00:00:00+01:00",
+        "end": "2026-11-11T00:51:34+01:00",
+        "lengthKnown": false
+      },
+      {
+        "state": "on",
+        "start": "2026-11-11T00:51:34+01:00",
+        "end": "2026-11-11T04:57:15+01:00",
+        "lengthKnown": true
+      },
+      {
+        "state": "gapUnknown",
+        "start": "2026-11-11T04:57:15+01:00",
+        "end": "2026-11-11T05:00:30+01:00",
+        "lengthKnown": false
+      },
+      {
+        "state": "on",
+        "start": "2026-11-11T05:00:30+01:00",
+        "end": "2026-11-12T04:58:31+01:00",
+        "lengthKnown": true
+      },
+      {
+        "state": "gapUnknown",
+        "start": "2026-11-12T04:58:31+01:00",
+        "end": "2026-11-12T05:00:31+01:00",
+        "lengthKnown": false
+      },
+      {
+        "state": "on",
+        "start": "2026-11-12T05:00:31+01:00",
+        "end": "2026-11-12T10:26:08+01:00",
+        "lengthKnown": true
+      },
+      {
+        "state": "gapUnknown",
+        "start": "2026-11-12T10:26:08+01:00",
+        "end": "2026-11-12T10:29:21+01:00",
+        "lengthKnown": false
+      },
+      {
+        "state": "on",
+        "start": "2026-11-12T10:29:21+01:00",
+        "end": "2026-11-12T12:04:39+01:00",
+        "lengthKnown": true
+      },
+      {
+        "state": "gapUnknown",
+        "start": "2026-11-12T12:04:39+01:00",
+        "end": "2026-11-14T00:00:00+01:00",
+        "lengthKnown": false
+      }
+    ],
+    "summary": "On 2 of 5 school days, 14 h in school hours"
+  },
+  "clockTrusted": false,
+  "unused": false
+}

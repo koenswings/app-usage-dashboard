@@ -799,6 +799,27 @@ def _nextcloud_setup_inputs(inst: dict[str, Any]) -> dict[str, Any] | None:
     return {"teacherBeyondSeed": teacher.get("beyondSeed"), "learnerBeyondSeed": learner.get("beyondSeed")}
 
 
+def _setup_copies(items: list[dict[str, Any]], inputs_of) -> list[tuple[str, dict[str, Any] | None]]:
+    """``(instanceId, inputs)`` pairs for one app's U-7 Set up part.
+
+    Only the school's own copies count, and only those with an ok day this
+    week (the same ``own_copies`` set the census and ``scorecard.copies``
+    use). A copy with no ok day (e.g. a listed, non-hooked
+    ``nextcloud-files-b-001``) has no known value, so it must not turn a part
+    that the measured copies already decide into "unknown" (1.2 acceptance,
+    idea#462). Only when NO own copy has an ok day are the unmeasured own
+    copies passed through as unknown (inputs None), so the part is unknown
+    rather than "noOwn…": the school does have a copy, it just was not read.
+    """
+    measured = own_copies(items)
+    if measured:
+        return [(item.get("instance") or "", inputs_of(item)) for item in measured]
+    return [
+        (item.get("instance") or "", None)
+        for item in sorted(own_instances(items), key=lambda x: x.get("instance") or "")
+    ]
+
+
 def setup_status_from_weeks(
     kolibri: list[dict[str, Any]], nextcloud: list[dict[str, Any]], kiwix: list[dict[str, Any]]
 ) -> dict[str, Any]:
@@ -806,14 +827,8 @@ def setup_status_from_weeks(
     has_data = any(k.get("setup") is not None for k in kolibri) or any(
         n.get("setup") is not None for n in nextcloud
     ) or any(z.get("pageViews") is not None for z in kiwix)
-    k_copies = [
-        (k.get("instance") or "", k.get("setup") if k.get("setup") is not None else None)
-        for k in sorted(own_instances(kolibri), key=lambda x: x.get("instance") or "")
-    ]
-    n_copies = [
-        (n.get("instance") or "", _nextcloud_setup_inputs(n))
-        for n in sorted(own_instances(nextcloud), key=lambda x: x.get("instance") or "")
-    ]
+    k_copies = _setup_copies(kolibri, lambda k: k.get("setup"))
+    n_copies = _setup_copies(nextcloud, _nextcloud_setup_inputs)
     return thresholds_mod.setup_status(k_copies, n_copies, has_data)
 
 

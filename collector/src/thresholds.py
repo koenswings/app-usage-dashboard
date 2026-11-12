@@ -340,7 +340,7 @@ def app_setup_status(copies: list[tuple[str, dict[str, Any] | None]], checks, ab
         return {"complete": False, "missing": [absent_reason], "unknown": [], "passingInstanceIds": []}
     passing: list[str] = []
     failing: set[str] = set()
-    unknown: set[str] = set()
+    known: set[str] = set()
     any_unknown = False
     for instance_id, inputs in copies:
         verdict, fails, unknowns = _copy_verdict(inputs, checks)
@@ -349,7 +349,11 @@ def app_setup_status(copies: list[tuple[str, dict[str, Any] | None]], checks, ab
         elif verdict == UNKNOWN:
             any_unknown = True
         failing.update(fails)
-        unknown.update(unknowns)
+        known.update(name for name, _ in checks if inputs is not None and name not in unknowns)
+    # A condition is "unknown" only when NO copy has a known value for it; a
+    # condition with a known failing value is "missing". The two lists are
+    # disjoint (1.2 acceptance, idea#462: both items appeared in both).
+    unknown = {name for name, _ in checks if name not in known} - failing
     if passing:
         return {"complete": True, "missing": [], "unknown": [], "passingInstanceIds": passing}
     return {

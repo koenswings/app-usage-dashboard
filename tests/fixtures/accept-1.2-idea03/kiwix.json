@@ -1,0 +1,276 @@
+{
+  "schema": "idea-usage-api/1",
+  "deploymentId": "dep-idea03-e2e-051c079",
+  "weekStart": "2026-11-09",
+  "clockTrusted": false,
+  "instances": [
+    {
+      "instance": "kiwix-iogyoms7aan8cctj42p",
+      "instanceId": "kiwix-iogyoms7aan8cctj42p",
+      "name": "i413-Kiwix",
+      "app": "kiwix",
+      "demo": false,
+      "listed": true,
+      "hookStatus": "ok",
+      "skipReason": null,
+      "clock": {
+        "synced": false,
+        "correctedBoots": 0
+      },
+      "collectedAt": "2026-11-11T08:03:28+01:00",
+      "pageViews": 6,
+      "distinctArticles": 5,
+      "sessions": 2,
+      "topArticles": [
+        {
+          "title": "Fraction",
+          "views": 1
+        },
+        {
+          "title": "Main Page",
+          "views": 1
+        },
+        {
+          "title": "Numerator",
+          "views": 1
+        },
+        {
+          "title": "PastDayCatchUp",
+          "views": 1
+        },
+        {
+          "title": "Photosynthesis",
+          "views": 1
+        },
+        {
+          "title": "Solar System",
+          "views": 1
+        }
+      ],
+      "byHour": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        5,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "instance": "kiwix-qcbs9qfuemynfrkuho2",
+      "instanceId": "kiwix-qcbs9qfuemynfrkuho2",
+      "name": "i413-Kiwix",
+      "app": "kiwix",
+      "demo": false,
+      "listed": true,
+      "hookStatus": "ok",
+      "skipReason": null,
+      "clock": {
+        "synced": false,
+        "correctedBoots": 0
+      },
+      "collectedAt": "2026-11-11T07:51:52+01:00",
+      "pageViews": 5,
+      "distinctArticles": 5,
+      "sessions": 1,
+      "topArticles": [
+        {
+          "title": "Fraction",
+          "views": 1
+        },
+        {
+          "title": "Main Page",
+          "views": 1
+        },
+        {
+          "title": "Numerator",
+          "views": 1
+        },
+        {
+          "title": "Photosynthesis",
+          "views": 1
+        },
+        {
+          "title": "Solar System",
+          "views": 1
+        }
+      ],
+      "byHour": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        5,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "instance": "kiwix-9p3ere4f6nmxch2llzi",
+      "instanceId": "kiwix-9p3ere4f6nmxch2llzi",
+      "name": "i413-Kiwix",
+      "app": "kiwix",
+      "demo": false,
+      "listed": true,
+      "hookStatus": "ok",
+      "skipReason": null,
+      "clock": {
+        "synced": false,
+        "correctedBoots": 0
+      },
+      "collectedAt": "2026-11-11T07:14:48+01:00",
+      "pageViews": 5,
+      "distinctArticles": 5,
+      "sessions": 1,
+      "topArticles": [
+        {
+          "title": "Fraction",
+          "views": 1
+        },
+        {
+          "title": "Main Page",
+          "views": 1
+        },
+        {
+          "title": "Numerator",
+          "views": 1
+        },
+        {
+          "title": "Photosynthesis",
+          "views": 1
+        },
+        {
+          "title": "Solar System",
+          "views": 1
+        }
+      ],
+      "byHour": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        5,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "instance": "kiwix-d9nm5bodps9ukivnyts",
+      "instanceId": "kiwix-d9nm5bodps9ukivnyts",
+      "name": "i413-Kiwix",
+      "app": "kiwix",
+      "demo": false,
+      "listed": true,
+      "hookStatus": "ok",
+      "skipReason": null,
+      "clock": {
+        "synced": false,
+        "correctedBoots": 0
+      },
+      "collectedAt": "2026-11-11T06:35:46+01:00",
+      "pageViews": 5,
+      "distinctArticles": 5,
+      "sessions": 1,
+      "topArticles": [
+        {
+          "title": "Fraction",
+          "views": 1
+        },
+        {
+          "title": "Main Page",
+          "views": 1
+        },
+        {
+          "title": "Numerator",
+          "views": 1
+        },
+        {
+          "title": "Photosynthesis",
+          "views": 1
+        },
+        {
+          "title": "Solar System",
+          "views": 1
+        }
+      ],
+      "byHour": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        5,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}
