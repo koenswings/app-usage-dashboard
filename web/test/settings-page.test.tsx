@@ -50,7 +50,9 @@ describe('Settings page', () => {
     expect((getByTestId('settings-field-wikipediaMinViews').querySelector('input') as HTMLInputElement).value).toBe('12');
     expect((getByTestId('settings-field-learnerSessionShareMin').querySelector('input') as HTMLInputElement).value).toBe('50');
     expect(getByTestId('settings-setup').textContent).toMatch(/yes\/no check/i);
-    expect(getByTestId('settings-setup').textContent).toMatch(/beyond-seed/);
+    expect(getByTestId('settings-setup').textContent).toMatch(/at least one coach, at least one class and learners enrolled in a class/);
+    expect(getByTestId('settings-setup').textContent).toMatch(/teacher and learner accounts beyond the seed accounts/);
+    expect(getByTestId('settings-setup').textContent).not.toMatch(/registered learners and teachers are both more than zero/);
     expect(getByTestId('settings-field-nextcloudMinActions').textContent).toMatch(/teacher or learner/);
     expect(getByTestId('settings-field-nextcloudMinActions').textContent).toMatch(
       /File drop uploads count toward the person who owns the drop link, because uploaders are anonymous/,
