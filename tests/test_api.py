@@ -56,15 +56,15 @@ def export_for(engine="happy-zebra"):
         "hookStatus": "ok",
         "setup": {
             "classes": 2, "classesDelta": 0,
-            "learnersEnrolled": 6, "learnersRegisteredDelta": 0, "teachersDelta": 0,
+            "learnerEnrolled": 6, "learnerDelta": 0, "teachersDelta": 0,
             "admin": {"total": 1, "beyondSeed": 0},
             "teacher": {"total": 1, "beyondSeed": 0},
             "learner": {"total": 8, "beyondSeed": 8},
         },
         "signins": {
-            "learner": {"users": 4, "sessions": 4, "minutes": 10},
-            "coach": {"users": 1, "sessions": 1, "minutes": 5},
-            "admin": {"users": 1, "sessions": 1, "minutes": 2},
+            "learner": {"total": 4, "beyondSeed": 4, "sessions": 4, "minutes": 10},
+            "coach": {"total": 1, "beyondSeed": 1, "sessions": 1, "minutes": 5},
+            "admin": {"total": 1, "beyondSeed": 1, "sessions": 1, "minutes": 2},
         },
         "guest": {"visits": 0, "seconds": 0},
         "teaching": {
@@ -103,7 +103,6 @@ def export_for(engine="happy-zebra"):
             "byGroup": {"admin": 0, "teacher": 2, "learner": 1},
             "mime": {"text": 3, "sheet": 0, "slides": 0},
         },
-        "appsOpened": {"files": 4, "richdocuments": 3},
         "workflows": {
             "worksheetShares": 1, "editShares": 0,
             "fileDropLinks": 0, "fileDropUploads": 2, "schoolFilesShares": 0,
@@ -343,7 +342,8 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(n["office"]["byGroup"]["teacher"], 2)
         self.assertEqual(n["logins"]["teacher"], {"total": 1, "beyondSeed": 0})
         self.assertEqual(n["setup"]["teacher"], {"total": 2, "beyondSeed": 1})
-        self.assertEqual(n["appsOpened"]["files"], 4)
+        self.assertIsNone(n["appsOpened"])  # shipped hook does not measure it yet
+        self.assertIsNone(n["documentsCreated"])
         self.assertEqual(n["workflows"]["fileDropUploads"], 2)
 
         status, discovered = self.call("GET", "/api/v1/weeks/%s/schools/dep-nharira/instances" % WEEK)
@@ -658,9 +658,9 @@ class ApiTests(unittest.TestCase):
             "collectedAt": "2026-11-10T02:12:00+02:00",
             "hookStatus": "ok",
             "setup": {"classes": 1},
-            "signins": {"learner": {"users": 0, "sessions": 0, "minutes": 0},
-                        "coach": {"users": 0, "sessions": 0, "minutes": 0},
-                        "admin": {"users": 0, "sessions": 0, "minutes": 0}},
+            "signins": {"learner": {"total": 0, "beyondSeed": 0, "sessions": 0, "minutes": 0},
+                        "coach": {"total": 0, "beyondSeed": 0, "sessions": 0, "minutes": 0},
+                        "admin": {"total": 0, "beyondSeed": 0, "sessions": 0, "minutes": 0}},
             "guest": {"visits": 0, "seconds": 0},
             "teaching": {"lessonsCreated": 0, "lessonsVisible": 0,
                          "quizzesCreated": 0, "quizzesStarted": 0, "quizzesEnded": 0},

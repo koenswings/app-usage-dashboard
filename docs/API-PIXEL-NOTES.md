@@ -101,3 +101,16 @@ Scorecard colours are still not sent by the collector (responses stay raw inputs
 
 Names taken as proposed. Pushback/notes live in the Kid report to you: `learnerSessionShareMin` is scored from session counts (the scorecard still also exposes `learnerShareOfMinutes`); `helpAfterAmberWeeks` / `unusedAfterHelpWeeks` reject 0; `availableMinSchoolDays` is capped at 5; `updatedBy` is the operator username.
 
+## idea#462 (1.2): field names as agreed with Pixel
+
+All additive; `idea-usage-api/1` unchanged. Full rules and the Set up truth table are in `docs/API.md` § idea#462.
+
+- **Use `scorecard.setupStatus.complete` for the Set up line** (`true` on track, `false` needs help, `null` no data) instead of re-implementing U-7 in `setupIsComplete`. `kolibri` / `nextcloud` carry `missing` / `unknown` reasons (`coach`, `class`, `enrolledLearner`, `teacherBeyondSeed`, `learnerBeyondSeed`, `noOwnKolibri`, `noOwnNextcloud`) and `passingInstanceIds` for the Settings note. Against a 1.1 collector (no `setupStatus`) show No data.
+- `scorecard.setup`: names unchanged (`classes`, `learnersRegistered`, `learnersEnrolled` now filled, `teachers` = Kolibri coaches, `admins`, `nextcloudTeacherBeyondSeed`, `nextcloudLearnerBeyondSeed`), plus `kolibriCoachBeyondSeed` (the value the Kolibri coach condition uses). All are the max across own copies.
+- `census` is the same copy set and values as `scorecard.setup`, plus `coachesBeyondSeed`.
+- `scorecard.copies: {kolibri, nextcloud, kiwix}` lists the own instance ids behind the scorecard.
+- Kolibri `signins.<role>.users` is now the real distinct count ("at least n": max of daily counts); new `usersBeyondSeed` (null when unknown).
+- Nextcloud instance: `appsOpened` is **null = No data** (no hook measures it yet); `documentsCreated` and `documentsCreatedByGroup {admin, teacher, learner}` are new and null until the app-nextcloud counter release. `scorecard.nextcloud` adds `documentsCreated`, `documentsCreatedTeacherLearner`, `documentsCreatedAdmin`, `appsOpened`.
+- U-7 line 5 no longer counts `officeOpensTeacherLearner` (Steve ruling 5, until the counter ships). Your `nextcloudActions` in `web/src/config/thresholds.ts` should drop it too so the UI and the help banner agree.
+- Two additions beyond the confirmed list, both needed by Steve's rulings: the reasons `noOwnKolibri` / `noOwnNextcloud`, and `kolibriCoachBeyondSeed` / `census.coachesBeyondSeed` (coach beyond seeds, ruling 4).
+
