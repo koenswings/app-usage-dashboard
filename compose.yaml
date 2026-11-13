@@ -11,7 +11,7 @@ x-app:
   category: admin
   icon: icon.png
   author: Koen Swings
-  version: "1.4"
+  version: "1.5"
   instanceName: usage-dashboard
   healthCheck:
     path: /api/v1/health
@@ -19,12 +19,13 @@ x-app:
   healthTimeout: 180
   updatesFrom: []
   migrationNote: >
-    1.3→1.4: no data migration. The collector image bakes in
-    openssh-client, netcat-openbsd and tzdata (idea#461), so a fresh
-    start does not need apt or outbound DNS. Data under ./data stays
-    in place; the idea-hub Tailscale state in ./data/tailscale is never
-    copied or recreated. updateApp recreates the collector container
-    and loads the new service tar.
+    1.4→1.5: no data migration. The collector opens a SQLite
+    connection per HTTP request so concurrent GETs (two /overview
+    calls right after login) no longer return 500 (idea#461). Data
+    under ./data stays in place; the idea-hub Tailscale state in
+    ./data/tailscale is never copied or recreated. The collector 1.4
+    and web 1.3 image pins are unchanged; updateApp refreshes the
+    bind-mounted collector code from the bundle.
   snapshotExclude: []
   # idea#444 hook fields, as parsed by agent-engine-dev#325 (tip 0ba3737)
   # and idea#444 comment 6806470338: method hook|stop, fallback stop|fail
@@ -96,7 +97,7 @@ services:
     # attempt if Docker restarts the container after a failed join.
     image: tailscale/tailscale:v1.88.3@sha256:b2a19f6b6402adc26a2aa8cb90da66afe3061e718ac67ed3f21ec3d4b366439f
     labels:
-      x-app-version: "1.4"
+      x-app-version: "1.5"
     hostname: idea-hub
     restart: unless-stopped
     pull_policy: never
@@ -142,7 +143,7 @@ services:
     # try to pull an unpublished name.
     image: ghcr.io/koenswings/usage-dashboard-collector:1.4@sha256:dd2ff032e15ba54da53f16ee54c43cad11a61b55ef8580e117142fe01fbee241
     labels:
-      x-app-version: "1.4"
+      x-app-version: "1.5"
     restart: unless-stopped
     pull_policy: never
     network_mode: service:tailscale
@@ -167,7 +168,7 @@ services:
       - HEADER_TIMEZONE=Europe/Brussels
       - STALE_AFTER_HOURS=48
       - HOURLY_CHART_MIN_WEEKLY_VIEWS=20
-      - USAGE_DASHBOARD_VERSION=1.4
+      - USAGE_DASHBOARD_VERSION=1.5
       # Optional override for GET /api/v1/health "commit". Empty is ignored
       # (falls through to collector/build-info.json written at bundle time).
       # There is no need to set this in the instance .env.
@@ -195,7 +196,7 @@ services:
   web:
     image: ghcr.io/koenswings/usage-dashboard-web:1.3@sha256:6ec777fb89b84cae93cc592b5cb96b9dea070c71cb25e892a8294af3f10f5dfc
     labels:
-      x-app-version: "1.4"
+      x-app-version: "1.5"
     restart: unless-stopped
     depends_on:
       - collector

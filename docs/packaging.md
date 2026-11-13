@@ -500,3 +500,18 @@ script/e2e-tar-fallback.sh --keep --ingest-history
 
 Pause above 75 °C and resume below 65 °C. Never touch `/disks/sdb1`, Disk B,
 the WD SSD, or the protected disk serials. Do not print credentials.
+
+## Release 1.5 (idea#461)
+
+1.5 fixes a transient 500 on `GET /api/v1/weeks/<monday>/overview`. The
+collector served ThreadingHTTPServer and the pull loop from one
+`sqlite3.Connection`. Overlapping requests (two or three /overview GETs
+right after login) raised SQLITE_MISUSE (`bad parameter or other API
+misuse`) and the last-resort handler returned 500. 1.5 opens a new
+connection for each HTTP request. A remaining sqlite API/lock error
+returns 503 with Retry-After: 1 instead of 500.
+
+The collector 1.4 image pin and the 1.3 web pin are unchanged: compose
+bind-mounts `./collector` at `/app`, so the Python fix ships in the
+bundle. There is no data migration (`1.4→1.5`).
+

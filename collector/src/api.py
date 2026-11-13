@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import os
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -416,7 +417,7 @@ def handle(conn, method: str, path: str, body: dict[str, Any] | None, user: str 
 
     if method == "GET" and route == "/api/v1/kits":
         kits = []
-        for row in conn.execute("SELECT * FROM kits ORDER BY school, engine"):
+        for row in conn.execute("SELECT * FROM kits ORDER BY school, engine").fetchall():
             kits.append({
                 "engine": row["engine"],
                 "tailscaleName": row["tailscale_name"],
@@ -452,7 +453,7 @@ def handle(conn, method: str, path: str, body: dict[str, Any] | None, user: str 
         if rest == ["overview"]:
             cards = []
             suggestions = []
-            for kit in conn.execute("SELECT * FROM kits ORDER BY school, engine"):
+            for kit in conn.execute("SELECT * FROM kits ORDER BY school, engine").fetchall():
                 bundle = _week_bundle(conn, kit, week_start, now=now)
                 card = {
                     "deploymentId": kit["deployment_id"],
@@ -669,9 +670,18 @@ def handle(conn, method: str, path: str, body: dict[str, Any] | None, user: str 
 
 class Handler(BaseHTTPRequestHandler):
     conn = None
+    db_path = None
 
     def log_message(self, fmt, *args):
         return
+
+    def _request_conn(self):
+        # Each request gets its own connection when we know the file path
+        # (see db.open_request). Tests that only set Handler.conn keep
+        # that fallback, but serve() always sets db_path for a file store.
+        if self.db_path:
+            return db.open_request(self.db_path), True
+        return self.conn, False
 
     def _read_json(self):
         length = int(self.headers.get("Content-Length") or 0)
@@ -682,11 +692,13 @@ class Handler(BaseHTTPRequestHandler):
             return {}
         return json.loads(raw.decode("utf-8"))
 
-    def _send(self, status: int, payload: dict[str, Any], set_cookie: str | None):
+    def _send(self, status: int, payload: dict[str, Any], set_cookie: str | None, retry_after: str | None = None):
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))
+        if retry_after:
+            self.send_header("Retry-After", retry_after)
         if set_cookie:
             self.send_header("Set-Cookie", set_cookie)
         self.end_headers()
@@ -701,14 +713,25 @@ class Handler(BaseHTTPRequestHandler):
         except json.JSONDecodeError:
             self._send(400, error_body("validation", "Request body is not JSON"), None)
             return
+        conn, owns = self._request_conn()
+        retry_after = None
         try:
-            status, payload, cookie = handle(self.conn, method, self.path, body, user, secure)
-        except Exception as exc:  # noqa: BLE001 — last-resort envelope
-            status, payload, cookie = 500, error_body("unavailable", "Internal error"), None
-            # Keep the reason out of the client body; it still lands in stderr for operators.
-            sys_stderr = __import__("sys").stderr
-            print("api error: %s" % exc, file=sys_stderr)
-        self._send(status, payload, cookie)
+            try:
+                status, payload, cookie = handle(conn, method, self.path, body, user, secure)
+            except (sqlite3.ProgrammingError, sqlite3.OperationalError, sqlite3.InterfaceError) as exc:
+                # Concurrent use of one connection, or a brief writer lock:
+                # a retry will succeed. Hide the sqlite details; log them.
+                status, payload, cookie = 503, error_body("unavailable", "Temporarily busy"), None
+                retry_after = "1"
+                print("api error: %s" % exc, file=__import__("sys").stderr)
+            except Exception as exc:  # noqa: BLE001 — last-resort envelope
+                status, payload, cookie = 500, error_body("unavailable", "Internal error"), None
+                # Keep the reason out of the client body; it still lands in stderr for operators.
+                print("api error: %s" % exc, file=__import__("sys").stderr)
+            self._send(status, payload, cookie, retry_after=retry_after)
+        finally:
+            if owns and conn is not None:
+                conn.close()
 
     def do_GET(self):
         self._dispatch("GET")
@@ -723,9 +746,21 @@ class Handler(BaseHTTPRequestHandler):
         self._dispatch("PUT")
 
 
+def _connection_file(conn) -> str | None:
+    """Filesystem path of a sqlite connection, or None for a memory store."""
+    if conn is None:
+        return None
+    row = conn.execute("PRAGMA database_list").fetchone()
+    if row is None:
+        return None
+    path = row["file"] if "file" in row.keys() else row[2]
+    return path or None
+
+
 def serve(conn, bind: str = "0.0.0.0:8080"):
     host, port_s = bind.rsplit(":", 1)
     Handler.conn = conn
+    Handler.db_path = _connection_file(conn)
     ThreadingHTTPServer.allow_reuse_address = True
     server = ThreadingHTTPServer((host, int(port_s)), Handler)
     return server
