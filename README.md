@@ -11,3 +11,12 @@ IDEA App for the programme field-usage dashboard (proposal merged in idea#410).
 The usage-pull key lives at `./data/keys/pull_key` (mode 0600). Sidecar state lives only under `./data/tailscale` (move it, never copy it). `x-app.backup` is hook-mode (idea#444): the preHook writes a consistent dump at `./data/backup/usage.sqlite` so a backup can run without stopping the idea-hub sidecar. `exclude` (always applied) is `keys`, `tailscale`, `tailscale-run`, and `data/backup/daily`. `hookExclude` (only after a successful preHook; dropped on fallback or stop) is the live `usage.sqlite` plus `-wal`/`-shm`. The hook dump stays in the archive. The key and node state go only to idea's encrypted Borg repository; `tailscale-run` is runtime-only. See `docs/runbook.md`.
 
 Only Koen and Marco may open the dashboard (`koen` and `marco`; see `docs/accounts.md`). HTTP responses follow `idea-usage-api/1` (Pixel, `web/API.md`). The collector-side data model is in `docs/API.md`.
+
+## Release check against the previous release (idea#403)
+
+- **Before tagging a release, run `script/check-base-ref.sh` in a full clone with tags, with `AAD_CHECK_COMPOSE` set:** `AAD_CHECK_COMPOSE=<agent-app-dev>/script/check-compose.mjs script/check-base-ref.sh`.
+- It compares `compose.yaml` with the previous release tag (agent-app-dev `check-compose --base-ref`). A stateful image (MariaDB, MySQL, Postgres, Mongo, Redis) that moves to a new series needs an App major bump.
+- **Previous release tag:** the highest `<major>.<minor>[-<upstream>]` tag that is an ancestor of HEAD and is not HEAD's own tag.
+- **It fails** in a shallow clone (`git fetch --unshallow --tags`; CI: `fetch-depth: 0`) and in a clone with no release tags at all (`git fetch --tags`).
+- **First release:** if the repo has release tags but none of them is an ancestor, it is skipped with a note. If there are no release tags at all, a real first release must set `CHECK_BASE_REF_FIRST_RELEASE=1`.
+- `tests/test_release_base_ref.py` tests it. The compare runs only when `AAD_CHECK_COMPOSE` is set.
