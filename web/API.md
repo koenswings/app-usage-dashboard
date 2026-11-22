@@ -32,7 +32,7 @@ The Console stores operator accounts in the Engine `userDB` and keeps a client-s
 
 - Cookie name: `idea_usage_session`
 - Attributes: `HttpOnly; SameSite=Lax; Path=/`; `Secure` when the request is HTTPS
-- Operator accounts are exactly `koen` and `marco` (U-9, Kid e4c15dd). There is no `admin` operator. Seed passwords live in **server config**, never in UI source
+- Operator accounts are exactly `koen`, `marco` and `justice` (U-9, Kid e4c15dd). There is no `admin` operator. Seed passwords live in **server config**, never in UI source
 
 | Method | Path | Body | Response |
 |---|---|---|---|

@@ -447,6 +447,8 @@ class ApiShapeTests(unittest.TestCase):
                      "2026-11-12T08:00:00+01:00", "dep-idea03")
         self.conn.commit()
         os.environ["IDEA_USAGE_KOEN_PASSWORD"] = "koen911!"
+        os.environ["IDEA_USAGE_MARCO_PASSWORD"] = "marco911!"
+        os.environ["IDEA_USAGE_JUSTICE_PASSWORD"] = "justice911!"
         os.environ["IDEA_USAGE_PBKDF2_ITERATIONS"] = "1000"
         os.environ["IDEA_USAGE_OPERATORS_FILE"] = os.path.join(self.tmp, "operators.json")
         os.environ["IDEA_USAGE_SESSION_SECRET"] = "test-secret"
