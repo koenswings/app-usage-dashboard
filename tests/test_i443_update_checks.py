@@ -25,7 +25,7 @@ INST = "usage-dashboard-8fhwrslsrq78xtswed4"
 APP = "usage-dashboard-1.1"
 COMMIT = "0123456789abcdef0123456789abcdef01234567"
 NODEKEY = "nodekey:1382c2ea" + "0" * 48
-SECRET_ENV = "IDEA_USAGE_KOEN_PASSWORD=fixture-secret-pw\nTS_AUTHKEY=tskey-auth-fixture\n"
+SECRET_ENV = "IDEA_USAGE_KOEN_PASSWORD=fixture-secret-pw\nIDEA_USAGE_JUSTICE_PASSWORD=fixture-secret-justice\nTS_AUTHKEY=tskey-auth-fixture\n"
 SECRET_PRIV = "privkey:fixture-private-key-material"
 
 DOCKER_STUB = r"""#!/usr/bin/env bash
@@ -287,7 +287,7 @@ class UpdateChecksTests(unittest.TestCase):
         for p in out_dir.rglob("*"):
             if p.is_file():
                 blob += p.read_text(errors="replace")
-        for s in ("fixture-secret-pw", "tskey-auth-fixture", "fixture-private-key-material", "OPENSSH PRIVATE KEY"):
+        for s in ("fixture-secret-pw", "fixture-secret-justice", "tskey-auth-fixture", "fixture-private-key-material", "OPENSSH PRIVATE KEY"):
             self.assertNotIn(s, blob)
 
     def test_pre_passes_and_records_baseline(self):

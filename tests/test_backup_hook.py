@@ -210,6 +210,7 @@ class LegacyMigrateInHookAndStartupTests(unittest.TestCase):
             "COLLECTOR_BIND": "127.0.0.1:0",
             "IDEA_USAGE_KOEN_PASSWORD": "koen911!",
             "IDEA_USAGE_MARCO_PASSWORD": "marco911!",
+            "IDEA_USAGE_JUSTICE_PASSWORD": "justice911!",
             "IDEA_USAGE_ONCE": "1",
         }
         saved = {k: os.environ.get(k) for k in env}
@@ -331,6 +332,7 @@ class RestoreTests(unittest.TestCase):
             "COLLECTOR_BIND": "127.0.0.1:0",
             "IDEA_USAGE_KOEN_PASSWORD": "koen911!",
             "IDEA_USAGE_MARCO_PASSWORD": "marco911!",
+            "IDEA_USAGE_JUSTICE_PASSWORD": "justice911!",
             "IDEA_USAGE_ONCE": "1",
         }
         saved = {k: os.environ.get(k) for k in env}

@@ -2,7 +2,7 @@
  * HTTP API contract for the programme dashboard (idea#415).
  *
  * Read-only GET /api/v1/... except POST /api/v1/schools/:deploymentId/help-events
- * (operator-only; Koen or Marco records that help was offered) and
+ * (operator-only; Koen, Marco or Justice records that help was offered) and
  * PUT /api/v1/settings/thresholds (operator session; served by the collector
  * in PR #2, Kid 7880247, not yet pushed).
  *

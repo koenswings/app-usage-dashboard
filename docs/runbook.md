@@ -217,9 +217,10 @@ script/join-idea-hub-once.sh verify --state-dir /instances/<instance-id>/data/ta
 | `./data/tailscale/` | sidecar Tailscale state | idea's encrypted Borg only (`exclude: tailscale`) |
 | `./data/tailscale-run/` | LocalAPI unix-socket dir (not the node key) | excluded from a normal Engine backup (`exclude: tailscale-run`); runtime only |
 | instance `.env` `TS_AUTHKEY` | optional first-time auth key; leave empty when moving existing idea-hub state | Engine instance env (not this repo) |
-| `./data/operators.json` | salted PBKDF2 hashes for `koen` and `marco` (mode 0640) | instance data (hashes only) |
+| `./data/operators.json` | salted PBKDF2 hashes for `koen`, `marco` and `justice` (mode 0640) | instance data (hashes only) |
 | `IDEA_USAGE_KOEN_PASSWORD` | first-run seed for Koen's login (compose default `koen911!`) | instance env |
 | `IDEA_USAGE_MARCO_PASSWORD` | first-run seed for Marco's login (compose default `marco911!`) | instance env |
+| `IDEA_USAGE_JUSTICE_PASSWORD` | first-run seed for Justice's login (compose default `justice911!`) | instance env |
 
 Operator login is documented in `docs/accounts.md`. Atlas installs the matching public key on each kit as helper v7 (`/etc/ssh/idea_usage_keys/pi`), pinned `from=` the sidecar's own Tailscale IPv4, forced command `/usr/local/sbin/idea-usage-export`. Never paste a key into chat or git.
 

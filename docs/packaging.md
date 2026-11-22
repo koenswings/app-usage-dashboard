@@ -515,3 +515,22 @@ The collector 1.4 image pin and the 1.3 web pin are unchanged: compose
 bind-mounts `./collector` at `/app`, so the Python fix ships in the
 bundle. There is no data migration (`1.4→1.5`).
 
+
+## Release 1.6 (justice operator)
+
+1.6 adds the `justice` operator, seeded from `IDEA_USAGE_JUSTICE_PASSWORD`
+(compose default `justice911!`), with the same first-run and missing-account
+seed as `koen` and `marco`. An existing `./data/operators.json` from 1.5 keeps
+the stored `koen` and `marco` hashes and gains `justice` on first start after
+the update. There is no data migration (`1.5→1.6`).
+
+The collector 1.4 image pin and the 1.3 web pin are unchanged: the auth change
+lives in bind-mounted collector code (`./collector` at `/app`) and in the
+compose env passthrough, so no image rebuild or publish is required. After
+merge, tag `1.6` on the merge commit (see `RELEASE-STEPS.md`;
+do not tag from this working tree until the PR is merged). Do not deploy to
+production idea (instance `vsd0acgun2mmeg573zw`) until Koen has OK'd it.
+
+Bundle with `script/build-release-bundle.sh --ref 1.6` from a checkout of the
+`1.6` tag, as for earlier releases.
+

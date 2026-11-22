@@ -1,7 +1,8 @@
-"""Cookie session and the two U-9 operator accounts (koen, marco).
+"""Cookie session and the U-9 operator accounts (koen, marco, justice).
 
 Passwords are never stored or logged in plaintext. First-run seed values come
-from compose/env (`IDEA_USAGE_KOEN_PASSWORD`, `IDEA_USAGE_MARCO_PASSWORD`);
+from compose/env (`IDEA_USAGE_KOEN_PASSWORD`, `IDEA_USAGE_MARCO_PASSWORD`,
+`IDEA_USAGE_JUSTICE_PASSWORD`);
 after that, salted PBKDF2 hashes in the operators file are the source of truth
 and can be changed without editing compose.
 """
@@ -19,7 +20,7 @@ from typing import Any
 
 COOKIE = "idea_usage_session"
 TTL_S = 12 * 3600
-ALLOWED_OPERATORS = ("koen", "marco")
+ALLOWED_OPERATORS = ("koen", "marco", "justice")
 HASH_ALG = "pbkdf2_sha256"
 DEFAULT_ITERATIONS = 120000
 MIN_PASSWORD_LENGTH = 8
@@ -156,9 +157,9 @@ def _write_file(path: str, operators: dict[str, str]) -> None:
 
 
 def ensure_operators() -> dict[str, str]:
-    """Create or migrate the operators file so only koen and marco can sign in.
+    """Create or migrate the operators file so only koen, marco and justice can sign in.
 
-    Existing hashes for those two accounts are kept (passwords stay changeable).
+    Existing hashes for allowed accounts are kept (passwords stay changeable).
     Any other account in the file is dropped. Missing allowed accounts are
     seeded from compose/env. The seed strings themselves are never written.
     """

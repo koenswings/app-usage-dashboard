@@ -44,13 +44,13 @@ function clockTrustedFor(deploymentId: string, weekStart: string): boolean {
 
 const SESSION_COOKIE = 'idea_usage_session';
 /** Mock-only operators (U-9). Not the production seed convention. */
-const MOCK_OPERATORS = ['koen', 'marco'] as const;
+const MOCK_OPERATORS = ['koen', 'marco', 'justice'] as const;
 const MOCK_PASSWORD = 'mock-operator';
 
 type MockOperator = (typeof MOCK_OPERATORS)[number];
 
 function emptyOperatorPasswords(): Record<MockOperator, string> {
-  return { koen: MOCK_PASSWORD, marco: MOCK_PASSWORD };
+  return { koen: MOCK_PASSWORD, marco: MOCK_PASSWORD, justice: MOCK_PASSWORD };
 }
 
 let operatorPasswords: Record<MockOperator, string> = emptyOperatorPasswords();

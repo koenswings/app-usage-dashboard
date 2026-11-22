@@ -10,7 +10,7 @@ IDEA App for the programme field-usage dashboard (proposal merged in idea#410).
 
 The usage-pull key lives at `./data/keys/pull_key` (mode 0600). Sidecar state lives only under `./data/tailscale` (move it, never copy it). `x-app.backup` is hook-mode (idea#444): the preHook writes a consistent dump at `./data/backup/usage.sqlite` so a backup can run without stopping the idea-hub sidecar. `exclude` (always applied) is `keys`, `tailscale`, `tailscale-run`, and `data/backup/daily`. `hookExclude` (only after a successful preHook; dropped on fallback or stop) is the live `usage.sqlite` plus `-wal`/`-shm`. The hook dump stays in the archive. The key and node state go only to idea's encrypted Borg repository; `tailscale-run` is runtime-only. See `docs/runbook.md`.
 
-Only Koen and Marco may open the dashboard (`koen` and `marco`; see `docs/accounts.md`). HTTP responses follow `idea-usage-api/1` (Pixel, `web/API.md`). The collector-side data model is in `docs/API.md`.
+Only Koen, Marco and Justice may open the dashboard (`koen`, `marco` and `justice`; see `docs/accounts.md`). HTTP responses follow `idea-usage-api/1` (Pixel, `web/API.md`). The collector-side data model is in `docs/API.md`.
 
 ## Release check against the previous release (idea#403)
 

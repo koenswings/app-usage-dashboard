@@ -55,7 +55,7 @@ See Pixel's `web/API.md`. Additions that are not in that draft:
 
 `GET /api/v1/session` without a cookie returns `{authenticated: false}` so the login page can ask. `POST /api/v1/session` (login) and `DELETE /api/v1/session` (logout) are also reachable without a cookie — otherwise nobody could sign in. Every other `/api/v1` path, including `PUT /api/v1/session/password`, requires the `idea_usage_session` cookie.
 
-Operator accounts are exactly `koen` and `marco` (U-9). There is no `admin` account. First-run seed passwords come from compose (`IDEA_USAGE_KOEN_PASSWORD`, `IDEA_USAGE_MARCO_PASSWORD`) and are stored as salted PBKDF2 hashes in `./data/operators.json`. A later password change is not reset on restart. See `docs/accounts.md`.
+Operator accounts are exactly `koen`, `marco` and `justice` (U-9). There is no `admin` account. First-run seed passwords come from compose (`IDEA_USAGE_KOEN_PASSWORD`, `IDEA_USAGE_MARCO_PASSWORD`, `IDEA_USAGE_JUSTICE_PASSWORD`) and are stored as salted PBKDF2 hashes in `./data/operators.json`. A later password change is not reset on restart. See `docs/accounts.md`.
 
 `GET /api/v1/meta` also returns `currentWeekStart` (the latest Monday that has stored data, falling back to `todayWeekStart` when the store is empty), `todayWeekStart` (Monday of today), `currentWeekHasData`, `thresholds` (the effective U-7 values), and `thresholdsConfigured: true` now that Koen approved the defaults. `GET /api/v1/weeks` returns the same `currentWeekStart`, `todayWeekStart` and `currentWeekHasData`.
 

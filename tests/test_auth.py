@@ -1,4 +1,4 @@
-"""U-9 operator accounts: exactly koen and marco, hashed at rest."""
+"""U-9 operator accounts: exactly koen, marco and justice, hashed at rest."""
 from __future__ import annotations
 
 import json
@@ -14,6 +14,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "collector"))
 from src import auth
 
 
+ALLOWED = {"koen", "marco", "justice"}
+
+
 class OperatorAuthTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
@@ -24,6 +27,7 @@ class OperatorAuthTests(unittest.TestCase):
                 "IDEA_USAGE_OPERATORS_FILE",
                 "IDEA_USAGE_KOEN_PASSWORD",
                 "IDEA_USAGE_MARCO_PASSWORD",
+                "IDEA_USAGE_JUSTICE_PASSWORD",
                 "IDEA_USAGE_ADMIN_PASSWORD",
                 "IDEA_USAGE_OPERATORS",
                 "IDEA_USAGE_PBKDF2_ITERATIONS",
@@ -33,6 +37,7 @@ class OperatorAuthTests(unittest.TestCase):
         os.environ["IDEA_USAGE_OPERATORS_FILE"] = self.path
         os.environ["IDEA_USAGE_KOEN_PASSWORD"] = "koen911!"
         os.environ["IDEA_USAGE_MARCO_PASSWORD"] = "marco911!"
+        os.environ["IDEA_USAGE_JUSTICE_PASSWORD"] = "justice911!"
         os.environ["IDEA_USAGE_PBKDF2_ITERATIONS"] = "1000"
         os.environ["IDEA_USAGE_SESSION_SECRET"] = "test-secret"
         os.environ.pop("IDEA_USAGE_ADMIN_PASSWORD", None)
@@ -45,20 +50,22 @@ class OperatorAuthTests(unittest.TestCase):
             else:
                 os.environ[key] = value
 
-    def test_first_run_seeds_only_koen_and_marco(self):
+    def test_first_run_seeds_koen_marco_and_justice(self):
         stored = auth.ensure_operators()
-        self.assertEqual(set(stored), {"koen", "marco"})
+        self.assertEqual(set(stored), ALLOWED)
         self.assertTrue(os.path.isfile(self.path))
         self.assertEqual(stat.S_IMODE(os.stat(self.path).st_mode), 0o640)
         raw = Path(self.path).read_text(encoding="utf-8")
         data = json.loads(raw)
         self.assertEqual(data["schema"], "idea-usage-operators/1")
-        self.assertEqual(set(data["operators"]), {"koen", "marco"})
+        self.assertEqual(set(data["operators"]), ALLOWED)
         self.assertNotIn("koen911!", raw)
         self.assertNotIn("marco911!", raw)
-        self.assertTrue(raw.count("pbkdf2_sha256$") >= 2)
+        self.assertNotIn("justice911!", raw)
+        self.assertTrue(raw.count("pbkdf2_sha256$") >= 3)
         self.assertTrue(auth.check_credentials("koen", "koen911!"))
         self.assertTrue(auth.check_credentials("marco", "marco911!"))
+        self.assertTrue(auth.check_credentials("justice", "justice911!"))
         self.assertFalse(auth.check_credentials("admin", "admin911!"))
         self.assertFalse(auth.check_credentials("koen", "wrong"))
 
@@ -70,6 +77,7 @@ class OperatorAuthTests(unittest.TestCase):
         self.assertFalse(auth.check_credentials("alice", "secret"))
         self.assertFalse(auth.check_credentials("bob", "other"))
         self.assertTrue(auth.check_credentials("koen", "koen911!"))
+        self.assertTrue(auth.check_credentials("justice", "justice911!"))
 
     def test_existing_file_drops_other_accounts_and_rehashes_plaintext(self):
         Path(self.path).write_text(
@@ -81,11 +89,31 @@ class OperatorAuthTests(unittest.TestCase):
         self.assertNotIn("custom-plain", raw)
         self.assertNotIn("admin911!", raw)
         self.assertNotIn("marco911!", raw)
+        self.assertNotIn("justice911!", raw)
         data = json.loads(raw)
-        self.assertEqual(set(data["operators"]), {"koen", "marco"})
+        self.assertEqual(set(data["operators"]), ALLOWED)
         self.assertTrue(auth.check_credentials("koen", "custom-plain"))
         self.assertTrue(auth.check_credentials("marco", "marco911!"))
+        self.assertTrue(auth.check_credentials("justice", "justice911!"))
         self.assertFalse(auth.check_credentials("admin", "admin911!"))
+
+    def test_existing_koen_marco_file_adds_justice_and_keeps_hashes(self):
+        # A 1.5 operators.json has only koen and marco. 1.6 must seed justice
+        # without resetting the stored passwords.
+        auth.ensure_operators()
+        auth.change_password("koen", "koen911!", "newpass99")
+        data = json.loads(Path(self.path).read_text(encoding="utf-8"))
+        del data["operators"]["justice"]
+        Path(self.path).write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        auth.ensure_operators()
+        raw = Path(self.path).read_text(encoding="utf-8")
+        self.assertEqual(set(json.loads(raw)["operators"]), ALLOWED)
+        self.assertTrue(auth.check_credentials("koen", "newpass99"))
+        self.assertFalse(auth.check_credentials("koen", "koen911!"))
+        self.assertTrue(auth.check_credentials("marco", "marco911!"))
+        self.assertTrue(auth.check_credentials("justice", "justice911!"))
+        self.assertNotIn("justice911!", raw)
+        self.assertNotIn("newpass99", raw)
 
     def test_changed_password_survives_restart_and_is_not_reset_from_env(self):
         auth.ensure_operators()
@@ -99,6 +127,7 @@ class OperatorAuthTests(unittest.TestCase):
         self.assertTrue(auth.check_credentials("koen", "newpass99"))
         self.assertFalse(auth.check_credentials("koen", "koen911!"))
         self.assertTrue(auth.check_credentials("marco", "marco911!"))
+        self.assertTrue(auth.check_credentials("justice", "justice911!"))
 
     def test_missing_seed_env_names_the_variable_not_the_password(self):
         os.environ.pop("IDEA_USAGE_MARCO_PASSWORD")
@@ -108,6 +137,17 @@ class OperatorAuthTests(unittest.TestCase):
         self.assertIn("IDEA_USAGE_MARCO_PASSWORD", message)
         self.assertNotIn("marco911!", message)
         self.assertNotIn("koen911!", message)
+        self.assertNotIn("justice911!", message)
+
+    def test_missing_justice_seed_env_names_the_variable_not_the_password(self):
+        os.environ.pop("IDEA_USAGE_JUSTICE_PASSWORD")
+        with self.assertRaises(RuntimeError) as ctx:
+            auth.ensure_operators()
+        message = str(ctx.exception)
+        self.assertIn("IDEA_USAGE_JUSTICE_PASSWORD", message)
+        self.assertNotIn("justice911!", message)
+        self.assertNotIn("koen911!", message)
+        self.assertNotIn("marco911!", message)
 
     def test_change_password_rejects_wrong_current_and_short_new(self):
         auth.ensure_operators()
@@ -124,6 +164,7 @@ class OperatorAuthTests(unittest.TestCase):
         self.assertIsNone(auth.read_token(token))
         self.assertEqual(auth.read_token(auth.mint_token("koen")), "koen")
         self.assertEqual(auth.read_token(auth.mint_token("marco")), "marco")
+        self.assertEqual(auth.read_token(auth.mint_token("justice")), "justice")
 
     def test_seed_error_does_not_print_passwords(self):
         # Defence-in-depth: the RuntimeError text itself is what would land in logs.

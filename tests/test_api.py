@@ -5,9 +5,11 @@ import tempfile
 import threading
 import unittest
 from http.cookiejar import CookieJar
+from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import HTTPCookieProcessor, Request, build_opener
+from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "collector"))
 
@@ -18,6 +20,10 @@ from src.pull import store_export
 
 
 WEEK = "2026-11-09"  # Monday (original fixture week)
+# /meta and /weeks todayWeekStart is this week's Monday (Europe/Brussels).
+# Compute it so these assertions do not go stale each Monday.
+_TODAY = datetime.now(ZoneInfo("Europe/Brussels")).date()
+TODAY_WEEK_START = (_TODAY - timedelta(days=_TODAY.weekday())).isoformat()
 FOUR_STATE_WEEK = "2026-11-02"  # Monday — on, off, collectorGap, gapUnknown
 COLLECTOR_GAP = {
     "start": "2026-11-05T10:00:00+02:00",
@@ -193,6 +199,7 @@ class ApiTests(unittest.TestCase):
         os.environ.pop("IDEA_USAGE_OPERATORS", None)
         os.environ["IDEA_USAGE_KOEN_PASSWORD"] = "koen911!"
         os.environ["IDEA_USAGE_MARCO_PASSWORD"] = "marco911!"
+        os.environ["IDEA_USAGE_JUSTICE_PASSWORD"] = "justice911!"
         os.environ["IDEA_USAGE_PBKDF2_ITERATIONS"] = "1000"
         os.environ["IDEA_USAGE_OPERATORS_FILE"] = os.path.join(self.tmp, "operators.json")
         os.environ["IDEA_USAGE_SESSION_SECRET"] = "test-secret"
@@ -283,9 +290,9 @@ class ApiTests(unittest.TestCase):
         status, weeks = self.call("GET", "/api/v1/weeks")
         self.assertEqual(status, 200)
         self.assertEqual(weeks["currentWeekStart"], WEEK)
-        self.assertEqual(weeks["todayWeekStart"], "2026-11-09")
+        self.assertEqual(weeks["todayWeekStart"], TODAY_WEEK_START)
         self.assertTrue(weeks["currentWeekHasData"])
-        self.assertEqual(meta["todayWeekStart"], "2026-11-09")
+        self.assertEqual(meta["todayWeekStart"], TODAY_WEEK_START)
         self.assertTrue(meta["currentWeekHasData"])
         self.assertEqual(card["scorecard"]["setup"]["classes"], 2)
         self.assertEqual(card["scorecard"]["nextcloud"]["fileDropUploads"], 2)
@@ -394,10 +401,10 @@ class ApiTests(unittest.TestCase):
         status, weeks = self.call("GET", "/api/v1/weeks")
         self.assertEqual(status, 200, weeks)
         self.assertEqual(weeks["currentWeekStart"], "2026-11-02")
-        self.assertEqual(weeks["todayWeekStart"], "2026-11-09")
+        self.assertEqual(weeks["todayWeekStart"], TODAY_WEEK_START)
         self.assertTrue(weeks["currentWeekHasData"])
         status, meta = self.call("GET", "/api/v1/meta")
-        self.assertEqual(meta["todayWeekStart"], "2026-11-09")
+        self.assertEqual(meta["todayWeekStart"], TODAY_WEEK_START)
         self.assertTrue(meta["currentWeekHasData"])
 
     def test_meta_sets_current_week_start_when_week_has_data(self):
@@ -411,7 +418,7 @@ class ApiTests(unittest.TestCase):
         self.login()
         status, meta = self.call("GET", "/api/v1/meta")
         self.assertEqual(status, 200, meta)
-        self.assertEqual(meta.get("todayWeekStart"), "2026-11-09")
+        self.assertEqual(meta.get("todayWeekStart"), TODAY_WEEK_START)
         self.assertTrue(meta["currentWeekHasData"])
         self.assertEqual(meta.get("currentWeekStart"), WEEK)
 
@@ -425,7 +432,7 @@ class ApiTests(unittest.TestCase):
         self.conn.commit()
         status, meta = self.call("GET", "/api/v1/meta")
         self.assertEqual(status, 200, meta)
-        self.assertEqual(meta.get("todayWeekStart"), "2026-11-09")
+        self.assertEqual(meta.get("todayWeekStart"), TODAY_WEEK_START)
         self.assertTrue(meta["currentWeekHasData"])
         self.assertEqual(meta.get("currentWeekStart"), "2026-11-02")
 
@@ -434,9 +441,9 @@ class ApiTests(unittest.TestCase):
         self.conn.commit()
         status, meta = self.call("GET", "/api/v1/meta")
         self.assertEqual(status, 200, meta)
-        self.assertEqual(meta.get("todayWeekStart"), "2026-11-09")
+        self.assertEqual(meta.get("todayWeekStart"), TODAY_WEEK_START)
         self.assertFalse(meta["currentWeekHasData"])
-        self.assertEqual(meta.get("currentWeekStart"), "2026-11-09")
+        self.assertEqual(meta.get("currentWeekStart"), TODAY_WEEK_START)
 
     def test_four_state_presence_week(self):
         self.login()
@@ -753,6 +760,14 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(payload["user"]["username"], "marco")
         status, session = self.call("GET", "/api/v1/session")
         self.assertEqual(session["user"]["username"], "marco")
+
+    def test_justice_can_sign_in(self):
+        status, payload = self.call("POST", "/api/v1/session", {"username": "justice", "password": "justice911!"})
+        self.assertEqual(status, 200, payload)
+        self.assertTrue(payload["authenticated"])
+        self.assertEqual(payload["user"]["username"], "justice")
+        status, session = self.call("GET", "/api/v1/session")
+        self.assertEqual(session["user"]["username"], "justice")
 
     def test_change_password_and_old_password_stops_working(self):
         self.login()

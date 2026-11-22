@@ -210,6 +210,7 @@ class StartupOutageGapTests(unittest.TestCase):
             "COLLECTOR_BIND": "127.0.0.1:0",
             "IDEA_USAGE_KOEN_PASSWORD": "koen911!",
             "IDEA_USAGE_MARCO_PASSWORD": "marco911!",
+            "IDEA_USAGE_JUSTICE_PASSWORD": "justice911!",
             "IDEA_USAGE_ONCE": "1",
             "UPLINK_INTERVAL_S": "300",
         }

@@ -33,7 +33,7 @@ Build output: `web/dist/`.
 
 ## Mock login
 
-The mock adapter accepts usernames `koen` and `marco` (U-9) with the mock-only password `mock-operator`. That password is test-only and is not the production seed. Production seed passwords live in server configuration and are never baked into UI source. There is no `admin` operator account.
+The mock adapter accepts usernames `koen`, `marco` and `justice` (U-9) with the mock-only password `mock-operator`. That password is test-only and is not the production seed. Production seed passwords live in server configuration and are never baked into UI source. There is no `admin` operator account.
 
 Sample fixtures (Nharira / healthy-looking counts, Chigonda / offer-help banner plus stale data and a tiny Wikipedia week, kind-panda / No data) are clearly labelled “Sample data” in the UI.
 

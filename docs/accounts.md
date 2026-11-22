@@ -1,7 +1,7 @@
 # Programme dashboard operator accounts
 
-Only Koen and Marco may open the programme usage dashboard (U-9). The App
-provisions exactly two operator accounts, `koen` and `marco`. There is no
+Only Koen, Marco and Justice may open the programme usage dashboard (U-9). The App
+provisions exactly three operator accounts, `koen`, `marco` and `justice`. There is no
 `admin` operator and no anonymous access to programme data.
 
 House password convention (same as Nextcloud and Kolibri): `<account>911!`.
@@ -10,6 +10,7 @@ House password convention (same as Nextcloud and Kolibri): `<account>911!`.
 |---|---|
 | `koen` | `koen911!` |
 | `marco` | `marco911!` |
+| `justice` | `justice911!` |
 
 ## How they are created
 
@@ -19,6 +20,7 @@ environment — the same pattern Nextcloud uses for `NEXTCLOUD_ADMIN_PASSWORD`:
 ```yaml
 - IDEA_USAGE_KOEN_PASSWORD=${IDEA_USAGE_KOEN_PASSWORD:-koen911!}
 - IDEA_USAGE_MARCO_PASSWORD=${IDEA_USAGE_MARCO_PASSWORD:-marco911!}
+- IDEA_USAGE_JUSTICE_PASSWORD=${IDEA_USAGE_JUSTICE_PASSWORD:-justice911!}
 ```
 
 Those strings are hashed with salted PBKDF2-SHA256 and written to
@@ -28,8 +30,9 @@ logs.
 
 Later starts keep the stored hashes. Changing a password (below) updates the
 file; a container restart does **not** reset the password from compose/env.
-Override the seed env vars only when you want a *new* install to start with
-something other than the house defaults.
+Override the seed env vars only when you want a *new* install, or a newly
+added allowed account with no stored hash yet, to start with something other
+than the house defaults.
 
 If a seed env var is missing when that account has no stored hash yet, the
 collector refuses to start and names the variable (not the password) in the
@@ -45,7 +48,7 @@ error.
 
 `newPassword` must be at least 8 characters. A wrong `currentPassword` is
 `401`; a short new password is `400`. The current session cookie stays valid
-until it expires (12 hours). The other operator's password is unchanged.
+until it expires (12 hours). The other operators' passwords are unchanged.
 
 ## Existing deployments
 
@@ -54,18 +57,20 @@ default `admin911!`) and the optional `IDEA_USAGE_OPERATORS` / operators-file
 list of extra users.
 
 - A fresh install, or an existing data directory with no operators file, gets
-  `koen` and `marco` from the compose defaults (or from instance env if Atlas
-  set them). `admin` can no longer sign in.
+  `koen`, `marco` and `justice` from the compose defaults (or from instance env
+  if Atlas set them). `admin` can no longer sign in.
 - If `./data/operators.json` (or `IDEA_USAGE_OPERATORS_FILE`) already exists,
-  hashes for `koen` and `marco` are kept. Any other username in that file —
-  including `admin` — is dropped on startup. A leftover plaintext secret for
-  `koen` or `marco` is rehashed in place.
+  hashes for allowed accounts already in the file (`koen`, `marco`, and
+  `justice` if present) are kept. A missing allowed account — for example
+  `justice` after a 1.5→1.6 update — is seeded from compose/env. Any other
+  username in that file — including `admin` — is dropped on startup. A leftover
+  plaintext secret for an allowed account is rehashed in place.
 - `IDEA_USAGE_ADMIN_PASSWORD` and `IDEA_USAGE_OPERATORS` are ignored. They do
   not create accounts.
 - Existing `admin` session cookies stop working.
 
 Atlas should drop `IDEA_USAGE_ADMIN_PASSWORD` from any instance `.env` it
-still writes. Setting the two `IDEA_USAGE_*_PASSWORD` vars is optional: the
+still writes. Setting the `IDEA_USAGE_*_PASSWORD` vars is optional: the
 compose defaults match the house convention.
 
 ## What is reachable without a login
